@@ -1,127 +1,67 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+    margin: 0; padding: 0; box-sizing: border-box;
 }
 
 html, body {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
+    width: 100%; height: 100%; overflow: hidden;
     background: #000005;
-    font-family: 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    -webkit-user-select: none;
-    user-select: none;
+    font-family: 'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif;
+    -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
 }
 
 #watch-face {
     position: relative;
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    overflow: hidden;
+    width: 100%; height: 100%;
+    border-radius: 50%; overflow: hidden;
 }
 
 #bg-canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 0;
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; z-index: 0;
 }
 
 #earth-canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 1;
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; z-index: 1;
 }
 
 #clock-canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 3;
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; z-index: 3;
 }
 
 #info-area {
     position: absolute;
-    top: 51%;
+    top: 16%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
     z-index: 2;
     text-align: center;
     pointer-events: none;
 }
 
 #digital-time {
-    font-size: min(12vw, 52px);
+    font-size: min(16vw, 72px);
     font-weight: 200;
-    color: rgba(255, 255, 255, 0.92);
-    letter-spacing: 3px;
-    text-shadow: 0 0 16px rgba(100, 150, 255, 0.5), 0 0 32px rgba(100, 140, 220, 0.25);
+    color: rgba(255,255,255,0.94);
+    letter-spacing: 5px;
+    text-shadow: 0 0 24px rgba(100,150,255,0.55), 0 0 48px rgba(100,140,220,0.3);
     line-height: 1;
 }
 
 #date-display {
-    font-size: min(4.5vw, 19px);
+    font-size: min(6vw, 27px);
     font-weight: 300;
-    color: rgba(220, 230, 250, 0.85);
-    text-shadow: 0 0 8px rgba(100, 140, 220, 0.35);
-    margin-top: 3px;
+    color: rgba(225,235,252,0.88);
+    text-shadow: 0 0 12px rgba(100,140,220,0.4);
+    margin-top: 6px;
 }
 
 #lunar-display {
-    font-size: min(3.8vw, 16px);
+    font-size: min(5vw, 23px);
     font-weight: 300;
-    color: rgba(200, 210, 240, 0.7);
-    text-shadow: 0 0 6px rgba(80, 120, 200, 0.3);
-    margin-top: 2px;
-}
-
-.indicator {
-    position: absolute;
-    z-index: 4;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    pointer-events: none;
-}
-
-#indicator-weather {
-    top: 2%;
-    left: 50%;
-    transform: translateX(-50%);
-}
-
-#indicator-battery {
-    top: 50%;
-    right: 2%;
-    transform: translateY(-50%);
-}
-
-#indicator-heart {
-    bottom: 2%;
-    left: 50%;
-    transform: translateX(-50%);
-}
-
-#indicator-stress {
-    top: 50%;
-    left: 2%;
-    transform: translateY(-50%);
-}
-
-.indicator-icon {
-    font-size: min(5.5vw, 24px);
-    line-height: 1;
-    text-shadow: 0 0 8px rgba(100, 150, 255, 0.4);
-}
-
-.indicator-value {
-    font-size: min(4.2vw, 18px);
-    font-weight: 600;
-    color: rgba(230, 240, 255, 0.9);
-    text-shadow: 0 0 6px rgba(120, 160, 240, 0.5);
-    line-height: 1.2;
+    color: rgba(210,220,245,0.72);
+    text-shadow: 0 0 8px rgba(80,120,200,0.3);
+    margin-top: 4px;
 }

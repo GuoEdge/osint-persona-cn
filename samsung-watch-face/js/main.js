@@ -2,16 +2,11 @@
     'use strict';
 
     var animFrame;
-    var ambient = false;
-
-    function drawFrame(ts) {
-        Starfield.draw();
-        Earth3D.draw(ts);
-        Clock.draw(ts);
-    }
 
     function loop(ts) {
-        drawFrame(ts);
+        Starfield.draw();
+        Earth3D.draw();
+        Clock.draw(ts);
         animFrame = requestAnimationFrame(loop);
     }
 
@@ -19,7 +14,6 @@
         Starfield.init();
         Earth3D.init();
         Clock.init();
-
         Indicators.start();
         loop(performance.now());
     }
@@ -30,22 +24,8 @@
         Clock.resize();
     }
 
-    function handleVisibility() {
-        if (document.hidden) {
-            ambient = true;
-            Earth3D.stop();
-        } else {
-            if (ambient) {
-                Earth3D.triggerWakeUp();
-                Earth3D.start();
-            }
-            ambient = false;
-        }
-    }
-
     if (typeof window !== 'undefined') {
         window.addEventListener('resize', handleResize);
-        document.addEventListener('visibilitychange', handleVisibility);
 
         if (typeof tizen !== 'undefined' && tizen.power) {
             tizen.power.request('SCREEN', 'SCREEN_NORMAL');
