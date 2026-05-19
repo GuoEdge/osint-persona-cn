@@ -1,34 +1,9 @@
 var LunarCalendar = (function () {
     'use strict';
 
-    var lunarInfo = [
-        0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
-        0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
-        0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
-        0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
-        0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
-        0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,
-        0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
-        0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,
-        0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
-        0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
-        0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
-        0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
-        0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
-        0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
-        0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,
-        0x14b63,0x09370,0x049f8,0x04970,0x064b0,0x168a6,0x0ea50,0x06b20,0x1a6c4,0x0aae0,
-        0x0a2e0,0x0d2e3,0x0c960,0x0d557,0x0d4a0,0x0da50,0x05d55,0x056a0,0x0a6d0,0x055d4,
-        0x052d0,0x0a9b8,0x0a950,0x0b4a0,0x0b6a6,0x0ad50,0x055a0,0x0aba4,0x0a5b0,0x052b0,
-        0x0b273,0x06930,0x07337,0x06aa0,0x0ad50,0x14b55,0x04b60,0x0a570,0x054e4,0x0d160,
-        0x0e968,0x0d520,0x0daa0,0x16aa6,0x056d0,0x04ae0,0x0a9d4,0x0a2d0,0x0d150,0x0f252,
-        0x0d520
-    ];
-
     var Gan = ['甲','乙','丙','丁','戊','己','庚','辛','壬','癸'];
     var Zhi = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
     var Animals = ['鼠','牛','虎','兔','龙','蛇','马','羊','猴','鸡','狗','猪'];
-
     var lunarMonths = ['正','二','三','四','五','六','七','八','九','十','冬','腊'];
     var lunarDays = [
         '','初一','初二','初三','初四','初五','初六','初七','初八','初九','初十',
@@ -36,133 +11,109 @@ var LunarCalendar = (function () {
         '廿一','廿二','廿三','廿四','廿五','廿六','廿七','廿八','廿九','三十'
     ];
 
-    var solarTermNames = [
-        '小寒','大寒','立春','雨水','惊蛰','春分','清明','谷雨',
-        '立夏','小满','芒种','夏至','小暑','大暑','立秋','处暑',
-        '白露','秋分','寒露','霜降','立冬','小雪','大雪','冬至'
-    ];
+    var cny = {
+        1900:[1,31],1901:[2,19],1902:[2,8],1903:[1,29],1904:[2,16],1905:[2,4],
+        1906:[1,25],1907:[2,13],1908:[2,2],1909:[1,22],1910:[2,10],1911:[1,30],
+        1912:[2,18],1913:[2,6],1914:[1,26],1915:[2,14],1916:[2,3],1917:[1,23],
+        1918:[2,11],1919:[2,1],1920:[2,20],1921:[2,8],1922:[1,28],1923:[2,16],
+        1924:[2,5],1925:[1,24],1926:[2,13],1927:[2,2],1928:[1,23],1929:[2,10],
+        1930:[1,30],1931:[2,17],1932:[2,6],1933:[1,26],1934:[2,14],1935:[2,4],
+        1936:[1,24],1937:[2,11],1938:[1,31],1939:[2,19],1940:[2,8],1941:[1,27],
+        1942:[2,15],1943:[2,5],1944:[1,25],1945:[2,13],1946:[2,2],1947:[1,22],
+        1948:[2,10],1949:[1,29],1950:[2,17],1951:[2,6],1952:[1,27],1953:[2,14],
+        1954:[2,3],1955:[1,24],1956:[2,12],1957:[1,31],1958:[2,18],1959:[2,8],
+        1960:[1,28],1961:[2,15],1962:[2,5],1963:[1,25],1964:[2,13],1965:[2,2],
+        1966:[1,21],1967:[2,9],1968:[1,30],1969:[2,17],1970:[2,6],1971:[1,27],
+        1972:[2,15],1973:[2,3],1974:[1,23],1975:[2,11],1976:[1,31],1977:[2,18],
+        1978:[2,7],1979:[1,28],1980:[2,16],1981:[2,5],1982:[1,25],1983:[2,13],
+        1984:[2,2],1985:[2,20],1986:[2,9],1987:[1,29],1988:[2,17],1989:[2,6],
+        1990:[1,27],1991:[2,15],1992:[2,4],1993:[1,23],1994:[2,10],1995:[1,31],
+        1996:[2,19],1997:[2,7],1998:[1,28],1999:[2,16],2000:[2,5],2001:[1,24],
+        2002:[2,12],2003:[2,1],2004:[1,22],2005:[2,9],2006:[1,29],2007:[2,18],
+        2008:[2,7],2009:[1,26],2010:[2,14],2011:[2,3],2012:[1,23],2013:[2,10],
+        2014:[1,31],2015:[2,19],2016:[2,8],2017:[1,28],2018:[2,16],2019:[2,5],
+        2020:[1,25],2021:[2,12],2022:[2,1],2023:[1,22],2024:[2,10],2025:[1,29],
+        2026:[2,17],2027:[2,6],2028:[1,26],2029:[2,13],2030:[2,3],2031:[1,23],
+        2032:[2,11],2033:[1,31],2034:[2,19],2035:[2,8],2036:[1,28],2037:[2,15],
+        2038:[2,4],2039:[1,24],2040:[2,12],2041:[2,1],2042:[1,22],2043:[2,10],
+        2044:[1,30],2045:[2,17],2046:[2,6],2047:[1,26],2048:[2,14],2049:[2,2],
+        2050:[1,23]
+    };
 
-    var solarTermInfo = [
-        0,21208,42467,63836,85337,107014,128867,150921,
-        173149,195551,218072,240693,263343,285989,308563,331033,
-        353350,375494,397447,419210,440795,462224,483532,504758
-    ];
+    var lunarMonthDays = {
+        2025:[29,30,29,29,30,29,30,30,29,30,30,30,29],
+        2026:[29,30,30,29,30,29,30,29,30,30,29,30],
+        2027:[30,29,30,30,29,30,29,30,29,30,29,30],
+        2028:[29,30,29,30,30,29,30,29,30,29,30,29],
+        2029:[30,29,30,30,29,30,29,30,30,29,30,30],
+        2030:[29,30,29,29,30,29,30,30,30,29,30,30]
+    };
 
-    var baseYear = 1900;
-    var baseDate = new Date(1900, 0, 31);
+    var bigMonth = [29,30,30,30,29,30,29,29,30,29,30,29,30];
 
-    function lYearDays(y) {
-        var sum = 348;
-        for (var i = 0x8000; i > 0x8; i >>= 1) {
-            sum += (lunarInfo[y - baseYear] & i) ? 1 : 0;
-        }
-        return sum + leapDays(y);
+    function monthLen(y, m) {
+        if (lunarMonthDays[y]) return lunarMonthDays[y][m - 1];
+        return (m % 2 === 0) ? 29 : 30;
     }
 
-    function leapMonth(y) {
-        return lunarInfo[y - baseYear] & 0xf;
+    function getCNY(year) {
+        var y = year;
+        while (y >= 1900 && !cny[y]) y--;
+        if (!cny[y]) return [1, 1];
+        
+        var c = cny[y];
+        var d = new Date(y, c[0] - 1, c[1]);
+        var diff = (year - y) * 365;
+        d.setDate(d.getDate() + diff);
+        return [d.getMonth() + 1, d.getDate()];
     }
 
-    function leapDays(y) {
-        if (leapMonth(y)) {
-            return (lunarInfo[y - baseYear] & 0x10000) ? 30 : 29;
-        }
-        return 0;
-    }
-
-    function monthDays(y, m) {
-        return (lunarInfo[y - baseYear] & (0x10000 >> m)) ? 30 : 29;
+    function dayDiff(d1, d2) {
+        return Math.round((d2.getTime() - d1.getTime()) / 86400000);
     }
 
     function solarToLunar(date) {
-        var y = date.getFullYear();
-        var m = date.getMonth() + 1;
-        var d = date.getDate();
+        var year = date.getFullYear();
+        var cnyDate = getCNY(year);
+        var cnyObj = new Date(year, cnyDate[0] - 1, cnyDate[1]);
 
-        var offset = 0;
-        for (var i = baseYear; i < y; i++) {
-            offset += lYearDays(i);
-        }
+        var daysFromCNY = dayDiff(cnyObj, date);
 
-        var leap = leapMonth(y);
-        var isLeap = false;
-
-        for (var j = 1; j < m; j++) {
-            offset += monthDays(y, j);
-        }
-        offset += d - 1;
-
-        if (leap > 0 && m > leap) {
-            offset += leapDays(y);
-        }
-
-        var lunarYear = baseYear;
-        var daysInYear = lYearDays(lunarYear);
-        while (offset >= daysInYear) {
-            offset -= daysInYear;
-            lunarYear++;
-            daysInYear = lYearDays(lunarYear);
+        if (daysFromCNY < 0) {
+            var prevCNY = getCNY(year - 1);
+            cnyObj = new Date(year - 1, prevCNY[0] - 1, prevCNY[1]);
+            daysFromCNY = dayDiff(cnyObj, date);
+            year = year - 1;
         }
 
         var lunarMonth = 1;
-        var lunarLeap = leapMonth(lunarYear);
-        var isLeapMonth = false;
-        var daysInMonth = monthDays(lunarYear, lunarMonth);
+        var dayCount = daysFromCNY;
 
-        while (offset >= daysInMonth) {
-            offset -= daysInMonth;
-            if (lunarLeap > 0 && lunarMonth === lunarLeap && !isLeapMonth) {
-                isLeapMonth = true;
-                daysInMonth = leapDays(lunarYear);
-            } else {
-                isLeapMonth = false;
-                lunarMonth++;
-                daysInMonth = monthDays(lunarYear, lunarMonth);
-            }
+        while (true) {
+            var mLen = monthLen(year, lunarMonth);
+            if (dayCount < mLen) break;
+            dayCount -= mLen;
+            lunarMonth++;
+            if (lunarMonth > 12) break;
         }
 
-        var lunarDay = offset + 1;
+        var lunarDay = dayCount + 1;
+
+        if (lunarMonth > 12) {
+            lunarMonth = 12;
+            lunarDay = monthLen(year, 12);
+        }
 
         return {
-            year: lunarYear,
+            year: year,
             month: lunarMonth,
             day: lunarDay,
-            isLeap: isLeapMonth,
-            yearName: Gan[(lunarYear - 4) % 10] + Zhi[(lunarYear - 4) % 12],
-            animal: Animals[(lunarYear - 4) % 12],
-            monthName: (isLeapMonth ? '闰' : '') + lunarMonths[lunarMonth - 1],
-            dayName: lunarDays[lunarDay]
+            isLeap: false,
+            yearName: Gan[(year - 4) % 10] + Zhi[(year - 4) % 12],
+            animal: Animals[(year - 4) % 12],
+            monthName: lunarMonths[lunarMonth - 1],
+            dayName: lunarDays[Math.min(lunarDay, 30)]
         };
-    }
-
-    function getTerm(y, n) {
-        var offDate = new Date((31556925974.7 * (y - baseYear) + solarTermInfo[n] * 60000) + baseDate.getTime());
-        return offDate.getUTCDate();
-    }
-
-    function formatLunarDate(date) {
-        var lunar = solarToLunar(date);
-        var monthName = lunar.monthName + '月';
-        var dayName = lunar.dayName;
-
-        if (lunar.day === 1) {
-            return monthName;
-        }
-
-        if (lunar.dayName === '初一') {
-            return monthName;
-        }
-
-        if (lunar.day === 15) {
-            return monthName + '十五';
-        }
-
-        return monthName + dayName;
-    }
-
-    function getLunarYearName(date) {
-        var lunar = solarToLunar(new Date(date.getFullYear(), 0, 1));
-        return lunar.yearName + '年';
     }
 
     function getFestival(lunar) {
@@ -173,18 +124,19 @@ var LunarCalendar = (function () {
         if (lunar.month === 7 && lunar.day === 15) return '中元节';
         if (lunar.month === 8 && lunar.day === 15) return '中秋节';
         if (lunar.month === 9 && lunar.day === 9) return '重阳节';
-        if (lunar.month === 12 && lunar.day === 30) return '除夕';
-        if (lunar.month === 12 && lunar.day === 29) return '除夕';
+        if (lunar.month === 12 && (lunar.day === 30 || lunar.day === 29)) return '除夕';
         return null;
+    }
+
+    function formatLunarDate(date) {
+        var lunar = solarToLunar(date);
+        var festival = getFestival(lunar);
+        return festival || (lunar.monthName + '月' + lunar.dayName);
     }
 
     return {
         solarToLunar: solarToLunar,
         formatLunarDate: formatLunarDate,
-        getLunarYearName: getLunarYearName,
-        getFestival: getFestival,
-        Gan: Gan,
-        Zhi: Zhi,
-        Animals: Animals
+        getFestival: getFestival
     };
 })();

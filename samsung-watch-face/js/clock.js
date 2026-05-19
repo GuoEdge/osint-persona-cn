@@ -38,7 +38,7 @@ var Clock = (function () {
 
     function drawQuadrantArc(startDeg, sweepDeg, value, color, label, icon) {
         var outR = watchRadius - 3;
-        var inR = watchRadius - 16;
+        var inR = watchRadius - 18;
         var startA = (startDeg - 90) * Math.PI / 180;
         var sweepA = sweepDeg * Math.PI / 180;
         var endA = startA + sweepA;
@@ -56,12 +56,10 @@ var Clock = (function () {
         if (value > 0.001) {
             var clamped = Math.min(1, Math.max(0, value));
             var fillEnd = startA + sweepA * clamped;
-
             ctx.beginPath();
             ctx.arc(centerX, centerY, outR, startA, fillEnd);
             ctx.arc(centerX, centerY, inR, fillEnd, startA, true);
             ctx.closePath();
-
             ctx.shadowColor = color;
             ctx.shadowBlur = 8;
             ctx.fillStyle = color;
@@ -69,19 +67,34 @@ var Clock = (function () {
             ctx.shadowBlur = 0;
         }
 
-        var midA = startA + sweepA / 2;
-        var labelR = (outR + inR) / 2;
-        var lx = centerX + Math.cos(midA) * labelR;
-        var ly = centerY + Math.sin(midA) * labelR;
+        ctx.restore();
 
-        var fsize = Math.max(10, Math.round(watchRadius * 0.07));
-        ctx.font = 'bold ' + fsize + 'px "PingFang SC","Helvetica Neue",sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        var outEdgeR = outR;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, outEdgeR, startA, endA);
+        ctx.strokeStyle = 'rgba(120,150,220,0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        var midA = startA + sweepA / 2;
+        var iconR = watchRadius * 0.74;
+        var textR = watchRadius * 0.65;
+        var ix = centerX + Math.cos(midA) * iconR;
+        var iy = centerY + Math.sin(midA) * iconR;
+        var tx = centerX + Math.cos(midA) * textR;
+        var ty = centerY + Math.sin(midA) * textR;
+
+        var iSize = Math.max(12, Math.round(watchRadius * 0.07));
+        var tSize = Math.max(10, Math.round(watchRadius * 0.065));
+        ctx.font = iSize + 'px "PingFang SC","Helvetica Neue",sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(icon + ' ' + label, lx, ly);
+        ctx.fillText(icon, ix, iy);
 
-        ctx.restore();
+        ctx.font = 'bold ' + tSize + 'px "PingFang SC","Helvetica Neue",sans-serif';
+        ctx.fillStyle = 'rgba(240,245,255,0.92)';
+        ctx.fillText(label, tx, ty);
     }
 
     function drawProgressBars() {

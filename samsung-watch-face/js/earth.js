@@ -134,9 +134,9 @@ var Earth3D = (function () {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         centerX = width / 2; centerY = height / 2;
         watchRadius = Math.min(width, height) / 2;
-        earthRadius = watchRadius * 0.28;
+        earthRadius = watchRadius * 0.34;
         earthCX = centerX;
-        earthCY = centerY + watchRadius * 0.22;
+        earthCY = centerY + watchRadius * 0.16;
     }
 
     function draw() {
