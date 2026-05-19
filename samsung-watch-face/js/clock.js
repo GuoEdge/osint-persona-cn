@@ -3,10 +3,9 @@ var Clock = (function () {
 
     var canvas, ctx;
     var width, height, centerX, centerY, watchRadius;
-    var animFrame;
 
     var H_COLOR = '#e8e8f0', M_COLOR = '#d0d0e0', S_COLOR = '#ff4444';
-    var TICK_COLOR = 'rgba(180,200,230,0.4)', TICK_HI = 'rgba(255,255,255,0.65)';
+    var TICK_COLOR = 'rgba(180,200,230,0.35)', TICK_HI = 'rgba(255,255,255,0.6)';
 
     var ind = {
         battery: { v: 0.85, color: '#4fc3f7', label: '85%', icon: '🔋' },
@@ -27,10 +26,13 @@ var Clock = (function () {
         width = window.innerWidth;
         height = window.innerHeight;
         var dpr = window.devicePixelRatio || 1;
-        canvas.width = width * dpr; canvas.height = height * dpr;
-        canvas.style.width = width + 'px'; canvas.style.height = height + 'px';
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        centerX = width / 2; centerY = height / 2;
+        centerX = width / 2;
+        centerY = height / 2;
         watchRadius = Math.min(width, height) / 2;
     }
 
@@ -39,49 +41,47 @@ var Clock = (function () {
         var inR = watchRadius - 16;
         var startA = (startDeg - 90) * Math.PI / 180;
         var sweepA = sweepDeg * Math.PI / 180;
+        var endA = startA + sweepA;
 
         ctx.save();
         ctx.beginPath();
-        ctx.arc(centerX, centerY, outR + 2, startA - 0.02, startA + sweepA + 0.02);
-        ctx.arc(centerX, centerY, inR, startA + sweepA + 0.02, startA - 0.02, true);
+        ctx.arc(centerX, centerY, outR, startA, endA);
+        ctx.arc(centerX, centerY, inR, endA, startA, true);
+        ctx.closePath();
         ctx.clip();
+
         ctx.fillStyle = 'rgba(255,255,255,0.04)';
         ctx.fillRect(centerX - watchRadius, centerY - watchRadius, watchRadius * 2, watchRadius * 2);
-        ctx.restore();
 
-        if (value > 0) {
-            var fillEnd = startA + sweepA * Math.min(1, Math.max(0, value));
-            ctx.save();
+        if (value > 0.001) {
+            var clamped = Math.min(1, Math.max(0, value));
+            var fillEnd = startA + sweepA * clamped;
+
             ctx.beginPath();
-            ctx.arc(centerX, centerY, outR, startA, fillEnd - startA);
-            ctx.arc(centerX, centerY, inR, (fillEnd - startA), - (fillEnd - startA), true);
+            ctx.arc(centerX, centerY, outR, startA, fillEnd);
+            ctx.arc(centerX, centerY, inR, fillEnd, startA, true);
             ctx.closePath();
 
-            var grad = ctx.createRadialGradient(centerX, centerY, inR, centerX, centerY, outR);
-            grad.addColorStop(0, color);
-            grad.addColorStop(1, 'rgba(0,0,0,0.05)');
-            ctx.fillStyle = grad;
-            ctx.fill();
-
             ctx.shadowColor = color;
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = color;
             ctx.fill();
             ctx.shadowBlur = 0;
-            ctx.restore();
         }
 
         var midA = startA + sweepA / 2;
-        var labelR = inR - 8;
+        var labelR = (outR + inR) / 2;
         var lx = centerX + Math.cos(midA) * labelR;
         var ly = centerY + Math.sin(midA) * labelR;
 
-        ctx.font = 'bold ' + (watchRadius * 0.065) + 'px "PingFang SC","Helvetica Neue",sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        var fsize = Math.max(10, Math.round(watchRadius * 0.07));
+        ctx.font = 'bold ' + fsize + 'px "PingFang SC","Helvetica Neue",sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(icon, lx, ly - 2);
-        ctx.textBaseline = 'top';
-        ctx.fillText(label, lx, ly + 2);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon + ' ' + label, lx, ly);
+
+        ctx.restore();
     }
 
     function drawProgressBars() {
@@ -110,43 +110,59 @@ var Clock = (function () {
     function drawBezel() {
         ctx.beginPath();
         ctx.arc(centerX, centerY, watchRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(120,150,220,0.2)';
+        ctx.strokeStyle = 'rgba(120,150,220,0.18)';
         ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, watchRadius - 17, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(50,70,130,0.1)';
-        ctx.lineWidth = 1;
         ctx.stroke();
     }
 
     function drawHand(length, angle, w, color) {
         ctx.save();
-        ctx.translate(centerX, centerY); ctx.rotate(angle);
-        ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+        ctx.translate(centerX, centerY);
+        ctx.rotate(angle);
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetY = 2;
         ctx.beginPath();
-        ctx.moveTo(0, w * 1.5); ctx.lineTo(-w, 0); ctx.lineTo(0, -length); ctx.lineTo(w, 0); ctx.closePath();
+        ctx.moveTo(0, w * 1.5);
+        ctx.lineTo(-w, 0);
+        ctx.lineTo(0, -length);
+        ctx.lineTo(w, 0);
+        ctx.closePath();
         var g = ctx.createLinearGradient(0, -length, 0, 0);
-        g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0.55)');
-        ctx.fillStyle = g; ctx.fill();
-        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+        g.addColorStop(0, color);
+        g.addColorStop(1, 'rgba(255,255,255,0.5)');
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
         ctx.restore();
     }
 
     function drawSecondHand(angle) {
         ctx.save();
-        ctx.translate(centerX, centerY); ctx.rotate(angle);
+        ctx.translate(centerX, centerY);
+        ctx.rotate(angle);
         var len = watchRadius * 0.77;
-        ctx.shadowColor = 'rgba(255,50,50,0.45)'; ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255,50,50,0.4)';
+        ctx.shadowBlur = 6;
         ctx.beginPath();
-        ctx.moveTo(0, 3); ctx.lineTo(2.5, 0); ctx.lineTo(0, -len); ctx.lineTo(-2.5, 0); ctx.closePath();
-        ctx.fillStyle = S_COLOR; ctx.fill();
-        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
-        ctx.beginPath(); ctx.arc(0, 0, watchRadius * 0.045, 0, Math.PI * 2);
-        ctx.fillStyle = S_COLOR; ctx.fill();
-        ctx.beginPath(); ctx.arc(0, 0, watchRadius * 0.022, 0, Math.PI * 2);
-        ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.moveTo(0, 2.5);
+        ctx.lineTo(2, 0);
+        ctx.lineTo(0, -len);
+        ctx.lineTo(-2, 0);
+        ctx.closePath();
+        ctx.fillStyle = S_COLOR;
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, watchRadius * 0.04, 0, Math.PI * 2);
+        ctx.fillStyle = S_COLOR;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, watchRadius * 0.02, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
         ctx.restore();
     }
 
@@ -159,20 +175,19 @@ var Clock = (function () {
 
         var now = new Date();
         var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds(), ms = now.getMilliseconds();
-
         var sA = ((s + ms / 1000) / 60) * Math.PI * 2 - Math.PI / 2;
         var mA = ((m + s / 60) / 60) * Math.PI * 2 - Math.PI / 2;
         var hA = ((h % 12 + m / 60) / 12) * Math.PI * 2 - Math.PI / 2;
 
         drawHand(watchRadius * 0.38, hA, watchRadius * 0.04, H_COLOR);
-        drawHand(watchRadius * 0.54, mA, watchRadius * 0.03, M_COLOR);
+        drawHand(watchRadius * 0.54, mA, watchRadius * 0.028, M_COLOR);
         drawSecondHand(sA);
 
         timeStr = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-        var wd = ['周日','周一','周二','周三','周四','周五','周六'];
-        dateStr = (now.getMonth() + 1) + '月' + now.getDate() + '日 ' + wd[now.getDay()];
-        var lunar = LunarCalendar.solarToLunar(now);
-        lunarStr = LunarCalendar.getFestival(lunar) || LunarCalendar.formatLunarDate(now);
+        var wk = ['周日','周一','周二','周三','周四','周五','周六'];
+        dateStr = (now.getMonth() + 1) + '月' + now.getDate() + '日 ' + wk[now.getDay()];
+        var lu = LunarCalendar.solarToLunar(now);
+        lunarStr = LunarCalendar.getFestival(lu) || LunarCalendar.formatLunarDate(now);
 
         updateDOM();
     }
