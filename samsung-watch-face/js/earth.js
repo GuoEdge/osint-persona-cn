@@ -33,7 +33,18 @@ var Earth3D = (function () {
     }
 
     function checkLoaded() {
-        if (dayImg && nightImg) {
+        if (dayImg && nightImg && !dayPixels) {
+            var tc = document.createElement('canvas');
+            tc.width = dayImg.width;
+            tc.height = dayImg.height;
+            var tctx = tc.getContext('2d');
+            tctx.drawImage(dayImg, 0, 0);
+            dayTexW = dayImg.width;
+            dayTexH = dayImg.height;
+            dayPixels = tctx.getImageData(0, 0, dayTexW, dayTexH).data;
+
+            offCanvas = document.createElement('canvas');
+            offCtx = offCanvas.getContext('2d');
             loaded = true;
         }
     }
@@ -49,6 +60,11 @@ var Earth3D = (function () {
         earthRadius = watchRadius * 0.48;
         earthCX = centerX;
         earthCY = centerY + watchRadius * 0.06;
+
+        if (offCtx) {
+            offCanvas.width = Math.ceil(earthRadius * 2);
+            offCanvas.height = Math.ceil(earthRadius * 2);
+        }
     }
 
     function drawAtmosphere() {
@@ -65,68 +81,84 @@ var Earth3D = (function () {
         ctx.fill();
     }
 
-    function drawSphericalLighting(bh) {
+    function renderSphere(bh) {
+        if (!dayPixels || !offCanvas) return;
+        var step = 2;
+        var sw = offCanvas.width;
+        var sh = offCanvas.height;
+        var imgData = offCtx.createImageData(sw, sh);
+        var data = imgData.data;
+        var tw = dayTexW, th = dayTexH;
+
         var sunAngle = Math.PI - (bh / 12) * Math.PI;
-        var sx = Math.cos(sunAngle) * earthRadius * 0.5;
-        var sy = Math.sin(sunAngle) * earthRadius * 0.5;
-        var eR = earthRadius;
-        var eCX = earthCX;
-        var eCY = earthCY;
+        var sunX = Math.cos(sunAngle);
+        var sunY = 0;
+        var sunZ = Math.sin(sunAngle);
+        var viewX = 0, viewY = 0, viewZ = 1;
 
-        var nightCx = eCX - sx * 0.55;
-        var nightCy = eCY - sy * 0.55;
-        var night = ctx.createRadialGradient(
-            nightCx, nightCy, eR * 0.05,
-            nightCx, nightCy, eR * 0.95
-        );
-        night.addColorStop(0, 'rgba(0,1,12,0.90)');
-        night.addColorStop(0.20, 'rgba(0,1,15,0.82)');
-        night.addColorStop(0.35, 'rgba(0,2,20,0.65)');
-        night.addColorStop(0.48, 'rgba(0,2,22,0.35)');
-        night.addColorStop(0.58, 'rgba(0,3,20,0.10)');
-        night.addColorStop(0.68, 'rgba(0,0,0,0)');
-        night.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = night;
-        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
+        var eCX = earthCX, eCY = earthCY, eR = earthRadius;
+        var invR = 1 / eR;
 
-        var edge = ctx.createRadialGradient(eCX, eCY, eR * 0.38,
-            eCX, eCY, eR);
-        edge.addColorStop(0, 'transparent');
-        edge.addColorStop(0.35, 'transparent');
-        edge.addColorStop(0.50, 'rgba(0,1,20,0.06)');
-        edge.addColorStop(0.62, 'rgba(0,1,22,0.15)');
-        edge.addColorStop(0.72, 'rgba(0,1,25,0.28)');
-        edge.addColorStop(0.81, 'rgba(0,1,28,0.44)');
-        edge.addColorStop(0.89, 'rgba(0,1,32,0.62)');
-        edge.addColorStop(0.95, 'rgba(0,1,35,0.74)');
-        edge.addColorStop(1, 'rgba(0,1,38,0.82)');
-        ctx.fillStyle = edge;
-        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
+        for (var py = 0; py < sh; py += step) {
+            for (var px = 0; px < sw; px += step) {
+                var nx = (px - eCX) * invR;
+                var ny = (py - eCY) * invR;
+                var r2 = nx * nx + ny * ny;
+                if (r2 > 1) continue;
+                var nz = Math.sqrt(Math.max(0, 1 - r2));
 
-        var dayCx = eCX + sx * 0.35;
-        var dayCy = eCY + sy * 0.35;
-        var dayBright = ctx.createRadialGradient(
-            dayCx, dayCy, eR * 0.05,
-            dayCx, dayCy, eR * 0.6
-        );
-        dayBright.addColorStop(0, 'rgba(255,255,255,0.12)');
-        dayBright.addColorStop(0.30, 'rgba(255,255,255,0.05)');
-        dayBright.addColorStop(0.55, 'rgba(255,255,255,0.01)');
-        dayBright.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = dayBright;
-        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
+                var lon = Math.atan2(nx, nz);
+                var lat = Math.asin(ny);
+                var u = (lon / Math.PI + 1) * 0.5;
+                var v = (lat / Math.PI + 0.5);
 
-        var specCx = eCX + sx * 0.42;
-        var specCy = eCY + sy * 0.42;
-        var spec = ctx.createRadialGradient(specCx, specCy, 0, specCx, specCy, eR * 0.13);
-        spec.addColorStop(0, 'rgba(255,255,255,0.30)');
-        spec.addColorStop(0.25, 'rgba(255,255,255,0.18)');
-        spec.addColorStop(0.50, 'rgba(255,255,255,0.06)');
-        spec.addColorStop(0.75, 'rgba(255,255,255,0.01)');
-        spec.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = spec;
-        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
+                var tx = ((u % 1 + 1) % 1) * tw | 0;
+                var ty = Math.max(0, Math.min(th - 1, (v * th) | 0));
+                var ti = (ty * tw + tx) * 4;
+                var tr = dayPixels[ti];
+                var tg = dayPixels[ti + 1];
+                var tb = dayPixels[ti + 2];
+
+                var diff = nx * sunX + ny * sunY + nz * sunZ;
+                var ambient = 0.08;
+                var diffuse = Math.max(0, diff);
+                var light = ambient + diffuse * 0.92;
+
+                var rx = (-sunX) + 2 * nx * diff;
+                var ry = (-sunY) + 2 * ny * diff;
+                var rz = (-sunZ) + 2 * nz * diff;
+                var rl = Math.sqrt(rx*rx + ry*ry + rz*rz);
+                if (rl > 0) { rx /= rl; ry /= rl; rz /= rl; }
+                var spec = Math.pow(Math.max(0, rx*viewX + ry*viewY + rz*viewZ), 24) * 0.45;
+
+                var rim = 1 - nz;
+                rim = rim * rim * rim;
+
+                var cr = tr * light + spec * 255;
+                var cg = tg * light + spec * 255;
+                var cb = tb * light + spec * 255;
+                cr *= (1 - rim * 0.72);
+                cg *= (1 - rim * 0.70);
+                cb *= (1 - rim * 0.65);
+
+                for (var dy = 0; dy < step && py + dy < sh; dy++) {
+                    for (var dx = 0; dx < step && px + dx < sw; dx++) {
+                        var idx = ((py + dy) * sw + (px + dx)) * 4;
+                        data[idx] = cr | 0;
+                        data[idx + 1] = cg | 0;
+                        data[idx + 2] = cb | 0;
+                        data[idx + 3] = 255;
+                    }
+                }
+            }
+        }
+        offCtx.putImageData(imgData, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(offCanvas,
+            eCX - eR, eCY - eR, eR * 2, eR * 2);
     }
+
+    function drawSphericalLighting(bh) { renderSphere(bh); }
 
     function drawCityLightOverlay(bh) {
         if (!nightImg) return;
@@ -162,16 +194,7 @@ var Earth3D = (function () {
         ctx.arc(earthCX, earthCY, earthRadius, 0, Math.PI * 2);
         ctx.clip();
 
-        ctx.fillStyle = 'rgba(0,1,18,0.95)';
-        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-            earthRadius * 2, earthRadius * 2);
-
-        ctx.drawImage(dayImg,
-            0, 0, dayImg.width, dayImg.height,
-            earthCX - earthRadius, earthCY - earthRadius,
-            earthRadius * 2, earthRadius * 2);
-
-        drawSphericalLighting(bh);
+        renderSphere(bh);
         drawCityLightOverlay(bh);
 
         ctx.restore();
