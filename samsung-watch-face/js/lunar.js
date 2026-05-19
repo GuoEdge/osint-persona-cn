@@ -62,27 +62,39 @@ var LunarCalendar = (function () {
         if (!cny[y]) return [1, 1];
         
         var c = cny[y];
-        var d = new Date(y, c[0] - 1, c[1]);
+        var d = new Date(Date.UTC(y, c[0] - 1, c[1]));
         var diff = (year - y) * 365;
-        d.setDate(d.getDate() + diff);
-        return [d.getMonth() + 1, d.getDate()];
+        d.setUTCDate(d.getUTCDate() + diff);
+        return [d.getUTCMonth() + 1, d.getUTCDate()];
     }
 
     function dayDiff(d1, d2) {
         return Math.round((d2.getTime() - d1.getTime()) / 86400000);
     }
 
-    function solarToLunar(date) {
-        var year = date.getFullYear();
-        var cnyDate = getCNY(year);
-        var cnyObj = new Date(year, cnyDate[0] - 1, cnyDate[1]);
+    function toBeijingDate(date) {
+        var bj = new Date(date.getTime() + 8 * 3600000);
+        return {
+            year: bj.getUTCFullYear(),
+            month: bj.getUTCMonth() + 1,
+            day: bj.getUTCDate(),
+            hours: bj.getUTCHours(),
+            dateObj: new Date(Date.UTC(bj.getUTCFullYear(), bj.getUTCMonth(), bj.getUTCDate()))
+        };
+    }
 
-        var daysFromCNY = dayDiff(cnyObj, date);
+    function solarToLunar(date) {
+        var bj = toBeijingDate(date);
+        var year = bj.year;
+        var cnyDate = getCNY(year);
+        var cnyObj = new Date(Date.UTC(year, cnyDate[0] - 1, cnyDate[1]));
+
+        var daysFromCNY = dayDiff(cnyObj, bj.dateObj);
 
         if (daysFromCNY < 0) {
             var prevCNY = getCNY(year - 1);
-            cnyObj = new Date(year - 1, prevCNY[0] - 1, prevCNY[1]);
-            daysFromCNY = dayDiff(cnyObj, date);
+            cnyObj = new Date(Date.UTC(year - 1, prevCNY[0] - 1, prevCNY[1]));
+            daysFromCNY = dayDiff(cnyObj, bj.dateObj);
             year = year - 1;
         }
 
