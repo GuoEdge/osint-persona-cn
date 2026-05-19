@@ -5,26 +5,21 @@ var Earth3D = (function () {
     var width, height, centerX, centerY, watchRadius;
     var earthCX, earthCY, earthRadius;
     var dayTexture = null;
-    var realTexCanvas = null;
     var realTexLoaded = false;
 
     var TEXTURE_URLS = [
         'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57730/land_ocean_ice_cloud_2048.jpg',
-        'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/1024px-Blue_Marble_2002.png',
-        'https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57723/land_ocean_ice_8192.jpg'
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/1024px-Blue_Marble_2002.png'
     ];
 
     function loadRealTexture(urlIndex, callback) {
-        if (urlIndex >= TEXTURE_URLS.length) {
-            callback(null);
-            return;
-        }
+        if (urlIndex >= TEXTURE_URLS.length) { callback(null); return; }
         var img = new Image();
         img.crossOrigin = 'anonymous';
         var timeout = setTimeout(function () {
             img.src = '';
             loadRealTexture(urlIndex + 1, callback);
-        }, 8000);
+        }, 6000);
         img.onload = function () {
             clearTimeout(timeout);
             var tc = document.createElement('canvas');
@@ -47,43 +42,134 @@ var Earth3D = (function () {
         var c = document.createElement('canvas');
         c.width = 1024; c.height = 1024;
         var t = c.getContext('2d');
-
         t.fillStyle = '#020a18';
         t.fillRect(0, 0, c.width, c.height);
-
         var r = c.width * 0.48;
         var cx = c.width * 0.5;
         var cy = c.height * 0.49;
-
         t.save();
         t.beginPath();
         t.arc(cx, cy, r, 0, Math.PI * 2);
         t.clip();
-
-        var texW = realTex.width;
-        var texH = realTex.height;
-        var srcCX = texW * 0.755;
-        var srcCY = texH * 0.36;
+        var texW = realTex.width, texH = realTex.height;
+        var srcCX = texW * 0.755, srcCY = texH * 0.36;
         var srcR = Math.min(texW * 0.14, texH * 0.28);
-
-        t.drawImage(realTex,
-            srcCX - srcR, srcCY - srcR, srcR * 2, srcR * 2,
-            cx - r, cy - r, r * 2, r * 2);
-
+        t.drawImage(realTex, srcCX - srcR, srcCY - srcR, srcR * 2, srcR * 2, cx - r, cy - r, r * 2, r * 2);
         t.restore();
-
-        t.beginPath();
-        t.arc(cx, cy, r + 2, 0, Math.PI * 2);
-        t.strokeStyle = 'rgba(140,210,255,0.22)';
-        t.lineWidth = 2;
-        t.stroke();
-
         return c;
     }
 
+    function pointInPolygon(px, py, polygon) {
+        var inside = false;
+        for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            var xi = polygon[i][0], yi = polygon[i][1];
+            var xj = polygon[j][0], yj = polygon[j][1];
+            if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    function distToPolygonEdge(px, py, polygon) {
+        var minD = Infinity;
+        for (var i = 0; i < polygon.length; i++) {
+            var j = (i + 1) % polygon.length;
+            var ax = polygon[i][0], ay = polygon[i][1];
+            var bx = polygon[j][0], by = polygon[j][1];
+            var dx = bx - ax, dy = by - ay;
+            var len2 = dx * dx + dy * dy;
+            var t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+            var cx = ax + t * dx, cy = ay + t * dy;
+            var d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+            if (d < minD) minD = d;
+        }
+        return minD;
+    }
+
+    function inRect(lon, lat, lon1, lon2, lat1, lat2) {
+        return lon >= lon1 && lon <= lon2 && lat >= lat1 && lat <= lat2;
+    }
+
+    function inEllipse(lon, lat, clon, clat, rx, ry) {
+        var dx = (lon - clon) / rx, dy = (lat - clat) / ry;
+        return dx * dx + dy * dy <= 1;
+    }
+
+    var chinaPolygon = [
+        [72,53],[80,54],[88,54],[93,53],[98,52],[104,51],[109,50],
+        [114,49],[118,49],[123,51],[127,53],[132,54],[137,56],
+        [137,48],[136,56],[132,51],[129,47],[126,44],[124,40],
+        [123,36],[122,33],[122,29],[120,26],[118,23],[115,19],
+        [111,20],[108,22],[105,21],[101,20],[97,19],[94,22],
+        [92,29],[88,29],[85,29],[81,30],[78,33],[75,36],[73,43],[72,53]
+    ];
+
+    var tibetPolygon = [
+        [78,32],[80,30],[84,27],[88,27],[92,28],[96,28],[98,29],[100,29],
+        [102,28],[104,28],[104,30],[102,32],[100,34],[98,36],[95,36],
+        [92,35],[88,34],[84,33],[80,32],[78,32]
+    ];
+
+    function isLand(lon, lat) {
+        if (pointInPolygon(lon, lat, chinaPolygon)) return true;
+
+        if (inEllipse(lon, lat, 127, 37, 4, 6)) return true;
+        if (inEllipse(lon, lat, 128, 35, 3, 4)) return true;
+
+        if (inEllipse(lon, lat, 137, 38, 2.5, 10)) return true;
+        if (inEllipse(lon, lat, 140, 36, 2, 8)) return true;
+        if (inEllipse(lon, lat, 135, 34, 2, 6)) return true;
+        if (inEllipse(lon, lat, 130, 31, 2, 4)) return true;
+
+        if (inEllipse(lon, lat, 121, 23.5, 1.5, 1.5)) return true;
+
+        if (inRect(lon, lat, 68, 97, 8, 37)) return true;
+
+        if (inRect(lon, lat, 87, 120, 42, 52)) return true;
+
+        if (inRect(lon, lat, 95, 110, 5, 23)) return true;
+
+        if (inRect(lon, lat, 50, 87, 35, 50)) return true;
+
+        if (inRect(lon, lat, 60, 170, 55, 80)) return true;
+
+        if (inRect(lon, lat, 30, 65, 15, 42)) return true;
+
+        if (inEllipse(lon, lat, 106, -6, 6, 3)) return true;
+        if (inEllipse(lon, lat, 115, -3, 5, 3)) return true;
+        if (inEllipse(lon, lat, 125, -5, 4, 2.5)) return true;
+        if (inEllipse(lon, lat, 138, -4, 3, 2)) return true;
+
+        if (inEllipse(lon, lat, 122, 13, 1.5, 4)) return true;
+        if (inEllipse(lon, lat, 124, 11, 1, 3)) return true;
+
+        if (inEllipse(lon, lat, 145, 55, 2, 3)) return true;
+        if (inEllipse(lon, lat, 143, 45, 1.5, 2)) return true;
+
+        return false;
+    }
+
+    function getTerrainType(lon, lat) {
+        if (pointInPolygon(lon, lat, tibetPolygon)) return 'tibet';
+
+        if (lon >= 78 && lon <= 103 && lat >= 32 && lat <= 39 && !pointInPolygon(lon, lat, tibetPolygon)) {
+            if (lon <= 90 && lat >= 35) return 'highland';
+            return 'plateau';
+        }
+
+        if (lon >= 73 && lon <= 95 && lat >= 40 && lat <= 50) return 'highland';
+
+        if (lon >= 95 && lon <= 105 && lat >= 38 && lat <= 45) return 'plateau';
+
+        if (lat >= 55) return 'tundra';
+
+        return 'lowland';
+    }
+
     function createProceduralEarth() {
-        var c = document.createElement('canvas');
         var S = 1024;
+        var c = document.createElement('canvas');
         c.width = S; c.height = S;
         var t = c.getContext('2d');
 
@@ -99,94 +185,102 @@ var Earth3D = (function () {
         t.arc(cx, cy, r, 0, Math.PI * 2);
         t.clip();
 
-        var ocean = t.createRadialGradient(410, 360, r * 0.08, cx, cy, r);
-        ocean.addColorStop(0, '#3399dd');
-        ocean.addColorStop(0.15, '#2288cc');
-        ocean.addColorStop(0.4, '#1868a8');
-        ocean.addColorStop(0.7, '#105090');
-        ocean.addColorStop(1, '#083060');
-        t.fillStyle = ocean;
-        t.fillRect(cx - r, cy - r, r * 2, r * 2);
+        var GW = 300, GH = 300;
+        var grid = new Uint8Array(GW * GH);
+        var lonMin = 15, lonMax = 195;
+        var latMin = -15, latMax = 85;
 
-        function blob(mx, my, rx, ry, rot, color1, color2, detailCount) {
-            t.save();
-            t.translate(mx, my);
-            t.rotate(rot || 0);
+        function gxToLon(gx) { return lonMin + (gx / (GW - 1)) * (lonMax - lonMin); }
+        function gyToLat(gy) { return latMax - (gy / (GH - 1)) * (latMax - latMin); }
 
-            var grad = t.createRadialGradient(0, 0, Math.max(rx, ry) * 0.05, 0, 0, Math.max(rx, ry));
-            grad.addColorStop(0, color1);
-            grad.addColorStop(0.45, color1);
-            grad.addColorStop(1, color2);
-            t.fillStyle = grad;
-
-            t.beginPath();
-            t.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-            t.fill();
-
-            var dc = detailCount || 10;
-            for (var k = 0; k < dc; k++) {
-                var kx = (Math.random() - 0.5) * rx * 1.6;
-                var ky = (Math.random() - 0.5) * ry * 1.6;
-                t.beginPath();
-                t.arc(kx, ky, Math.random() * rx * 0.2 + rx * 0.05, 0, Math.PI * 2);
-                var kg = t.createRadialGradient(kx, ky, 0, kx, ky, rx * 0.22);
-                kg.addColorStop(0, 'rgba(95,160,58,0.55)');
-                kg.addColorStop(1, 'rgba(55,105,25,0)');
-                t.fillStyle = kg;
-                t.fill();
+        for (var gy = 0; gy < GH; gy++) {
+            for (var gx = 0; gx < GW; gx++) {
+                var lon = gxToLon(gx);
+                var lat = gyToLat(gy);
+                grid[gy * GW + gx] = isLand(lon, lat) ? 1 : 0;
             }
-
-            t.restore();
         }
 
-        blob(480, 300, 120, 80, -0.12, '#4a8c2c', '#2e6018', 15);
-        blob(450, 340, 100, 70, 0.08, '#4a8228', '#2e5c16', 12);
-        blob(510, 370, 90, 75, 0.06, '#427a24', '#2a5818', 12);
-        blob(540, 430, 75, 65, -0.05, '#3c7220', '#265414', 10);
-        blob(560, 470, 45, 55, 0.18, '#346c1c', '#224e10', 8);
-        blob(440, 255, 70, 45, -0.05, '#4a8828', '#30681a', 10);
-        blob(500, 240, 65, 40, 0.06, '#468228', '#2e6418', 10);
-        blob(540, 240, 55, 38, 0.04, '#447e26', '#2c6018', 10);
-        blob(580, 230, 60, 40, -0.08, '#488428', '#30641a', 10);
-        blob(620, 215, 75, 40, -0.06, '#4a862a', '#32661c', 10);
-        blob(590, 280, 55, 38, 0.05, '#427a24', '#2a5c16', 8);
-        blob(640, 250, 30, 40, 0.12, '#3c7220', '#265412', 6);
-        blob(670, 320, 25, 35, 0.22, '#366c1c', '#224e10', 5);
-        blob(690, 350, 20, 25, -0.08, '#326818', '#1e480c', 4);
-        blob(710, 340, 18, 45, 0.15, '#346a1a', '#204c0e', 5);
-        blob(640, 380, 28, 25, 0.25, '#366c1c', '#224e10', 5);
-        blob(680, 420, 18, 20, 0.1, '#306416', '#1c460a', 4);
-        blob(400, 320, 60, 70, 0.05, '#427824', '#2a5c16', 10);
-        blob(370, 350, 45, 48, 0.1, '#3e7420', '#285414', 8);
-        blob(340, 380, 38, 42, 0.08, '#3a6e1c', '#244e10', 8);
-        blob(360, 430, 30, 38, -0.05, '#366a18', '#22480e', 6);
-        blob(390, 470, 32, 28, 0.12, '#326616', '#1e440c', 6);
-        blob(420, 490, 28, 30, 0.05, '#306416', '#1c420a', 6);
-        blob(460, 480, 40, 35, 0.08, '#326818', '#1e460c', 8);
-        blob(500, 460, 48, 40, -0.04, '#346a1a', '#204c0e', 8);
-        blob(530, 490, 35, 30, 0.15, '#306416', '#1c420a', 6);
-        blob(560, 510, 28, 25, -0.05, '#2e6014', '#1a4008', 5);
-        blob(590, 530, 22, 22, 0.08, '#2c5e14', '#183e08', 4);
-        blob(450, 225, 55, 35, 0.04, '#468228', '#2e6418', 8);
-        blob(520, 215, 50, 32, -0.06, '#447e26', '#2c6018', 8);
-        blob(360, 260, 48, 38, 0.1, '#427824', '#2a5c16', 8);
-        blob(330, 280, 40, 32, 0.05, '#3e7420', '#285414', 6);
-        blob(380, 240, 42, 32, -0.05, '#447e26', '#2c6018', 7);
-        blob(270, 350, 38, 48, 0.08, '#3a6e1c', '#244e10', 7);
-        blob(250, 380, 32, 42, 0.05, '#366a18', '#22480e', 6);
-        blob(290, 430, 34, 45, -0.08, '#366a18', '#22480e', 6);
-        blob(230, 370, 24, 36, 0.1, '#326616', '#1e440c', 5);
-        blob(670, 380, 18, 22, 0.15, '#306416', '#1c420a', 4);
-        blob(340, 490, 22, 22, 0.12, '#2e6014', '#1a4008', 4);
-        blob(370, 510, 18, 22, 0.08, '#2c5e14', '#183e08', 3);
-        blob(310, 520, 20, 24, 0.1, '#2c5e14', '#183e08', 3);
+        function sampleGrid(tx, ty) {
+            var gx = (tx / S) * (GW - 1);
+            var gy = (ty / S) * (GH - 1);
+            var ix = Math.floor(gx), iy = Math.floor(gy);
+            var fx = gx - ix, fy = gy - iy;
 
-        for (var j = 0; j < 400; j++) {
+            ix = Math.max(0, Math.min(GW - 2, ix));
+            iy = Math.max(0, Math.min(GH - 2, iy));
+
+            var v00 = grid[iy * GW + ix];
+            var v10 = grid[iy * GW + ix + 1];
+            var v01 = grid[(iy + 1) * GW + ix];
+            var v11 = grid[(iy + 1) * GW + ix + 1];
+
+            return v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) + v01 * (1 - fx) * fy + v11 * fx * fy;
+        }
+
+        var oceanGrad = t.createRadialGradient(400, 350, r * 0.05, cx, cy, r);
+        oceanGrad.addColorStop(0, '#3399dd');
+        oceanGrad.addColorStop(0.12, '#2288cc');
+        oceanGrad.addColorStop(0.35, '#1868a8');
+        oceanGrad.addColorStop(0.65, '#105090');
+        oceanGrad.addColorStop(1, '#083060');
+        t.fillStyle = oceanGrad;
+        t.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+        var step = 3;
+        for (var ty = 0; ty < S; ty += step) {
+            for (var tx = 0; tx < S; tx += step) {
+                var dx = tx - cx, dy = ty - cy;
+                if (dx * dx + dy * dy > r * r) continue;
+
+                var landVal = sampleGrid(tx, ty);
+
+                if (landVal < 0.3) continue;
+
+                var lon = lonMin + (tx / S) * (lonMax - lonMin);
+                var lat = latMax - (ty / S) * (latMax - latMin);
+                var terrain = getTerrainType(lon, lat);
+                var alpha = Math.min(1, landVal);
+
+                var color;
+                if (terrain === 'tibet') {
+                    color = 'rgba(220,210,190,' + alpha + ')';
+                } else if (terrain === 'highland') {
+                    color = 'rgba(160,140,100,' + alpha + ')';
+                } else if (terrain === 'plateau') {
+                    color = 'rgba(170,155,115,' + alpha + ')';
+                } else if (terrain === 'tundra') {
+                    color = 'rgba(120,140,110,' + alpha + ')';
+                } else {
+                    color = 'rgba(70,130,40,' + alpha + ')';
+                }
+
+                t.fillStyle = color;
+                t.fillRect(tx, ty, step, step);
+            }
+        }
+
+        for (var ty = 0; ty < S; ty += step) {
+            for (var tx = 0; tx < S; tx += step) {
+                var dx = tx - cx, dy = ty - cy;
+                if (dx * dx + dy * dy > r * r) continue;
+                var landVal = sampleGrid(tx, ty);
+                if (landVal > 0.1 && landVal < 0.9) {
+                    var alpha = (landVal > 0.5) ? (1 - landVal) * 0.6 : landVal * 0.4;
+                    t.fillStyle = 'rgba(50,100,30,' + alpha + ')';
+                    t.fillRect(tx, ty, step, step);
+                }
+            }
+        }
+
+        for (var j = 0; j < 500; j++) {
             var wx = cx + (Math.random() - 0.5) * r * 2;
             var wy = cy + (Math.random() - 0.5) * r * 2;
+            var wdx = wx - cx, wdy = wy - cy;
+            if (wdx * wdx + wdy * wdy > r * r) continue;
             t.beginPath();
-            t.arc(wx, wy, Math.random() * 25 + 4, 0, Math.PI * 2);
-            t.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.06) + ')';
+            t.arc(wx, wy, Math.random() * 20 + 3, 0, Math.PI * 2);
+            t.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.04) + ')';
             t.fill();
         }
 
@@ -215,82 +309,83 @@ var Earth3D = (function () {
             srcCX - srcR, srcCY - srcR, srcR * 2, srcR * 2,
             earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
 
-        var nightAlpha = 0;
-        var terminatorX = 0;
+        var nightAlpha, terminatorX, fadeWidth = earthRadius * 0.55;
 
         if (beijingHour >= 6 && beijingHour < 19) {
             var daytime = beijingHour - 6;
-            var maxDay = 13;
-            var sunAngle = (daytime / maxDay) * Math.PI;
-            var termOffset = Math.cos(sunAngle) * earthRadius;
-            terminatorX = earthCX + termOffset;
-            var fadeWidth = earthRadius * 0.6;
-            var nightGrad = ctx.createLinearGradient(
-                terminatorX + fadeWidth, 0,
-                terminatorX - fadeWidth, 0
-            );
-            nightGrad.addColorStop(0, 'rgba(2,8,30,0.75)');
-            nightGrad.addColorStop(0.35, 'rgba(2,8,30,0.45)');
-            nightGrad.addColorStop(0.6, 'rgba(2,8,30,0.08)');
-            nightGrad.addColorStop(1, 'rgba(2,8,30,0)');
-            ctx.fillStyle = nightGrad;
-            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-                earthRadius * 2, earthRadius * 2);
-        } else {
-            nightAlpha = 0.55 + Math.min(0.2, Math.abs(beijingHour - 1) * 0.04);
-            if (beijingHour >= 19) {
-                var nightProgress = (beijingHour - 19) / 5;
-                nightAlpha = 0.55 + Math.min(0.35, nightProgress * 0.35);
-                terminatorX = earthCX - earthRadius * (1 - nightProgress * 1.5);
-            } else {
-                var beforeDawn = (6 - beijingHour) / 6;
-                nightAlpha = 0.55 + Math.min(0.35, beforeDawn * 0.35);
-                terminatorX = earthCX + earthRadius * (1 - beforeDawn * 1.5);
-            }
+            var sunAngle = (daytime / 13) * Math.PI;
+            terminatorX = earthCX + Math.cos(sunAngle) * earthRadius * 1.05;
+            var ng = ctx.createLinearGradient(terminatorX + fadeWidth, 0, terminatorX - fadeWidth, 0);
+            ng.addColorStop(0, 'rgba(2,8,30,0.72)');
+            ng.addColorStop(0.35, 'rgba(2,8,30,0.4)');
+            ng.addColorStop(0.65, 'rgba(2,8,30,0.05)');
+            ng.addColorStop(1, 'rgba(2,8,30,0)');
+            ctx.fillStyle = ng;
+            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
+        } else if (beijingHour >= 19) {
+            var np = (beijingHour - 19) / 5;
+            nightAlpha = 0.55 + Math.min(0.35, np * 0.35);
+            terminatorX = earthCX - earthRadius * (1 - Math.min(1.2, np * 1.5));
             terminatorX = Math.max(earthCX - earthRadius, Math.min(earthCX + earthRadius, terminatorX));
-            var fadeWidth = earthRadius * 0.6;
-            var nightGrad = ctx.createLinearGradient(
-                terminatorX + fadeWidth, 0,
-                terminatorX - fadeWidth, 0
-            );
-            nightGrad.addColorStop(0, 'rgba(2,6,26,' + nightAlpha + ')');
-            nightGrad.addColorStop(0.3, 'rgba(2,6,26,' + (nightAlpha * 0.6) + ')');
-            nightGrad.addColorStop(0.6, 'rgba(2,6,26,' + (nightAlpha * 0.15) + ')');
-            nightGrad.addColorStop(1, 'rgba(2,6,26,0)');
-            ctx.fillStyle = nightGrad;
-            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-                earthRadius * 2, earthRadius * 2);
+            var ng = ctx.createLinearGradient(terminatorX + fadeWidth, 0, terminatorX - fadeWidth, 0);
+            ng.addColorStop(0, 'rgba(2,6,26,' + nightAlpha + ')');
+            ng.addColorStop(0.3, 'rgba(2,6,26,' + (nightAlpha * 0.6) + ')');
+            ng.addColorStop(0.6, 'rgba(2,6,26,' + (nightAlpha * 0.12) + ')');
+            ng.addColorStop(1, 'rgba(2,6,26,0)');
+            ctx.fillStyle = ng;
+            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
 
-            if (nightAlpha > 0.6) {
-                var cityLights = [
-                    [0.58,0.24,32],[0.60,0.26,28],[0.56,0.28,26],
-                    [0.54,0.30,24],[0.52,0.32,22],[0.50,0.34,20],
-                    [0.52,0.38,22],[0.54,0.40,20],[0.50,0.42,18],
-                    [0.46,0.40,16],[0.48,0.36,20],[0.70,0.24,22],
-                    [0.74,0.26,18],[0.68,0.30,20],[0.66,0.32,16],
-                    [0.64,0.34,15],[0.68,0.36,14],[0.70,0.32,15],
-                    [0.64,0.38,13],[0.66,0.40,12],[0.62,0.42,11],
-                    [0.54,0.46,12],[0.50,0.48,10],[0.42,0.46,12],
-                    [0.40,0.42,10],[0.38,0.44,11],
-                ];
-                var lightAlpha = (nightAlpha - 0.6) / 0.3;
-                for (var i = 0; i < cityLights.length; i++) {
-                    var cl = cityLights[i];
-                    var lx = earthCX + (cl[0] - 0.5) * earthRadius * 2;
-                    var ly = earthCY + (cl[1] - 0.49) * earthRadius * 2;
-                    var lr = cl[2] * (earthRadius / 480);
-                    var lg = ctx.createRadialGradient(lx, ly, 0, lx, ly, lr * 3);
-                    lg.addColorStop(0, 'rgba(255,215,100,' + (0.7 * lightAlpha) + ')');
-                    lg.addColorStop(0.2, 'rgba(255,185,60,' + (0.35 * lightAlpha) + ')');
-                    lg.addColorStop(0.5, 'rgba(220,150,40,' + (0.08 * lightAlpha) + ')');
-                    lg.addColorStop(1, 'transparent');
-                    ctx.fillStyle = lg;
-                    ctx.fillRect(lx - lr * 3, ly - lr * 3, lr * 6, lr * 6);
-                }
+            if (nightAlpha > 0.55) {
+                var la = (nightAlpha - 0.55) / 0.35;
+                drawCityLights(la);
+            }
+        } else {
+            var bd = (6 - beijingHour) / 6;
+            nightAlpha = 0.55 + Math.min(0.35, bd * 0.35);
+            terminatorX = earthCX + earthRadius * (1 - Math.min(1.2, bd * 1.5));
+            terminatorX = Math.max(earthCX - earthRadius, Math.min(earthCX + earthRadius, terminatorX));
+            var ng = ctx.createLinearGradient(terminatorX + fadeWidth, 0, terminatorX - fadeWidth, 0);
+            ng.addColorStop(0, 'rgba(2,6,26,' + nightAlpha + ')');
+            ng.addColorStop(0.3, 'rgba(2,6,26,' + (nightAlpha * 0.6) + ')');
+            ng.addColorStop(0.6, 'rgba(2,6,26,' + (nightAlpha * 0.12) + ')');
+            ng.addColorStop(1, 'rgba(2,6,26,0)');
+            ctx.fillStyle = ng;
+            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
+
+            if (nightAlpha > 0.55) {
+                var la = (nightAlpha - 0.55) / 0.35;
+                drawCityLights(la);
             }
         }
 
         ctx.restore();
+    }
+
+    function drawCityLights(alpha) {
+        var lights = [
+            [0.58,0.24,30],[0.60,0.26,26],[0.56,0.28,24],
+            [0.54,0.30,22],[0.52,0.32,20],[0.50,0.34,18],
+            [0.52,0.38,20],[0.54,0.40,18],[0.50,0.42,16],
+            [0.48,0.40,14],[0.46,0.36,16],[0.48,0.36,18],
+            [0.70,0.24,20],[0.74,0.26,16],[0.68,0.30,18],
+            [0.66,0.32,14],[0.64,0.34,13],[0.68,0.36,12],
+            [0.70,0.32,14],[0.64,0.38,11],[0.66,0.40,10],
+            [0.62,0.42,10],[0.54,0.46,10],[0.50,0.48,9],
+            [0.42,0.46,10],[0.40,0.42,9],[0.38,0.44,9],
+        ];
+        for (var i = 0; i < lights.length; i++) {
+            var cl = lights[i];
+            var lx = earthCX + (cl[0] - 0.5) * earthRadius * 2;
+            var ly = earthCY + (cl[1] - 0.49) * earthRadius * 2;
+            var lr = cl[2] * (earthRadius / 480);
+            var lg = ctx.createRadialGradient(lx, ly, 0, lx, ly, lr * 3);
+            lg.addColorStop(0, 'rgba(255,220,110,' + (0.7 * alpha) + ')');
+            lg.addColorStop(0.2, 'rgba(255,190,65,' + (0.35 * alpha) + ')');
+            lg.addColorStop(0.5, 'rgba(220,155,45,' + (0.07 * alpha) + ')');
+            lg.addColorStop(1, 'transparent');
+            ctx.fillStyle = lg;
+            ctx.fillRect(lx - lr * 3, ly - lr * 3, lr * 6, lr * 6);
+        }
     }
 
     function drawAtmosphere() {
@@ -308,16 +403,13 @@ var Earth3D = (function () {
     function init() {
         canvas = document.getElementById('earth-canvas');
         ctx = canvas.getContext('2d');
-
         dayTexture = createProceduralEarth();
-
         loadRealTexture(0, function (realTex) {
             if (realTex) {
                 dayTexture = createDayFromReal(realTex);
                 realTexLoaded = true;
             }
         });
-
         resize();
     }
 
@@ -329,7 +421,6 @@ var Earth3D = (function () {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         centerX = width / 2; centerY = height / 2;
         watchRadius = Math.min(width, height) / 2;
-
         earthRadius = watchRadius * 0.42;
         earthCX = centerX;
         earthCY = centerY + watchRadius * 0.10;
