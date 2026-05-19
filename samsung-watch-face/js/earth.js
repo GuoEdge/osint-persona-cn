@@ -46,65 +46,86 @@ var Earth3D = (function () {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         centerX = width / 2; centerY = height / 2;
         watchRadius = Math.min(width, height) / 2;
-        earthRadius = watchRadius * 0.44;
+        earthRadius = watchRadius * 0.48;
         earthCX = centerX;
-        earthCY = centerY + watchRadius * 0.08;
+        earthCY = centerY + watchRadius * 0.06;
     }
 
     function drawAtmosphere() {
-        var glow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.90,
-            earthCX, earthCY, earthRadius * 1.06);
+        var glow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.88,
+            earthCX, earthCY, earthRadius * 1.05);
         glow.addColorStop(0, 'transparent');
-        glow.addColorStop(0.45, 'rgba(80,160,240,0.08)');
-        glow.addColorStop(0.75, 'rgba(60,140,220,0.14)');
+        glow.addColorStop(0.35, 'rgba(70,150,230,0.06)');
+        glow.addColorStop(0.65, 'rgba(50,130,210,0.12)');
+        glow.addColorStop(0.85, 'rgba(40,110,190,0.05)');
         glow.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(earthCX, earthCY, earthRadius * 1.06, 0, Math.PI * 2);
+        ctx.arc(earthCX, earthCY, earthRadius * 1.05, 0, Math.PI * 2);
         ctx.fillStyle = glow;
         ctx.fill();
     }
 
     function drawSphericalLighting(bh) {
         var sunAngle = Math.PI - (bh / 12) * Math.PI;
-        var sdx = Math.cos(sunAngle) * earthRadius * 0.35;
-        var sdy = Math.sin(sunAngle) * earthRadius * 0.35;
+        var sx = Math.cos(sunAngle) * earthRadius * 0.5;
+        var sy = Math.sin(sunAngle) * earthRadius * 0.5;
+        var eR = earthRadius;
+        var eCX = earthCX;
+        var eCY = earthCY;
 
-        var light = ctx.createRadialGradient(
-            earthCX + sdx, earthCY + sdy, earthRadius * 0.02,
-            earthCX - sdx * 0.5, earthCY - sdy * 0.5, earthRadius * 1.6
+        var nightCx = eCX - sx * 0.55;
+        var nightCy = eCY - sy * 0.55;
+        var night = ctx.createRadialGradient(
+            nightCx, nightCy, eR * 0.05,
+            nightCx, nightCy, eR * 0.95
         );
-        light.addColorStop(0, 'rgba(0,0,0,0)');
-        light.addColorStop(0.22, 'rgba(0,0,0,0)');
-        light.addColorStop(0.38, 'rgba(0,0,12,0.12)');
-        light.addColorStop(0.52, 'rgba(0,0,20,0.35)');
-        light.addColorStop(0.66, 'rgba(0,0,30,0.65)');
-        light.addColorStop(0.80, 'rgba(0,0,40,0.85)');
-        light.addColorStop(1, 'rgba(0,0,50,0.95)');
+        night.addColorStop(0, 'rgba(0,1,12,0.90)');
+        night.addColorStop(0.20, 'rgba(0,1,15,0.82)');
+        night.addColorStop(0.35, 'rgba(0,2,20,0.65)');
+        night.addColorStop(0.48, 'rgba(0,2,22,0.35)');
+        night.addColorStop(0.58, 'rgba(0,3,20,0.10)');
+        night.addColorStop(0.68, 'rgba(0,0,0,0)');
+        night.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = night;
+        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
 
-        ctx.fillStyle = light;
-        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-            earthRadius * 2, earthRadius * 2);
+        var edge = ctx.createRadialGradient(eCX, eCY, eR * 0.38,
+            eCX, eCY, eR);
+        edge.addColorStop(0, 'transparent');
+        edge.addColorStop(0.35, 'transparent');
+        edge.addColorStop(0.50, 'rgba(0,1,20,0.06)');
+        edge.addColorStop(0.62, 'rgba(0,1,22,0.15)');
+        edge.addColorStop(0.72, 'rgba(0,1,25,0.28)');
+        edge.addColorStop(0.81, 'rgba(0,1,28,0.44)');
+        edge.addColorStop(0.89, 'rgba(0,1,32,0.62)');
+        edge.addColorStop(0.95, 'rgba(0,1,35,0.74)');
+        edge.addColorStop(1, 'rgba(0,1,38,0.82)');
+        ctx.fillStyle = edge;
+        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
 
-        var spec = ctx.createRadialGradient(
-            earthCX + sdx * 0.7, earthCY + sdy * 0.7, 0,
-            earthCX + sdx * 0.7, earthCY + sdy * 0.7, earthRadius * 0.22
+        var dayCx = eCX + sx * 0.35;
+        var dayCy = eCY + sy * 0.35;
+        var dayBright = ctx.createRadialGradient(
+            dayCx, dayCy, eR * 0.05,
+            dayCx, dayCy, eR * 0.6
         );
-        spec.addColorStop(0, 'rgba(255,255,255,0.18)');
-        spec.addColorStop(0.4, 'rgba(255,255,255,0.06)');
+        dayBright.addColorStop(0, 'rgba(255,255,255,0.12)');
+        dayBright.addColorStop(0.30, 'rgba(255,255,255,0.05)');
+        dayBright.addColorStop(0.55, 'rgba(255,255,255,0.01)');
+        dayBright.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = dayBright;
+        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
+
+        var specCx = eCX + sx * 0.42;
+        var specCy = eCY + sy * 0.42;
+        var spec = ctx.createRadialGradient(specCx, specCy, 0, specCx, specCy, eR * 0.13);
+        spec.addColorStop(0, 'rgba(255,255,255,0.30)');
+        spec.addColorStop(0.25, 'rgba(255,255,255,0.18)');
+        spec.addColorStop(0.50, 'rgba(255,255,255,0.06)');
+        spec.addColorStop(0.75, 'rgba(255,255,255,0.01)');
         spec.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = spec;
-        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-            earthRadius * 2, earthRadius * 2);
-
-        var edgeShadow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.70,
-            earthCX, earthCY, earthRadius);
-        edgeShadow.addColorStop(0, 'transparent');
-        edgeShadow.addColorStop(0.72, 'transparent');
-        edgeShadow.addColorStop(0.88, 'rgba(0,0,20,0.22)');
-        edgeShadow.addColorStop(1, 'rgba(0,0,30,0.45)');
-        ctx.fillStyle = edgeShadow;
-        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
-            earthRadius * 2, earthRadius * 2);
+        ctx.fillRect(eCX - eR, eCY - eR, eR * 2, eR * 2);
     }
 
     function drawCityLightOverlay(bh) {
@@ -130,7 +151,7 @@ var Earth3D = (function () {
     }
 
     function draw() {
-        if (!loaded) return;
+        if (!loaded || !dayImg) return;
         var bh = new Date().getUTCHours() + 8;
         if (bh >= 24) bh -= 24;
 
@@ -140,6 +161,10 @@ var Earth3D = (function () {
         ctx.beginPath();
         ctx.arc(earthCX, earthCY, earthRadius, 0, Math.PI * 2);
         ctx.clip();
+
+        ctx.fillStyle = 'rgba(0,1,18,0.95)';
+        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
 
         ctx.drawImage(dayImg,
             0, 0, dayImg.width, dayImg.height,
