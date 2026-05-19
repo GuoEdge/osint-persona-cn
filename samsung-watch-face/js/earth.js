@@ -52,66 +52,81 @@ var Earth3D = (function () {
     }
 
     function drawAtmosphere() {
-        var glow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.88,
-            earthCX, earthCY, earthRadius * 1.08);
+        var glow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.90,
+            earthCX, earthCY, earthRadius * 1.06);
         glow.addColorStop(0, 'transparent');
-        glow.addColorStop(0.4, 'rgba(80,160,240,0.06)');
-        glow.addColorStop(0.7, 'rgba(60,140,220,0.10)');
+        glow.addColorStop(0.45, 'rgba(80,160,240,0.08)');
+        glow.addColorStop(0.75, 'rgba(60,140,220,0.14)');
         glow.addColorStop(1, 'transparent');
         ctx.beginPath();
-        ctx.arc(earthCX, earthCY, earthRadius * 1.08, 0, Math.PI * 2);
+        ctx.arc(earthCX, earthCY, earthRadius * 1.06, 0, Math.PI * 2);
         ctx.fillStyle = glow;
         ctx.fill();
     }
 
-    function drawEdgeShadow() {
-        var shadow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.75,
+    function drawSphericalLighting(bh) {
+        var sunAngle = Math.PI - (bh / 12) * Math.PI;
+        var sdx = Math.cos(sunAngle) * earthRadius * 0.35;
+        var sdy = Math.sin(sunAngle) * earthRadius * 0.35;
+
+        var light = ctx.createRadialGradient(
+            earthCX + sdx, earthCY + sdy, earthRadius * 0.02,
+            earthCX - sdx * 0.5, earthCY - sdy * 0.5, earthRadius * 1.6
+        );
+        light.addColorStop(0, 'rgba(0,0,0,0)');
+        light.addColorStop(0.22, 'rgba(0,0,0,0)');
+        light.addColorStop(0.38, 'rgba(0,0,12,0.12)');
+        light.addColorStop(0.52, 'rgba(0,0,20,0.35)');
+        light.addColorStop(0.66, 'rgba(0,0,30,0.65)');
+        light.addColorStop(0.80, 'rgba(0,0,40,0.85)');
+        light.addColorStop(1, 'rgba(0,0,50,0.95)');
+
+        ctx.fillStyle = light;
+        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
+
+        var spec = ctx.createRadialGradient(
+            earthCX + sdx * 0.7, earthCY + sdy * 0.7, 0,
+            earthCX + sdx * 0.7, earthCY + sdy * 0.7, earthRadius * 0.22
+        );
+        spec.addColorStop(0, 'rgba(255,255,255,0.18)');
+        spec.addColorStop(0.4, 'rgba(255,255,255,0.06)');
+        spec.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = spec;
+        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
+
+        var edgeShadow = ctx.createRadialGradient(earthCX, earthCY, earthRadius * 0.70,
             earthCX, earthCY, earthRadius);
-        shadow.addColorStop(0, 'transparent');
-        shadow.addColorStop(0.7, 'transparent');
-        shadow.addColorStop(0.88, 'rgba(0,0,20,0.25)');
-        shadow.addColorStop(1, 'rgba(0,0,30,0.55)');
-        ctx.beginPath();
-        ctx.arc(earthCX, earthCY, earthRadius, 0, Math.PI * 2);
-        ctx.fillStyle = shadow;
-        ctx.fill();
+        edgeShadow.addColorStop(0, 'transparent');
+        edgeShadow.addColorStop(0.72, 'transparent');
+        edgeShadow.addColorStop(0.88, 'rgba(0,0,20,0.22)');
+        edgeShadow.addColorStop(1, 'rgba(0,0,30,0.45)');
+        ctx.fillStyle = edgeShadow;
+        ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
     }
 
-    function drawTerminator(beijingHour) {
-        var nightAlpha, termX, fadeW = earthRadius * 0.5;
-        if (beijingHour >= 7 && beijingHour < 18) {
-            var angle = ((beijingHour - 7) / 11) * Math.PI;
-            termX = earthCX + Math.cos(angle) * earthRadius * 1.1;
-            var ng = ctx.createLinearGradient(termX + fadeW, 0, termX - fadeW, 0);
-            ng.addColorStop(0, 'rgba(2,6,28,0.65)');
-            ng.addColorStop(0.3, 'rgba(2,6,28,0.35)');
-            ng.addColorStop(0.6, 'rgba(2,6,28,0.04)');
-            ng.addColorStop(1, 'rgba(2,6,28,0)');
-            ctx.fillStyle = ng;
-            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
-        } else if (beijingHour >= 18) {
-            nightAlpha = 0.5 + ((beijingHour - 18) / 6) * 0.45;
-            nightAlpha = Math.min(0.95, nightAlpha);
-            termX = earthCX - earthRadius * (1 - Math.min(1.5, ((beijingHour - 18) / 6) * 1.5));
-            var ng = ctx.createLinearGradient(termX + fadeW, 0, termX - fadeW, 0);
-            ng.addColorStop(0, 'rgba(2,5,24,' + nightAlpha + ')');
-            ng.addColorStop(0.3, 'rgba(2,5,24,' + (nightAlpha * 0.55) + ')');
-            ng.addColorStop(0.6, 'rgba(2,5,24,' + (nightAlpha * 0.1) + ')');
-            ng.addColorStop(1, 'rgba(2,5,24,0)');
-            ctx.fillStyle = ng;
-            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
+    function drawCityLightOverlay(bh) {
+        if (!nightImg) return;
+        var nightAlpha;
+        if (bh >= 19) {
+            nightAlpha = Math.min(1, (bh - 19) / 4);
+        } else if (bh <= 5) {
+            nightAlpha = Math.min(1, (5 - bh) / 4);
         } else {
-            nightAlpha = 0.5 + ((6 - beijingHour) / 6) * 0.45;
-            nightAlpha = Math.min(0.95, nightAlpha);
-            termX = earthCX + earthRadius * (1 - Math.min(1.5, ((6 - beijingHour) / 6) * 1.5));
-            var ng = ctx.createLinearGradient(termX + fadeW, 0, termX - fadeW, 0);
-            ng.addColorStop(0, 'rgba(2,5,24,' + nightAlpha + ')');
-            ng.addColorStop(0.3, 'rgba(2,5,24,' + (nightAlpha * 0.55) + ')');
-            ng.addColorStop(0.6, 'rgba(2,5,24,' + (nightAlpha * 0.1) + ')');
-            ng.addColorStop(1, 'rgba(2,5,24,0)');
-            ctx.fillStyle = ng;
-            ctx.fillRect(earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
+            nightAlpha = 0;
         }
+        if (nightAlpha <= 0.05) return;
+
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = nightAlpha * 0.85;
+        ctx.drawImage(nightImg,
+            0, 0, nightImg.width, nightImg.height,
+            earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
     }
 
     function draw() {
@@ -120,7 +135,6 @@ var Earth3D = (function () {
         if (bh >= 24) bh -= 24;
 
         ctx.clearRect(0, 0, width, height);
-        drawAtmosphere();
 
         ctx.save();
         ctx.beginPath();
@@ -129,17 +143,20 @@ var Earth3D = (function () {
 
         ctx.drawImage(dayImg,
             0, 0, dayImg.width, dayImg.height,
-            earthCX - earthRadius, earthCY - earthRadius, earthRadius * 2, earthRadius * 2);
+            earthCX - earthRadius, earthCY - earthRadius,
+            earthRadius * 2, earthRadius * 2);
 
-        drawEdgeShadow();
-        drawTerminator(bh);
+        drawSphericalLighting(bh);
+        drawCityLightOverlay(bh);
 
         ctx.restore();
 
+        drawAtmosphere();
+
         ctx.beginPath();
-        ctx.arc(earthCX, earthCY, earthRadius + 1.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(120,185,245,0.2)';
-        ctx.lineWidth = 2;
+        ctx.arc(earthCX, earthCY, earthRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(100,175,240,0.18)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
     }
 
