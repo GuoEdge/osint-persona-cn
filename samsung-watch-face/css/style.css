@@ -1,0 +1,151 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000005;
+    font-family: 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#watch-face {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+#bg-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+}
+
+#earth-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+#clock-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 3;
+}
+
+#digital-time {
+    position: absolute;
+    top: 28%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 4;
+    font-size: min(7vw, 28px);
+    font-weight: 300;
+    color: rgba(255, 255, 255, 0.9);
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(100, 150, 255, 0.5), 0 0 20px rgba(100, 150, 255, 0.2);
+    pointer-events: none;
+}
+
+#date-display {
+    position: absolute;
+    top: 35%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 4;
+    font-size: min(3.5vw, 14px);
+    font-weight: 300;
+    color: rgba(200, 210, 240, 0.8);
+    letter-spacing: 1px;
+    text-shadow: 0 0 6px rgba(100, 140, 220, 0.4);
+    pointer-events: none;
+}
+
+.indicator {
+    position: absolute;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+}
+
+#indicator-weather {
+    top: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+#indicator-battery {
+    top: 50%;
+    right: 6%;
+    transform: translateY(-50%);
+}
+
+#indicator-heart {
+    bottom: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+#indicator-stress {
+    top: 50%;
+    left: 6%;
+    transform: translateY(-50%);
+}
+
+.indicator-icon {
+    font-size: min(5vw, 20px);
+    line-height: 1;
+    text-shadow: 0 0 8px rgba(100, 150, 255, 0.4);
+}
+
+.indicator-value {
+    font-size: min(4vw, 16px);
+    font-weight: 600;
+    color: rgba(230, 240, 255, 0.9);
+    text-shadow: 0 0 6px rgba(120, 160, 240, 0.5);
+    line-height: 1.3;
+}
+
+.indicator-label {
+    font-size: min(2.8vw, 11px);
+    font-weight: 300;
+    color: rgba(160, 180, 220, 0.7);
+    text-shadow: 0 0 4px rgba(80, 120, 200, 0.3);
+}
+
+@media (min-width: 400px) {
+    #digital-time {
+        font-size: 30px;
+    }
+    #date-display {
+        font-size: 15px;
+    }
+    .indicator-icon {
+        font-size: 22px;
+    }
+    .indicator-value {
+        font-size: 17px;
+    }
+    .indicator-label {
+        font-size: 12px;
+    }
+}

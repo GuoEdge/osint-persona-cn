@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://yourdomain/EarthWatchFace" version="1.0.0" viewmodes="maximized">
+    <tizen:application id="com.earth.watchface" package="com.earth.watchface" required_version="2.3.2"/>
+    <content src="index.html"/>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <feature name="http://tizen.org/feature/watch"/>
+    <icon src="icon.png"/>
+    <name>Earth Watch Face</name>
+    <tizen:category name="http://tizen.org/category/wearable_clock"/>
+    <tizen:privilege name="http://tizen.org/privilege/alarm.set"/>
+    <tizen:privilege name="http://tizen.org/privilege/healthinfo"/>
+    <tizen:privilege name="http://tizen.org/privilege/location"/>
+    <tizen:profile name="wearable"/>
+    <tizen:watch-app ambient-support="true"/>
+</widget>
