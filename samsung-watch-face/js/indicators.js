@@ -1,128 +1,83 @@
 var Indicators = (function () {
     'use strict';
 
-    var indicators = {};
-    var mockData = {
-        weather: { temp: 26, icon: '☀', condition: '晴' },
-        battery: { level: 85, charging: false },
-        heartRate: { value: 72, unit: 'bpm' },
-        stress: { level: '低', value: 25 }
-    };
+    var mockData = { weather: 0.5, battery: 0.85, heart: 0.45, stress: 0.25 };
 
-    var stressLevels = ['低', '中', '高'];
-    var weatherIcons = ['☀', '⛅', '☁', '🌧', '⛈', '🌨', '🌫'];
+    var syncCycle = 0;
 
-    var animationId;
-
-    function getStressLevel(value) {
-        if (value < 33) return stressLevels[0];
-        if (value < 66) return stressLevels[1];
-        return stressLevels[2];
+    function normalizeHeartRate(bpm) {
+        return Math.max(0, Math.min(1, (bpm - 40) / 160));
     }
 
-    function getWeatherIcon(condition) {
-        var icons = {
-            '晴': '☀',
-            '多云': '⛅',
-            '阴': '☁',
-            '雨': '🌧',
-            '雷雨': '⛈',
-            '雪': '🌨',
-            '雾': '🌫'
-        };
-        return icons[condition] || '☀';
+    function normalizeStress(level) {
+        return Math.max(0, Math.min(1, level / 100));
     }
 
-    function updateAll() {
-        var wData = mockData.weather;
-        updateIndicator('weather',
-            getWeatherIcon(wData.condition),
-            wData.temp + '°',
-            wData.condition);
-
-        var bData = mockData.battery;
-        var batteryIcon = bData.charging ? '⚡' : (bData.level > 80 ? '🔋' : bData.level > 30 ? '🔋' : '🪫');
-        updateIndicator('battery',
-            batteryIcon,
-            bData.level + '%',
-            '电量');
-
-        var hData = mockData.heartRate;
-        updateIndicator('heart',
-            '♥',
-            hData.value + '',
-            '心率');
-
-        var sData = mockData.stress;
-        updateIndicator('stress',
-            '🧘',
-            getStressLevel(sData.value),
-            '压力');
+    function normalizeBattery(level) {
+        return Math.max(0, Math.min(1, level / 100));
     }
 
-    function updateIndicator(id, icon, value, label) {
-        var el = document.getElementById('indicator-' + id);
-        if (!el) return;
-        var iconEl = el.querySelector('.indicator-icon');
-        var valueEl = el.querySelector('.indicator-value');
-        var labelEl = el.querySelector('.indicator-label');
-        if (iconEl) iconEl.textContent = icon;
-        if (valueEl) valueEl.textContent = value;
-        if (labelEl) labelEl.textContent = label;
+    function normalizeWeather(temp) {
+        return Math.max(0, Math.min(1, (temp + 10) / 50));
     }
 
-    function simulateData(timestamp) {
-        var cycle = Math.sin(timestamp * 0.0001) * 0.5 + 0.5;
+    function updateFromSystem() {
+        if (typeof tizen !== 'undefined' && tizen.systeminfo) {
+            try {
+                tizen.systeminfo.getPropertyValue('BATTERY', function (battery) {
+                    mockData.battery = normalizeBattery(battery.level);
+                    Clock.updateIndicator('battery', {
+                        value: mockData.battery,
+                        text: Math.round(battery.level) + '%',
+                        icon: battery.isCharging ? '⚡' : '🔋'
+                    });
+                }, function () {});
+            } catch (e) {}
+        }
 
-        mockData.weather.temp = Math.round(22 + cycle * 10);
-        mockData.battery.level = Math.max(10, Math.round(85 + Math.sin(timestamp * 0.00005) * 10));
-        mockData.heartRate.value = Math.round(68 + cycle * 16);
-        mockData.stress.value = Math.round(20 + cycle * 40);
-    }
-
-    function animate(timestamp) {
-        simulateData(timestamp);
-        updateAll();
-        animationId = requestAnimationFrame(animate);
-    }
-
-    function start() {
-        if (animationId) return;
-        animationId = requestAnimationFrame(animate);
-    }
-
-    function stop() {
-        if (animationId) {
-            cancelAnimationFrame(animationId);
-            animationId = null;
+        if (typeof tizen !== 'undefined' && tizen.humanactivitymonitor) {
+            try {
+                tizen.humanactivitymonitor.start('HRM', function (hrmInfo) {
+                    mockData.heart = normalizeHeartRate(hrmInfo.heartRate);
+                    Clock.updateIndicator('heart', {
+                        value: mockData.heart,
+                        text: hrmInfo.heartRate + ''
+                    });
+                });
+            } catch (e) {}
         }
     }
 
-    function setWeather(temp, condition) {
-        mockData.weather.temp = temp;
-        mockData.weather.condition = condition;
-        mockData.weather.icon = getWeatherIcon(condition);
+    function simulateData() {
+        var t = syncCycle * 0.0001;
+        mockData.weather = 0.4 + Math.sin(t * 3) * 0.2;
+        mockData.battery = Math.max(0.1, 0.85 + Math.sin(t * 1.5) * 0.08);
+        mockData.heart = 0.35 + Math.sin(t * 2) * 0.2;
+        mockData.stress = 0.2 + Math.sin(t * 1.8) * 0.2;
+
+        var temp = Math.round(20 + mockData.weather * 20);
+        Clock.updateIndicator('weather', { value: mockData.weather, text: temp + '°' });
+        Clock.updateIndicator('battery', { value: mockData.battery, text: Math.round(mockData.battery * 100) + '%' });
+        Clock.updateIndicator('heart', { value: mockData.heart, text: Math.round(60 + mockData.heart * 60) + '' });
+        Clock.updateIndicator('stress', { value: mockData.stress, text: mockData.stress < 0.33 ? '低' : mockData.stress < 0.66 ? '中' : '高' });
+
+        syncCycle++;
     }
 
-    function setBattery(level, charging) {
-        mockData.battery.level = level;
-        mockData.battery.charging = charging;
+    function start() {
+        updateFromSystem();
+        setInterval(simulateData, 5000);
     }
 
-    function setHeartRate(value) {
-        mockData.heartRate.value = value;
-    }
-
-    function setStress(value) {
-        mockData.stress.value = value;
-    }
+    function stop() {}
 
     return {
         start: start,
         stop: stop,
-        setWeather: setWeather,
-        setBattery: setBattery,
-        setHeartRate: setHeartRate,
-        setStress: setStress
+        updateFromSystem: updateFromSystem,
+        normalizeHeartRate: normalizeHeartRate,
+        normalizeStress: normalizeStress,
+        normalizeBattery: normalizeBattery,
+        normalizeWeather: normalizeWeather
     };
 })();

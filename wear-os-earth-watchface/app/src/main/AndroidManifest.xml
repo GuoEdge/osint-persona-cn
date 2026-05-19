@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <application
+        android:allowBackup="true"
+        android:supportsRtl="true">
+
+        <service
+            android:name=".EarthWatchFaceService"
+            android:exported="true"
+            android:label="Earth 3D"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/watch_face" />
+            <meta-data
+                android:name="com.google.android.wearable.watchface.preview"
+                android:resource="@drawable/ic_watch_preview" />
+            <meta-data
+                android:name="com.google.android.wearable.watchface.preview_circular"
+                android:resource="@drawable/ic_watch_preview" />
+        </service>
+
+        <service
+            android:name=".HeartRateListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_PASSIVE_HEALTH_DATA_LISTENER">
+            <intent-filter>
+                <action android:name="androidx.health.services.client.PassiveListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".StepsListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_PASSIVE_HEALTH_DATA_LISTENER">
+            <intent-filter>
+                <action android:name="androidx.health.services.client.PassiveListenerService" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

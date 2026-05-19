@@ -12,32 +12,32 @@
         <canvas id="earth-canvas"></canvas>
         <canvas id="clock-canvas"></canvas>
 
-        <div id="digital-time">00:00</div>
-        <div id="date-display">1月1日 周一</div>
+        <div id="info-area">
+            <div id="digital-time">00:00</div>
+            <div id="date-display">1月1日 周一</div>
+            <div id="lunar-display">正月初一</div>
+        </div>
 
         <div id="indicator-weather" class="indicator">
             <span class="indicator-icon">☀</span>
             <span class="indicator-value">26°</span>
-            <span class="indicator-label">天气</span>
         </div>
         <div id="indicator-battery" class="indicator">
             <span class="indicator-icon">🔋</span>
             <span class="indicator-value">85%</span>
-            <span class="indicator-label">电量</span>
         </div>
         <div id="indicator-heart" class="indicator">
             <span class="indicator-icon">♥</span>
             <span class="indicator-value">72</span>
-            <span class="indicator-label">心率</span>
         </div>
         <div id="indicator-stress" class="indicator">
             <span class="indicator-icon">🧘</span>
             <span class="indicator-value">低</span>
-            <span class="indicator-label">压力</span>
         </div>
     </div>
 
     <script src="js/stars.js"></script>
+    <script src="js/lunar.js"></script>
     <script src="js/earth.js"></script>
     <script src="js/clock.js"></script>
     <script src="js/indicators.js"></script>

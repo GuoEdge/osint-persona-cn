@@ -1,40 +1,81 @@
 var Starfield = (function () {
     'use strict';
 
-    var canvas, ctx, stars = [];
-    var width, height, centerX, centerY, radius;
-    var animationId;
+    var canvas, ctx, width, height, centerX, centerY, radius;
+    var starData = [];
+    var drawn = false;
+    var offCanvas, offCtx;
 
-    var STAR_COUNT = 200;
-    var NEBULA_COLORS = [
-        'rgba(30, 20, 80, 0.03)',
-        'rgba(20, 10, 60, 0.02)',
-        'rgba(40, 10, 70, 0.025)',
-        'rgba(10, 20, 50, 0.02)'
-    ];
-
-    function Star() {
-        this.reset();
+    function generateStars() {
+        var count = 300;
+        starData = [];
+        for (var i = 0; i < count; i++) {
+            var a = Math.random() * Math.PI * 2;
+            var d = Math.pow(Math.random(), 0.5) * radius * 0.96;
+            starData.push({
+                x: centerX + Math.cos(a) * d,
+                y: centerY + Math.sin(a) * d,
+                r: Math.random() * 1.6 + 0.3,
+                brightness: Math.random() * 0.5 + 0.5,
+                isBlue: Math.random() < 0.12
+            });
+        }
     }
 
-    Star.prototype.reset = function () {
-        var angle = Math.random() * Math.PI * 2;
-        var dist = Math.random() * radius * 0.95;
-        this.x = centerX + Math.cos(angle) * dist;
-        this.y = centerY + Math.sin(angle) * dist;
-        this.size = Math.random() * 1.8 + 0.3;
-        this.brightness = Math.random();
-        this.twinkleSpeed = Math.random() * 0.02 + 0.005;
-        this.twinkleOffset = Math.random() * Math.PI * 2;
-        this.hue = Math.random() < 0.15 ? Math.random() * 60 + 200 : 0;
-        this.saturation = this.hue > 0 ? '60%' : '0%';
-    };
+    function prerender() {
+        offCanvas = document.createElement('canvas');
+        offCanvas.width = width * (window.devicePixelRatio || 1);
+        offCanvas.height = height * (window.devicePixelRatio || 1);
+        offCtx = offCanvas.getContext('2d');
+        var dpr = window.devicePixelRatio || 1;
+        offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        offCtx.fillStyle = '#020210';
+        offCtx.fillRect(0, 0, width, height);
+
+        for (var i = 0; i < 3; i++) {
+            var nx = centerX + Math.sin(i * 2.1) * radius * 0.35;
+            var ny = centerY + Math.cos(i * 1.7) * radius * 0.35;
+            var g = offCtx.createRadialGradient(nx, ny, 0, nx, ny, radius * 0.5);
+            var colors = [
+                ['rgba(30,20,70,0.04)', 'transparent'],
+                ['rgba(15,10,50,0.03)', 'transparent'],
+                ['rgba(40,15,60,0.03)', 'transparent']
+            ];
+            g.addColorStop(0, colors[i][0]);
+            g.addColorStop(1, colors[i][1]);
+            offCtx.fillStyle = g;
+            offCtx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+        }
+
+        offCtx.save();
+        offCtx.beginPath();
+        offCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        offCtx.clip();
+
+        for (var j = 0; j < starData.length; j++) {
+            var s = starData[j];
+            offCtx.beginPath();
+            offCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            if (s.isBlue) {
+                offCtx.fillStyle = 'rgba(150,170,255,' + (s.brightness * 0.7) + ')';
+            } else {
+                offCtx.fillStyle = 'rgba(255,255,255,' + s.brightness + ')';
+            }
+            offCtx.fill();
+        }
+
+        offCtx.restore();
+
+        drawn = true;
+    }
 
     function init() {
         canvas = document.getElementById('bg-canvas');
         ctx = canvas.getContext('2d');
         resize();
-        createStars();
+        generateStars();
+        prerender();
     }
 
     function resize() {
@@ -49,112 +90,22 @@ var Starfield = (function () {
         centerX = width / 2;
         centerY = height / 2;
         radius = Math.min(width, height) / 2;
+        drawn = false;
     }
 
-    function createStars() {
-        stars = [];
-        for (var i = 0; i < STAR_COUNT; i++) {
-            stars.push(new Star());
+    function draw() {
+        if (!drawn) {
+            generateStars();
+            prerender();
         }
-    }
-
-    function drawNebula() {
-        for (var i = 0; i < NEBULA_COLORS.length; i++) {
-            var cx = centerX + (Math.sin(i * 1.7) * radius * 0.35);
-            var cy = centerY + (Math.cos(i * 2.1) * radius * 0.35);
-            var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 0.5);
-            grad.addColorStop(0, NEBULA_COLORS[i]);
-            grad.addColorStop(1, 'transparent');
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.fillStyle = grad;
-            ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-            ctx.restore();
-        }
-    }
-
-    function drawStars(time) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.clip();
-
-        for (var i = 0; i < stars.length; i++) {
-            var s = stars[i];
-            var twinkle = 0.5 + 0.5 * Math.sin(time * s.twinkleSpeed + s.twinkleOffset);
-            var alpha = 0.4 + twinkle * 0.6;
-
-            ctx.beginPath();
-            ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-
-            if (s.hue > 0) {
-                ctx.fillStyle = 'hsla(' + s.hue + ', ' + s.saturation + ', 80%, ' + alpha + ')';
-            } else {
-                ctx.fillStyle = 'rgba(255, 255, 255, ' + alpha + ')';
-            }
-            ctx.fill();
-
-            if (twinkle > 0.85 && s.size > 1.0) {
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, s.size * 1.8, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255, 255, 255, ' + (alpha * 0.15) + ')';
-                ctx.fill();
-            }
-        }
-
-        ctx.restore();
-    }
-
-    function drawEdgeGlow() {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.clip();
-
-        var edgeGrad = ctx.createRadialGradient(centerX, centerY, radius * 0.82, centerX, centerY, radius);
-        edgeGrad.addColorStop(0, 'transparent');
-        edgeGrad.addColorStop(1, 'rgba(40, 60, 120, 0.12)');
-
-        ctx.fillStyle = edgeGrad;
-        ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
-        ctx.restore();
-    }
-
-    function draw(time) {
-        ctx.clearRect(0, 0, width, height);
-
-        ctx.fillStyle = '#020210';
-        ctx.fillRect(0, 0, width, height);
-
-        drawNebula();
-        drawStars(time);
-        drawEdgeGlow();
-    }
-
-    function animate(timestamp) {
-        draw(timestamp);
-        animationId = requestAnimationFrame(animate);
-    }
-
-    function start() {
-        if (animationId) return;
-        animationId = requestAnimationFrame(animate);
-    }
-
-    function stop() {
-        if (animationId) {
-            cancelAnimationFrame(animationId);
-            animationId = null;
+        if (offCanvas) {
+            ctx.drawImage(offCanvas, 0, 0);
         }
     }
 
     return {
         init: init,
-        start: start,
-        stop: stop,
+        draw: draw,
         resize: resize
     };
 })();
