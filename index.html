@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Galaxy Watch4 Classic - Earth Watch Face</title>
+<style>
+  :root { --size: min(90vw, 90vh, 450px); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#000; display:flex; justify-content:center; align-items:center;
+    min-height:100vh; overflow:hidden;
+    font-family:'SF Pro Display','Helvetica Neue','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    user-select:none; -webkit-user-select:none;
+  }
+  .watch {
+    position:relative; width:var(--size); height:var(--size); border-radius:50%;
+    background:#0a0a12; cursor:pointer;
+    box-shadow: 0 0 50px rgba(20,40,100,.4), 0 0 100px rgba(10,20,60,.25), 0 0 180px rgba(5,10,40,.15),
+      inset 0 0 0 3px #1e1e35, inset 0 0 0 7px #0e0e1c, inset 0 0 0 10px #1a1a2e, inset 0 0 0 12px #2a2a45;
+  }
+  .face {
+    position:absolute; inset:12px; border-radius:50%; overflow:hidden;
+    background:radial-gradient(ellipse at 50% 60%, #0a1040 0%, #030818 45%, #010210 80%, #000006 100%);
+  }
+  #globe { position:absolute; inset:0; border-radius:50%; overflow:hidden; }
+  #globe canvas { border-radius:50%; }
+  #arcs, #hands { position:absolute; inset:0; border-radius:50%; }
+  #hands line { filter:drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
+  #hands circle { filter:drop-shadow(0 1px 4px rgba(0,0,0,.5)); }
+  .atmo-bg {
+    position:absolute; inset:0; border-radius:50%; pointer-events:none; z-index:1;
+    background:radial-gradient(ellipse 65% 55% at 50% 62%, transparent 55%, rgba(10,30,90,0.35) 75%, rgba(5,15,60,0.6) 90%, rgba(2,5,30,0.9) 100%);
+  }
+  .time {
+    position:absolute; top:14%; left:50%; transform:translateX(-50%);
+    font-size:calc(var(--size)*.128); font-weight:700; color:#fff;
+    text-shadow:0 0 22px rgba(130,180,255,.85), 0 2px 8px rgba(0,0,0,.7), 0 0 40px rgba(80,140,220,.4);
+    letter-spacing:4px; z-index:10;
+  }
+  .date { position:absolute; bottom:22%; left:50%; transform:translateX(-50%); text-align:center; z-index:10; }
+  .date .greg { font-size:calc(var(--size)*.054); font-weight:700; color:#e0eaff; text-shadow:0 0 14px rgba(120,160,240,.7), 0 1px 6px rgba(0,0,0,.6); letter-spacing:2px; }
+  .date .lunar { font-size:calc(var(--size)*.044); font-weight:600; color:#b8c8e8; text-shadow:0 0 10px rgba(100,140,220,.55), 0 1px 5px rgba(0,0,0,.55); margin-top:3px; }
+  .date .gz { font-size:calc(var(--size)*.034); font-weight:400; color:#8898c0; text-shadow:0 0 7px rgba(80,110,200,.4), 0 1px 4px rgba(0,0,0,.5); margin-top:2px; }
+  .weather-box {
+    position:absolute; top:4%; left:50%; transform:translateX(-50%);
+    font-size:calc(var(--size)*.044); font-weight:700;
+    color:#d0e0ff; text-shadow:0 0 10px rgba(130,170,255,.65), 0 1px 4px rgba(0,0,0,.5); z-index:10;
+    display:flex; align-items:center; gap:5px;
+    background:rgba(10,15,40,0.4); padding:4px 14px; border-radius:16px;
+  }
+  .weather-box .ico { font-size:calc(var(--size)*.058); filter:drop-shadow(0 0 6px rgba(255,220,100,.6)); }
+  .sensor {
+    position:absolute; z-index:10; font-weight:700;
+    font-size:calc(var(--size)*.038);
+  }
+  .sensor.bat { right:17%; top:21%; color:#6ed46e; text-shadow:0 0 8px rgba(100,200,100,.6), 0 1px 4px rgba(0,0,0,.5); }
+  .sensor.str { left:17%; top:21%; color:#f0a060; text-shadow:0 0 8px rgba(240,160,80,.6), 0 1px 4px rgba(0,0,0,.5); }
+  .sensor.hr  { bottom:7%; left:50%; transform:translateX(-50%); color:#ff6b6b; text-shadow:0 0 8px rgba(255,100,100,.6), 0 1px 4px rgba(0,0,0,.5); }
+  .hint { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,.30); font-size:13px; z-index:100; }
+  .loading {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    color:rgba(255,255,255,.6); font-size:16px; z-index:200; letter-spacing:2px;
+  }
+</style>
+</head>
+<body>
+<div class="loading" id="loading">🌍 正在加载纹理...</div>
+<div class="watch" id="watch">
+  <div class="face">
+    <div class="atmo-bg"></div>
+    <div id="globe"></div>
+    <svg id="arcs" viewBox="0 0 360 360"></svg>
+    <svg id="hands" viewBox="0 0 360 360"></svg>
+    <div class="time" id="time">12:00</div>
+    <div class="date">
+      <div class="greg" id="greg">5月19日 周一</div>
+      <div class="lunar" id="lunar">农历三月廿二</div>
+      <div class="gz" id="gzText">丙午年 癸巳月 癸巳日</div>
+    </div>
+    <div class="weather-box" id="weather"><span class="ico">☀️</span>26°</div>
+    <div class="sensor bat" id="bat">🔋87%</div>
+    <div class="sensor str" id="str">😌32</div>
+    <div class="sensor hr" id="hr">♥72</div>
+  </div>
+</div>
+<div class="hint">👆 点击表盘 · 空格键唤醒</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const S = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.9, 450);
+document.getElementById('watch').style.setProperty('--size', S + 'px');
+const R = S / 2, iR = R - 12;
+
+/* ===== TEXTURE URLS — 本地优先 + CDN回退 ===== */
+const TEX_SOURCES = {
+  day: [
+    'textures/earth_day.jpg',
+    'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_atmos_2048.jpg',
+  ],
+  night: [
+    'textures/earth_night.png',
+    'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_lights_2048.png',
+  ],
+  cloud: [
+    'textures/earth_cloud.png',
+    'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_clouds_1024.png',
+  ]
+};
+
+/* ===== DOM ===== */
+const globeDiv = document.getElementById('globe');
+const arcsSvg = document.getElementById('arcs');
+const handsSvg = document.getElementById('hands');
+const elTime = document.getElementById('time');
+const elGreg = document.getElementById('greg');
+const elLunar = document.getElementById('lunar');
+const elWeather = document.getElementById('weather');
+const elBat = document.getElementById('bat');
+const elStr = document.getElementById('str');
+const elHr = document.getElementById('hr');
+const elGz = document.getElementById('gzText');
+const elLoading = document.getElementById('loading');
+
+/* ===== Three.js Scene ===== */
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(26, 1, 0.1, 100);
+cam.position.z = 5.8;
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+renderer.setSize(iR * 2, iR * 2);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+globeDiv.appendChild(renderer.domElement);
+renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border-radius:50%;';
+
+/* ===== 光照 ===== */
+const amb = new THREE.AmbientLight(0x222244, 0.5);
+scene.add(amb);
+const sunLight = new THREE.DirectionalLight(0xfff8ee, 4.5);
+sunLight.position.set(5, -0.3, 1.2);
+scene.add(sunLight);
+const fillLight = new THREE.DirectionalLight(0x334466, 0.3);
+fillLight.position.set(-3, 2, -3);
+scene.add(fillLight);
+
+/* ===== Earth Group ===== */
+const earth = new THREE.Group();
+scene.add(earth);
+
+/* ===== 纹理加载器（Image + 超时检测）===== */
+let earthMesh, nightMesh, cloudMesh;
+let texReady = false;
+
+function tryLoadImage(sources, idx) {
+  if (idx >= sources.length) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    const timer = setTimeout(() => {
+      img.src = '';
+      tryLoadImage(sources, idx + 1).then(resolve);
+    }, 3000);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      tryLoadImage(sources, idx + 1).then(resolve);
+    };
+    img.src = sources[idx];
+  });
+}
+
+function imgToTex(img) {
+  if (!img) return null;
+  const tex = new THREE.Texture(img);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/* --- 超精细程序化纹理 — 全球大陆形状 --- */
+function makeSuperDayTex(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  const oceanGrad = ctx.createLinearGradient(0, 0, 0, h);
+  oceanGrad.addColorStop(0, '#0a2855');
+  oceanGrad.addColorStop(0.15, '#0d3d7a');
+  oceanGrad.addColorStop(0.4, '#1155aa');
+  oceanGrad.addColorStop(0.55, '#1466cc');
+  oceanGrad.addColorStop(0.7, '#1155aa');
+  oceanGrad.addColorStop(0.85, '#0d3d7a');
+  oceanGrad.addColorStop(1, '#0a2855');
+  ctx.fillStyle = oceanGrad; ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(20,80,180,0.12)';
+  for (let i = 0; i < 500; i++) {
+    const x = Math.random() * w, y = Math.random() * h;
+    ctx.beginPath(); ctx.arc(x, y, Math.random() * 35 + 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawContinent(points, cx, cy, sx, sy) {
+    if (points.length < 3) return;
+    ctx.save();
+    ctx.translate(cx * w, cy * h);
+    ctx.scale(sx * w, sy * h);
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const cpx = (prev[0] + curr[0]) / 2 + (Math.random() - 0.5) * 0.03;
+      const cpy = (prev[1] + curr[1]) / 2 + (Math.random() - 0.5) * 0.03;
+      ctx.quadraticCurveTo(cpx, cpy, curr[0], curr[1]);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#1d3d16';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(50,110,30,0.25)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const continents = [
+    { pts:[[.05,.02],[.08,.01],[.12,.01],[.16,.02],[.19,.04],[.20,.08],[.19,.12],[.16,.15],[.11,.16],[.06,.14],[.03,.10],[.02,.05]], cx:.12, cy:.08, sx:.14, sy:.12 },
+    { pts:[[.02,.18],[.06,.17],[.10,.17],[.14,.18],[.16,.21],[.16,.25],[.14,.27],[.08,.28],[.04,.26],[.01,.22]], cx:.09, cy:.23, sx:.11, sy:.08 },
+    { pts:[[.01,.34],[.04,.33],[.07,.34],[.08,.37],[.06,.39],[.02,.38]], cx:.04, cy:.36, sx:.06, sy:.04 },
+    { pts:[[.10,.55],[.13,.54],[.16,.56],[.17,.59],[.15,.62],[.11,.61],[.08,.59]], cx:.13, cy:.58, sx:.07, sy:.06 },
+    { pts:[[.12,.64],[.16,.62],[.20,.64],[.21,.67],[.22,.72],[.19,.74],[.14,.73],[.10,.69]], cx:.16, cy:.68, sx:.09, sy:.10 },
+    { pts:[[.33,.12],[.36,.11],[.40,.11],[.43,.13],[.44,.16],[.42,.18],[.38,.19],[.35,.17],[.32,.15]], cx:.38, cy:.15, sx:.10, sy:.07 },
+    { pts:[[.44,.20],[.47,.19],[.49,.20],[.50,.22],[.48,.24],[.45,.23]], cx:.47, cy:.22, sx:.04, sy:.04 },
+    { pts:[[.47,.14],[.49,.13],[.51,.14],[.52,.16],[.50,.17],[.48,.16]], cx:.50, cy:.15, sx:.03, sy:.03 },
+    { pts:[[.50,.22],[.54,.20],[.58,.21],[.61,.23],[.62,.27],[.60,.30],[.57,.31],[.53,.29],[.50,.26]], cx:.56, cy:.25, sx:.09, sy:.08 },
+    { pts:[[.52,.34],[.58,.32],[.64,.34],[.68,.36],[.70,.40],[.72,.45],[.70,.48],[.66,.49],[.60,.48],[.55,.44],[.52,.38]], cx:.62, cy:.39, sx:.16, sy:.14 },
+    { pts:[[.58,.18],[.61,.16],[.65,.16],[.68,.18],[.68,.21],[.65,.22],[.60,.21]], cx:.63, cy:.19, sx:.07, sy:.05 },
+    { pts:[[.66,.16],[.69,.15],[.72,.16],[.73,.18],[.71,.20],[.68,.19]], cx:.70, cy:.17, sx:.05, sy:.04 },
+    { pts:[[.70,.20],[.73,.19],[.76,.21],[.77,.23],[.74,.25],[.71,.24]], cx:.74, cy:.22, sx:.05, sy:.04 },
+    { pts:[[.76,.22],[.79,.21],[.82,.23],[.82,.26],[.80,.27],[.77,.26]], cx:.79, cy:.24, sx:.04, sy:.04 },
+    { pts:[[.80,.20],[.82,.19],[.84,.20],[.84,.22],[.82,.23],[.80,.22]], cx:.82, cy:.21, sx:.03, sy:.03 },
+    { pts:[[.58,.50],[.61,.49],[.63,.50],[.64,.53],[.62,.55],[.59,.53]], cx:.61, cy:.52, sx:.04, sy:.04 },
+    { pts:[[.62,.46],[.65,.45],[.67,.47],[.66,.50],[.63,.49]], cx:.64, cy:.47, sx:.03, sy:.03 },
+    { pts:[[.68,.36],[.73,.35],[.77,.37],[.79,.40],[.77,.43],[.73,.44],[.69,.42],[.67,.39]], cx:.73, cy:.39, sx:.08, sy:.07 },
+    { pts:[[.68,.48],[.72,.47],[.75,.49],[.76,.52],[.74,.55],[.70,.54],[.67,.51]], cx:.72, cy:.51, sx:.06, sy:.06 },
+    { pts:[[.76,.52],[.79,.51],[.82,.53],[.83,.56],[.81,.58],[.77,.57],[.75,.55]], cx:.79, cy:.54, sx:.06, sy:.06 },
+    { pts:[[.84,.48],[.87,.47],[.90,.50],[.91,.53],[.89,.56],[.86,.55],[.83,.52]], cx:.87, cy:.52, sx:.06, sy:.07 },
+    { pts:[[.18,.24],[.20,.23],[.22,.24],[.23,.26],[.21,.28],[.19,.27]], cx:.21, cy:.25, sx:.04, sy:.04 },
+    { pts:[[.22,.28],[.25,.27],[.27,.29],[.27,.32],[.25,.33],[.23,.31]], cx:.25, cy:.30, sx:.04, sy:.04 },
+    { pts:[[.24,.32],[.27,.31],[.29,.33],[.29,.36],[.27,.37],[.25,.35]], cx:.27, cy:.34, sx:.03, sy:.04 },
+    { pts:[[.16,.30],[.18,.29],[.20,.31],[.20,.34],[.18,.35],[.16,.33]], cx:.18, cy:.32, sx:.03, sy:.04 },
+  ];
+
+  for (const con of continents) {
+    drawContinent(con.pts, con.cx, con.cy, con.sx, con.sy);
+  }
+
+  for (let i = 0; i < 200; i++) {
+    const x = Math.random() * w, y = Math.random() * h;
+    ctx.fillStyle = `rgba(${30+Math.random()*30},${55+Math.random()*35},${18+Math.random()*15},${Math.random()*0.15+0.05})`;
+    ctx.beginPath(); ctx.arc(x, y, Math.random() * 14 + 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath();
+  ctx.arc(w * 0.06, h * 0.06, w * 0.015, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath();
+  ctx.arc(w * 0.06, h * 0.06, w * 0.025, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.beginPath();
+  ctx.arc(w * 0.06, h * 0.06, w * 0.038, 0, Math.PI * 2); ctx.fill();
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  return tex;
+}
+
+function makeSuperNightTex(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#030310'; ctx.fillRect(0, 0, w, h);
+
+  for (let i = 0; i < 800; i++) {
+    const b = Math.random();
+    if (b < 0.2) ctx.fillStyle = `rgba(255,235,120,${Math.random()*0.7+0.22})`;
+    else if (b < 0.4) ctx.fillStyle = `rgba(255,200,80,${Math.random()*0.45+0.12})`;
+    else if (b < 0.6) ctx.fillStyle = `rgba(255,165,45,${Math.random()*0.25+0.06})`;
+    else ctx.fillStyle = `rgba(200,150,50,${Math.random()*0.12+0.03})`;
+    ctx.beginPath();
+    ctx.arc(Math.random()*w, Math.random()*h, Math.random()*2.0+0.3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  const cities = [
+    [0.52,0.25],[0.50,0.24],[0.54,0.26],[0.56,0.24],[0.58,0.22],[0.60,0.20],
+    [0.62,0.18],[0.64,0.20],[0.63,0.24],[0.61,0.26],[0.66,0.20],[0.68,0.22],
+    [0.70,0.20],[0.72,0.23],[0.71,0.25],[0.68,0.27],[0.74,0.22],[0.76,0.24],
+    [0.78,0.26],[0.80,0.28],[0.82,0.26],[0.64,0.28],[0.66,0.30],[0.68,0.28],
+    [0.70,0.30],[0.72,0.31],[0.74,0.28],[0.60,0.30],[0.62,0.32],[0.64,0.34],
+    [0.66,0.36],[0.68,0.34],[0.58,0.42],[0.60,0.44],[0.64,0.42],[0.62,0.46],
+    [0.70,0.48],[0.72,0.50],[0.74,0.48],[0.76,0.52],[0.78,0.50],
+    [0.18,0.28],[0.20,0.26],[0.22,0.28],[0.24,0.30],[0.15,0.26],[0.17,0.28],
+    [0.36,0.18],[0.38,0.20],[0.40,0.18],[0.42,0.20],[0.44,0.18],[0.46,0.22],
+  ];
+  for (const [cx, cy] of cities) {
+    for (let j = 0; j < 12; j++) {
+      ctx.fillStyle = `rgba(255,235,125,${Math.random()*0.5+0.3})`;
+      ctx.beginPath();
+      ctx.arc(cx*w+(Math.random()-0.5)*45, cy*h+(Math.random()-0.5)*30, Math.random()*2.8+1.2, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  return tex;
+}
+
+function makeSuperCloudTex(w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  for (let i = 0; i < 400; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.18+0.03})`;
+    ctx.beginPath(); ctx.arc(Math.random()*w, Math.random()*h, Math.random()*14+3, 0, Math.PI*2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+/* --- 加载所有纹理 --- */
+Promise.all([
+  tryLoadImage(TEX_SOURCES.day, 0),
+  tryLoadImage(TEX_SOURCES.night, 0),
+  tryLoadImage(TEX_SOURCES.cloud, 0),
+]).then(([dayImg, nightImg, cloudImg]) => {
+  const dayTex = imgToTex(dayImg);
+  const nightTex = imgToTex(nightImg);
+  const cloudTex = imgToTex(cloudImg);
+
+  elLoading.textContent = dayTex ? '✅ 卫星纹理已加载' : '🎨 程序化纹理';
+  setTimeout(() => { elLoading.style.display = 'none'; }, 800);
+
+  buildScene(
+    dayTex || makeSuperDayTex(1024, 512),
+    nightTex || makeSuperNightTex(1024, 512),
+    cloudTex || makeSuperCloudTex(512, 256)
+  );
+});
+
+function buildScene(dayTex, nightTex, cloudTex) {
+  elLoading.style.display = 'none';
+
+  /* --- 地球主体 --- */
+  const geo = new THREE.SphereGeometry(1, 96, 96);
+
+  const earthMat = new THREE.MeshPhongMaterial({
+    map: dayTex,
+    specular: new THREE.Color(0x333333),
+    shininess: 8,
+  });
+  earthMesh = new THREE.Mesh(geo, earthMat);
+  earth.add(earthMesh);
+
+  /* --- 夜景层 --- */
+  nightMesh = new THREE.Mesh(new THREE.SphereGeometry(1.002, 96, 96), new THREE.MeshBasicMaterial({
+    map: nightTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  earth.add(nightMesh);
+
+  /* --- 云层 --- */
+  cloudMesh = new THREE.Mesh(new THREE.SphereGeometry(1.015, 64, 64), new THREE.MeshBasicMaterial({
+    map: cloudTex, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  earth.add(cloudMesh);
+
+  /* --- 大气辉光 --- */
+  const atmoGeo = new THREE.SphereGeometry(1.025, 72, 72);
+  const atmoMat = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec3 vN; varying vec3 vP;
+      void main() {
+        vN = normalize(normalMatrix * normal);
+        vP = (modelViewMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vN; varying vec3 vP;
+      void main() {
+        float rim = 1.0 - abs(dot(vN, normalize(-vP)));
+        float i = pow(rim, 4.0) * 0.55;
+        gl_FragColor = vec4(0.25, 0.55, 1.0, 1.0) * i;
+      }
+    `,
+    blending: THREE.AdditiveBlending, side: THREE.FrontSide,
+    transparent: true, depthWrite: false
+  });
+  const atmo = new THREE.Mesh(atmoGeo, atmoMat);
+  earth.add(atmo);
+
+  /* --- 缩放 & 位置 --- */
+  const gs = (iR * 0.55) / R * 2.3;
+  earth.scale.set(gs, gs, gs);
+  earth.position.set(0, -0.47, 0);
+
+  texReady = true;
+}
+
+/* ===== 动画状态 ===== */
+let isWaking = false, wakeStart = 0, wakeFrom = 0, wakeTo = 0, baseRot = 0, curRot = 0;
+function calcTarget() {
+  return -(195 / 360) * Math.PI * 2;
+}
+
+const EAST_ASIA_ROT = calcTarget();
+curRot = calcTarget();
+earth.rotation.y = curRot;
+earth.rotation.x = 0.18;
+
+/* ===== 太阳 & 晨昏（北京时间）===== */
+function sunPos(date) {
+  const bh = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600 + 8;
+  const ha = ((bh - 12) / 24) * Math.PI * 2;
+  const doy = Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
+  const dec = -23.44 * Math.cos((2 * Math.PI / 365) * (doy + 10)) * (Math.PI / 180);
+  const sx = Math.cos(dec) * Math.cos(ha);
+  const sy = Math.sin(dec);
+  const sz = Math.cos(dec) * Math.sin(ha);
+  return new THREE.Vector3(sx, sy, sz).normalize();
+}
+
+/* ===== 农历 ===== */
+const LUNAR = [0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,0x06566,0x0d4a0,0x0ea50,0x16a95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x05ac0,0x0ab60,0x096d5,0x092e0,0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,0x14b63];
+const Gan=['甲','乙','丙','丁','戊','己','庚','辛','壬','癸'];
+const Zhi=['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+const LM = ['正','二','三','四','五','六','七','八','九','十','冬','腊'];
+const LD = ['','初一','初二','初三','初四','初五','初六','初七','初八','初九','初十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十','廿一','廿二','廿三','廿四','廿五','廿六','廿七','廿八','廿九','三十'];
+function lyD(y){let s=348;for(let i=0x8000;i>0x8;i>>=1)s+=(LUNAR[y-1900]&i)?1:0;return s+((LUNAR[y-1900]&0xf)?((LUNAR[y-1900]&0x10000)?30:29):0);}
+function loM(y){return LUNAR[y-1900]&0xf;}
+function loD(y){const lm=LUNAR[y-1900]&0xf;return lm?((LUNAR[y-1900]&0x10000)?30:29):0;}
+function moD(y,m){return(LUNAR[y-1900]&(0x10000>>m))?30:29;}
+function toLunar(d){
+  const base=new Date(1900,0,31);let off=Math.floor((d-base)/86400000),y=1900,dy=lyD(y);
+  while(off>=dy){off-=dy;y++;dy=lyD(y);}
+  const lm=loM(y);let m=1,isL=false;
+  for(let i=1;i<=12;i++){
+    let md=moD(y,i);
+    if(lm===i){if(off<loD(y)){isL=true;break;}off-=loD(y);}
+    if(off<md)break;off-=md;m++;
+  }
+  const day=off+1;let ms=LM[m-1];if(isL)ms='闰'+ms;
+  const yrGz=Gan[(y-4)%10]+Zhi[(y-4)%12];
+   function getGzMonth(date,ly){
+     const yrStem=(ly-4)%10;
+     const stems=[2,4,6,8,0,2,4,6,8,0];
+     const stem0=stems[yrStem];
+     const mo=date.getMonth()+1;
+     const moStem=(stem0+mo-2)%10;
+     const moBranch=mo%12;
+     return Gan[moStem]+Zhi[moBranch];
+   }
+   function getGzDay(d){
+     const ref=new Date(1900,0,1);
+     const offD=Math.floor((d-ref)/86400000);
+     const gzIdx=(offD+10)%60;
+     return Gan[gzIdx%10]+Zhi[gzIdx%12];
+   }
+   const moGz=getGzMonth(d,y);
+   const dayGz=getGzDay(d);
+  return{full:`农历${ms}月${LD[day]}`,gz:`${yrGz}年 ${moGz}月 ${dayGz}日`};
+}
+
+/* ===== SVG 弧形指示器 ===== */
+const svgW=360, svgH=360, arcR=164, arcW=6;
+function mkArc(sa,ea,color,cw){
+  const r=arcR;
+  const sr=(sa-90)*Math.PI/180, er=(ea-90)*Math.PI/180;
+  const x1=svgW/2+r*Math.cos(sr), y1=svgH/2+r*Math.sin(sr);
+  const x2=svgW/2+r*Math.cos(er), y2=svgH/2+r*Math.sin(er);
+  const la=Math.abs(ea-sa)>180?1:0;
+  const sw=cw?1:0;
+
+  const track=document.createElementNS('http://www.w3.org/2000/svg','path');
+  track.setAttribute('d',`M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${la} ${sw} ${x2.toFixed(1)} ${y2.toFixed(1)}`);
+  track.setAttribute('stroke',color); track.setAttribute('stroke-opacity','0.10');
+  track.setAttribute('stroke-width',arcW.toString()); track.setAttribute('fill','none'); track.setAttribute('stroke-linecap','round');
+
+  const val=document.createElementNS('http://www.w3.org/2000/svg','path');
+  val.setAttribute('d',`M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${la} ${sw} ${x1.toFixed(1)} ${y1.toFixed(1)}`);
+  val.setAttribute('stroke',color); val.setAttribute('stroke-opacity','0.92');
+  val.setAttribute('stroke-width',arcW.toString()); val.setAttribute('fill','none'); val.setAttribute('stroke-linecap','round');
+
+  return{track,val,r,x1,y1,sa,ea,sr,cw};
+}
+
+const batArc=mkArc(35,85,'#4caf50',true);
+const strArc=mkArc(275,325,'#ff9800',true);
+const hrArc=mkArc(160,200,'#f44336',true);
+const ag=document.createElementNS('http://www.w3.org/2000/svg','g');
+ag.appendChild(batArc.track);ag.appendChild(batArc.val);
+ag.appendChild(strArc.track);ag.appendChild(strArc.val);
+ag.appendChild(hrArc.track);ag.appendChild(hrArc.val);
+arcsSvg.appendChild(ag);
+
+function updArc(arc,pct){
+  const ta=Math.abs(arc.ea-arc.sa);
+  let ca;
+  if(arc.cw)ca=arc.sa+ta*Math.min(pct,1);
+  else ca=arc.sa-ta*Math.min(pct,1);
+  const rad=(ca-90)*Math.PI/180;
+  const x=svgW/2+arc.r*Math.cos(rad), y=svgH/2+arc.r*Math.sin(rad);
+  const la=ta*pct>180?1:0;
+  const sw=arc.cw?1:0;
+  arc.val.setAttribute('d',`M ${arc.x1.toFixed(1)} ${arc.y1.toFixed(1)} A ${arc.r} ${arc.r} 0 ${la} ${sw} ${x.toFixed(1)} ${y.toFixed(1)}`);
+}
+
+/* ===== SVG 指针 ===== */
+const hg=document.createElementNS('http://www.w3.org/2000/svg','g');
+const CX=svgW/2, CY=svgH/2;
+
+for(let i=0;i<60;i++){
+  if(i%5===0)continue;
+  const a=(i*6-90)*Math.PI/180, r1=arcR-8, r2=arcR;
+  const t=document.createElementNS('http://www.w3.org/2000/svg','line');
+  t.setAttribute('x1',(CX+r1*Math.cos(a)).toFixed(2));t.setAttribute('y1',(CY+r1*Math.sin(a)).toFixed(2));
+  t.setAttribute('x2',(CX+r2*Math.cos(a)).toFixed(2));t.setAttribute('y2',(CY+r2*Math.sin(a)).toFixed(2));
+  t.setAttribute('stroke','rgba(255,255,255,0.15)');t.setAttribute('stroke-width','0.8');hg.appendChild(t);
+}
+for(let i=0;i<12;i++){
+  const a=(i*30-90)*Math.PI/180, r1=arcR-7, r2=arcR+2;
+  const t=document.createElementNS('http://www.w3.org/2000/svg','line');
+  t.setAttribute('x1',(CX+r1*Math.cos(a)).toFixed(2));t.setAttribute('y1',(CY+r1*Math.sin(a)).toFixed(2));
+  t.setAttribute('x2',(CX+r2*Math.cos(a)).toFixed(2));t.setAttribute('y2',(CY+r2*Math.sin(a)).toFixed(2));
+  t.setAttribute('stroke','rgba(255,255,255,0.42)');t.setAttribute('stroke-width','2');hg.appendChild(t);
+}
+
+const hHand=document.createElementNS('http://www.w3.org/2000/svg','line');
+hHand.setAttribute('x1',CX.toString());hHand.setAttribute('y1',CY.toString());
+hHand.setAttribute('x2',CX.toString());hHand.setAttribute('y2',(CY-svgH*0.21).toString());
+hHand.setAttribute('stroke','#fff');hHand.setAttribute('stroke-width','4.5');hHand.setAttribute('stroke-linecap','round');
+
+const mHand=document.createElementNS('http://www.w3.org/2000/svg','line');
+mHand.setAttribute('x1',CX.toString());mHand.setAttribute('y1',CY.toString());
+mHand.setAttribute('x2',CX.toString());mHand.setAttribute('y2',(CY-svgH*0.32).toString());
+mHand.setAttribute('stroke','#fff');mHand.setAttribute('stroke-width','3');mHand.setAttribute('stroke-linecap','round');
+
+const sHand=document.createElementNS('http://www.w3.org/2000/svg','line');
+sHand.setAttribute('x1',CX.toString());sHand.setAttribute('y1',(CY+16).toString());
+sHand.setAttribute('x2',CX.toString());sHand.setAttribute('y2',(CY-svgH*0.37).toString());
+sHand.setAttribute('stroke','#ff4d4d');sHand.setAttribute('stroke-width','1.5');sHand.setAttribute('stroke-linecap','round');
+
+const cDot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+cDot.setAttribute('cx',CX.toString());cDot.setAttribute('cy',CY.toString());
+cDot.setAttribute('r','5.5');cDot.setAttribute('fill','#fff');cDot.setAttribute('opacity','0.95');
+const cDotI=document.createElementNS('http://www.w3.org/2000/svg','circle');
+cDotI.setAttribute('cx',CX.toString());cDotI.setAttribute('cy',CY.toString());
+cDotI.setAttribute('r','2.2');cDotI.setAttribute('fill','#ff4d4d');
+
+hg.appendChild(hHand);hg.appendChild(mHand);hg.appendChild(sHand);
+hg.appendChild(cDot);hg.appendChild(cDotI);
+handsSvg.appendChild(hg);
+
+function updHands(h,m,s){
+  const ha=(h%12)*30+m*0.5, ma=m*6+s*0.1, sa=s*6;
+  const hr=(ha-90)*Math.PI/180, mr=(ma-90)*Math.PI/180, sr=(sa-90)*Math.PI/180;
+  const hl=svgH*0.21, ml=svgH*0.32, sl=svgH*0.37;
+  hHand.setAttribute('x2',(CX+hl*Math.cos(hr)).toFixed(2));
+  hHand.setAttribute('y2',(CY+hl*Math.sin(hr)).toFixed(2));
+  mHand.setAttribute('x2',(CX+ml*Math.cos(mr)).toFixed(2));
+  mHand.setAttribute('y2',(CY+ml*Math.sin(mr)).toFixed(2));
+  sHand.setAttribute('x2',(CX+sl*Math.cos(sr)).toFixed(2));
+  sHand.setAttribute('y2',(CY+sl*Math.sin(sr)).toFixed(2));
+  const st=-16;
+  sHand.setAttribute('x1',(CX+st*Math.cos(sr)).toFixed(2));
+  sHand.setAttribute('y1',(CY+st*Math.sin(sr)).toFixed(2));
+}
+
+/* ===== 模拟数据 ===== */
+const WDAYS=['周日','周一','周二','周三','周四','周五','周六'];
+function pad(n){return n.toString().padStart(2,'0');}
+function updTime(){
+  const n=new Date();
+  elTime.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  elGreg.textContent=`${n.getMonth()+1}月${n.getDate()}日 ${WDAYS[n.getDay()]}`;
+  const lunar=toLunar(n);
+  elLunar.textContent=lunar.full;
+  elGz.textContent=lunar.gz;
+  updHands(n.getHours(),n.getMinutes(),n.getSeconds());
+  return n;
+}
+let lastSim=0;
+function updSensors(){
+  const h=new Date().getHours();
+  const bat=Math.round(82+Math.sin(h/24*Math.PI*2)*12);
+  const hr=70+Math.floor(Math.sin(Date.now()/5000)*8);
+  const str=28+Math.floor(Math.sin(Date.now()/7000)*9);
+  elBat.textContent=`🔋${bat}%`;elStr.textContent=`😌${str}`;elHr.textContent=`♥${hr}`;
+  updArc(batArc,bat/100);updArc(strArc,str/100);updArc(hrArc,(hr-50)/80);
+  const icons=h>=6&&h<18?['☀️','🌤️','⛅']:['🌙','🌛','✨'];
+  const temp=[16,16,17,20,23,26,28,27,25,21,19,18][h>=6?Math.min(Math.floor((h-6)/2),11):Math.floor((h+18)/2)%12]+Math.floor(Math.random()*3-1);
+  elWeather.innerHTML=`<span class="ico">${icons[Math.floor(Math.random()*icons.length)]}</span>${temp}°`;
+}
+
+/* ===== 唤醒动画 ===== */
+function wake(){
+  if(isWaking||!texReady)return;
+  isWaking=true;
+  wakeStart=performance.now()/1000;
+  wakeFrom=curRot;
+  wakeTo=calcTarget();
+  const full=Math.PI*4;
+  const sd=((wakeTo-wakeFrom+Math.PI*3)%(Math.PI*2))-Math.PI;
+  baseRot=wakeFrom+(full+sd);
+}
+
+function tryInitWake() {
+  if (texReady && !isWaking) {
+    curRot = Math.random() * Math.PI * 2;
+    earth.rotation.y = curRot;
+    wake();
+  } else if (!texReady) {
+    setTimeout(tryInitWake, 200);
+  }
+}
+setTimeout(tryInitWake, 600);
+
+document.getElementById('watch').addEventListener('click',wake);
+document.getElementById('watch').addEventListener('touchend',e=>{e.preventDefault();wake();});
+document.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='KeyW'){e.preventDefault();wake();}});
+
+/* ===== 主循环 ===== */
+let lastT=performance.now()/1000;
+function loop(tMs){
+  requestAnimationFrame(loop);
+  const t=tMs/1000, dt=Math.min(t-lastT,0.1);lastT=t;
+
+  if(isWaking){
+    const p=(t-wakeStart)/1.4;
+    if(p>=1){curRot=wakeTo;isWaking=false;}
+    else{curRot=wakeFrom+(baseRot-wakeFrom)*(1-Math.pow(1-Math.min(p,1),3));}
+  }
+
+  if(texReady){
+    const now=new Date();
+    const sp=sunPos(now);
+    const inv=new THREE.Matrix4().makeRotationX(-0.18).makeRotationY(-curRot);
+    const loc=sp.clone().applyMatrix4(inv);
+    sunLight.position.copy(loc.clone().multiplyScalar(8));
+
+    const df=(loc.z+1)/2;
+    const nOp=Math.max(0,Math.min(1,(1-df)*3.5));
+    if(nightMesh)nightMesh.material.opacity=nOp*0.95;
+    amb.intensity=0.15+df*0.75;
+
+    if(cloudMesh)cloudMesh.rotation.y+=dt*0.012;
+    earth.rotation.y=curRot;
+  }
+
+  renderer.render(scene,cam);
+  updTime();
+  if(t-lastSim>2){updSensors();lastSim=t;}
+}
+
+updSensors();
+updTime();
+requestAnimationFrame(loop);
+
+console.log('🌍 Galaxy Watch4 Classic — 真实卫星纹理 · 东亚可见 · 晨昏线 · 月相');
+</script>
+</body>
+</html>
