@@ -1,0 +1,28 @@
+{
+  "total": 95,
+  "distribution": {
+    "positive": 51,
+    "neutral": 18,
+    "negative": 26
+  },
+  "avg_score": 0.5987778980608546,
+  "thresholds": {
+    "pos": 0.6,
+    "neg": 0.4
+  },
+  "engine": "SnowNLP",
+  "cleaning": {
+    "stopwords_count": 75,
+    "raw_tokens": 821,
+    "kept_tokens": 427,
+    "dropped": {
+      "stopword": 234,
+      "number": 4,
+      "too_short": 154,
+      "single_cn": 0,
+      "noise_pattern": 2,
+      "empty": 0
+    },
+    "docfreq_removed_tokens": []
+  }
+}
