@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}行为时间线 — 个人情报工具{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>行为时间线</h1>
+    <p class="page-desc">扩展与导入产生的行为信号；高停留（≥90 秒）内容页会自动收录进知识库。</p>
+  </div>
+  <div class="page-actions">
+    <button id="btn-behavior-refresh" class="btn btn-sm" type="button">刷新</button>
+  </div>
+</div>
+
+<div id="persona-stale-banner" class="alert alert-warn hidden"></div>
+
+<div class="card mt-1">
+  <div class="page-actions mb-1">
+    <button id="btn-behavior-insights" class="btn btn-sm btn-secondary" type="button">生成解读</button>
+  </div>
+  <div id="behavior-insights" class="muted">点击「生成解读」基于近期行为生成 AI 分析（会消耗 API）。</div>
+  <div class="grid-2">
+    <div class="form-row">
+      <label for="behavior-filter">筛选</label>
+      <select id="behavior-filter">
+        <option value="">全部高价值</option>
+        <option value="extension">仅扩展</option>
+        <option value="ext_page_dwell">高停留</option>
+        <option value="ext_auto_save">自动收录</option>
+        <option value="bilibili_like">B站点赞</option>
+        <option value="bilibili_comment_post">B站发评</option>
+        <option value="bilibili_comment_like">B站评论赞</option>
+        <option value="zhihu_vote">知乎赞同</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="behavior-min-score">最低权重</label>
+      <input type="number" id="behavior-min-score" value="12" min="0" max="100">
+    </div>
+  </div>
+</div>
+
+<div id="behavior-list" class="mt-1 muted">加载中…</div>
+{% endblock %}
+{% block scripts %}
+<script>initBehavior();</script>
+{% endblock %}

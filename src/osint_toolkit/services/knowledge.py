@@ -6,12 +6,50 @@ import json
 from typing import Any
 
 from osint_toolkit.models.intel_item import IntelItem
+from osint_toolkit.persona.behavior_signals import score_event
 from osint_toolkit.storage.knowledge import recall as _recall
 from osint_toolkit.storage.sqlite import connect
 
 
 def recall(query: str, limit: int = 20) -> list[IntelItem]:
-    return _recall(query, limit=limit)
+    items = _recall(query, limit=limit)
+    q = query.strip()
+    if not q:
+        return items
+    remaining = limit - len(items)
+    if remaining <= 0:
+        return items
+    seen = {i.url for i in items if i.url}
+    conn = connect()
+    rows = conn.execute(
+        "SELECT event_type, data_json FROM events "
+        "WHERE data_json LIKE ? ORDER BY id DESC LIMIT ?",
+        (f"%{q}%", remaining * 5),
+    ).fetchall()
+    conn.close()
+    for row in rows:
+        data = json.loads(row["data_json"])
+        if score_event(str(row["event_type"]), data) < 12:
+            continue
+        url = str(data.get("url") or "")
+        title = str(data.get("title") or url or row["event_type"])
+        if url and url in seen:
+            continue
+        if url:
+            seen.add(url)
+        items.append(
+            IntelItem(
+                source=str(data.get("source") or "behavior"),
+                type="behavior",
+                url=url,
+                title=title,
+                content=f"行为信号: {row['event_type']}",
+                personal={"from": "events", "event_type": row["event_type"]},
+            )
+        )
+        if len(items) >= limit:
+            break
+    return items
 
 
 def list_items(

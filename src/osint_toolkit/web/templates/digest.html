@@ -1,14 +1,23 @@
 {% extends "base.html" %}
 {% block title %}简报 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>简报</h1>
+<div class="page-header">
+  <div>
+    <h1>简报</h1>
+    <p class="page-desc">基于知识库生成每日情报摘要。</p>
+  </div>
+</div>
 
 <div class="card">
+  <label class="toggle-row"><input type="checkbox" id="opt-digest-ai"> AI 叙事模式（基于今日行为与收录）</label>
   <button id="btn-daily" class="btn">生成今日简报</button>
   <div id="daily-content" class="markdown-body mt-1"></div>
 </div>
 
-<h2>历史报告</h2>
+<h2>每日简报存档</h2>
+<div id="digest-history" class="muted mb-1">加载中…</div>
+
+<h2>搜罗情报报告 <a href="/runs" class="btn btn-sm btn-ghost">查看全部 →</a></h2>
 <div id="report-list"></div>
 {% endblock %}
 {% block scripts %}

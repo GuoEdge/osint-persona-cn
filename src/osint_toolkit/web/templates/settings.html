@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}设置 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>设置</h1>
+<div class="page-header">
+  <div>
+    <h1>设置</h1>
+    <p class="page-desc">Cookie 同步、连接状态与本地数据路径。</p>
+  </div>
+</div>
 
 <h2>连接状态</h2>
 <div id="auth-status" class="card">加载中…</div>
@@ -9,12 +14,51 @@
 <h2>同步 Cookie</h2>
 <div class="card">
   <p class="muted">从 Edge 同步 Cookie（建议先关闭浏览器）</p>
-  <button id="btn-sync-cookies" class="btn">同步 Cookie</button>
+  <p class="muted"><strong>推荐（Edge 130+）：</strong>扩展弹窗 → <strong>从浏览器同步 Cookie</strong>（无需关 Edge、无需管理员）。</p>
+  <p class="muted">备选：完全关闭 Edge 后点下方按钮；若报 <code>appbound encryption</code>，用 <code>sync-cookies-admin.bat</code> 以管理员运行。</p>
+  <button id="btn-sync-cookies" class="btn">从磁盘同步 Cookie（Edge 需关闭）</button>
   <div id="sync-result" class="mt-1"></div>
 </div>
 
+<details class="mt-1">
+  <summary>Playwright 浏览器会话补洞（CDP 模式）</summary>
+  <div class="card mt-1 muted">
+    <p>当 Edge 必须保持打开时，可用 CDP 附着调试端口（在 <code>~/.osint/config.yaml</code> 设 <code>ingest.browser_sync_mode: cdp</code>）：</p>
+    <ol>
+      <li>完全退出 Edge 后，用调试端口启动（PowerShell）：</li>
+    </ol>
+    <pre id="edge-cdp-cmd" class="code-block">&amp; "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222 --user-data-dir="$env:LOCALAPPDATA\Microsoft\Edge\User Data"</pre>
+    <button type="button" class="btn btn-sm mt-1" id="btn-copy-edge-cdp">复制启动命令</button>
+    <p class="mt-1">然后运行 <code>browser-sync.bat --cdp</code> 或导入页「浏览器会话补洞」。</p>
+    <p>首次请运行 <code>scripts/install-browser-sync.ps1</code> 安装 Playwright。</p>
+  </div>
+</details>
+
 <h2>路径信息</h2>
 <div id="paths-info" class="card muted">加载中…</div>
+
+<details class="mt-1">
+  <summary>AI 配置说明</summary>
+  <div class="card mt-1 muted">
+    <p>在 <code>~/.osint/config.yaml</code> 的 <code>ai</code> 段可配置：</p>
+    <ul>
+      <li><code>persona_inject: true</code> — 搜罗/追问/简报注入画像</li>
+      <li><code>dwell_save_no_ai: true</code> — 高停留自动收录跳过 AI（省 API）</li>
+      <li><code>auto_persona_rebuild: prompt</code> — off / prompt（横幅提示）/ auto（静默重建）</li>
+      <li><code>auto_persona_rebuild: auto</code> — 达阈值后自动重建，仅提示「已自动重建」（<code>prompt</code>=手动提醒，<code>off</code>=关闭）</li>
+      <li><code>auto_persona_rebuild_threshold: 50</code> — 自上次构建后新增行为条数达阈值触发</li>
+    </ul>
+    <p>在 <code>search</code> 段可配置：</p>
+    <ul>
+      <li><code>include_slurs: true</code> — 搜罗时默认扩展贬义/黑称关联词</li>
+      <li><code>max_expanded_queries: 8</code> — 单次搜索最多并行查询数</li>
+      <li><code>comment_mine_top: 3</code> — 默认挖掘 top N 条 B 站视频热评</li>
+      <li><code>discover_sources: [bilibili, zhihu, web, v2ex]</code> — 联网发现关联词的探针来源</li>
+      <li><code>persist_discovered_aliases: true</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
+    </ul>
+    <p>实体词表：将 YAML 放入 <code>~/.osint/entities/</code>，参见仓库 <code>docs/examples/entities/</code>；联网发现词会自动沉淀到 <code>discovered.yaml</code></p>
+  </div>
+</details>
 
 <details class="mt-1">
   <summary>高级工具：域名 DNS 查询</summary>

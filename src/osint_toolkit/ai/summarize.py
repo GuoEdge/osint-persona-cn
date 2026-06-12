@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, directives_hash, is_step_enabled
 from osint_toolkit.models.intel_item import IntelItem
+from osint_toolkit.persona.context import PersonaContext
 
 
 def _fallback_summary(item: IntelItem) -> str:
@@ -19,6 +22,7 @@ def summarize_item(
     client: DeepSeekClient | None = None,
     runtime_instruct: str = "",
     no_ai: bool = False,
+    persona_ctx: PersonaContext | None = None,
 ) -> tuple[str, dict]:
     meta = {"prompt_source": "builtin", "directives_hash": directives_hash(), "ai_invoked": False}
     if not is_step_enabled("summarize", no_ai=no_ai):
@@ -28,10 +32,30 @@ def summarize_item(
     meta["prompt_source"] = source
     meta["ai_invoked"] = True
     content = (item.content or item.title)[:6000]
+    hints_block = ""
+    if persona_ctx and persona_ctx.interest_hints:
+        hints_block = f"\n近期关注: {json.dumps(persona_ctx.interest_hints[:5], ensure_ascii=False)}\n"
+    comments_block = ""
+    comments_summary = item.layers.get("comments_summary")
+    if comments_summary:
+        comments_block = f"\n\n社区观点（非事实，来自热评归纳）:\n{comments_summary[:2000]}\n"
     summary = client.chat(
         messages=[
-            {"role": "system", "content": build_system_prompt(task="摘要", runtime_instruct=runtime_instruct)},
-            {"role": "user", "content": f"{prompt_tpl}\n\n标题:{item.title}\n来源:{item.source}\n\n{content}"},
+            {
+                "role": "system",
+                "content": build_system_prompt(
+                    task="摘要",
+                    runtime_instruct=runtime_instruct,
+                    persona_brief=persona_ctx.brief if persona_ctx else "",
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"{prompt_tpl}{hints_block}\n\n标题:{item.title}\n来源:{item.source}\n\n{content}"
+                    f"{comments_block}"
+                ),
+            },
         ]
     )
     item.summary = summary
@@ -44,11 +68,16 @@ def summarize_batch(
     client: DeepSeekClient | None = None,
     runtime_instruct: str = "",
     no_ai: bool = False,
+    persona_ctx: PersonaContext | None = None,
 ) -> list[dict]:
     results = []
     for item in items:
         summary, meta = summarize_item(
-            item, client=client, runtime_instruct=runtime_instruct, no_ai=no_ai
+            item,
+            client=client,
+            runtime_instruct=runtime_instruct,
+            no_ai=no_ai,
+            persona_ctx=persona_ctx,
         )
         results.append({"id": item.id, "summary": summary, "meta": meta})
     return results

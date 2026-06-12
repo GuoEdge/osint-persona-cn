@@ -22,7 +22,12 @@ async def save_url(
 ) -> dict[str, Any]:
     host = urlparse(url).hostname or ""
     if "zhihu.com" in host:
-        item = await ZhihuCollector().fetch(url)
+        collector = ZhihuCollector()
+        item = await collector.fetch(url)
+        if with_comments:
+            comments = await collector.fetch_comments(url)
+            item.layers["comments"] = comments
+            item.layers["comments_summary"] = await summarize_comments(comments, no_ai=no_ai)
     elif "bilibili.com" in host:
         collector = BilibiliCollector()
         item = await collector.fetch(url)

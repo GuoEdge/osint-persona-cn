@@ -1,0 +1,76 @@
+{
+  "manifest_version": 3,
+  "name": "OSINT 个人采集",
+  "version": "0.2.9",
+  "description": "后台采集个人社交浏览与互动，仅写入本机 OSINT Toolkit",
+  "permissions": ["storage", "tabs", "alarms", "contextMenus", "scripting", "cookies"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "https://*.bilibili.com/*",
+    "https://www.bilibili.com/*",
+    "https://space.bilibili.com/*",
+    "https://*.zhihu.com/*",
+    "https://www.zhihu.com/*",
+    "https://zhuanlan.zhihu.com/*",
+    "https://github.com/*",
+    "https://api.github.com/*",
+    "https://*.v2ex.com/*",
+    "https://v2ex.com/*",
+    "https://juejin.cn/*",
+    "https://*.juejin.cn/*",
+    "https://sspai.com/*",
+    "https://www.huxiu.com/*",
+    "https://36kr.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://weibo.com/*",
+    "https://*.weibo.com/*",
+    "https://www.douban.com/*",
+    "https://twitter.com/*",
+    "https://x.com/*",
+    "https://api.aicu.cc/*",
+    "https://www.aicu.cc/*",
+    "https://*.aicu.cc/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.bilibili.com/*",
+        "https://www.bilibili.com/*",
+        "https://space.bilibili.com/*",
+        "https://*.zhihu.com/*",
+        "https://www.zhihu.com/*",
+        "https://zhuanlan.zhihu.com/*",
+        "https://github.com/*",
+        "https://*.v2ex.com/*",
+        "https://v2ex.com/*",
+        "https://juejin.cn/*",
+        "https://*.juejin.cn/*",
+        "https://sspai.com/*",
+        "https://www.huxiu.com/*",
+        "https://36kr.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://weibo.com/*",
+        "https://*.weibo.com/*",
+        "https://www.douban.com/*",
+        "https://twitter.com/*",
+        "https://x.com/*"
+      ],
+      "js": ["lib/platforms.js", "content/collector.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "OSINT 个人采集"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content/inject.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

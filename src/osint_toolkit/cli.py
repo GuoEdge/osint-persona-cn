@@ -154,6 +154,8 @@ def ai_prompts_reset(name: str) -> None:
 @click.option("--no-simulate", is_flag=True)
 @click.option("--no-ai-step", multiple=True)
 @click.option("--deep-top", default=0, type=int)
+@click.option("--comment-mine-top", default=None, type=int)
+@click.option("--no-mine-comments", is_flag=True)
 @click.option("--json", "as_json", is_flag=True)
 def search_cmd(
     query: str,
@@ -167,6 +169,8 @@ def search_cmd(
     no_simulate: bool,
     no_ai_step: tuple[str, ...],
     deep_top: int,
+    comment_mine_top: int | None,
+    no_mine_comments: bool,
     as_json: bool,
 ) -> None:
     """多源搜索与情报采集。"""
@@ -184,6 +188,7 @@ def search_cmd(
             no_simulate=no_simulate,
             disabled_ai_steps=list(no_ai_step),
             deep_top=deep_top,
+            comment_mine_top=0 if no_mine_comments else comment_mine_top,
         )
     )
     if as_json:
@@ -245,25 +250,64 @@ def ingest_browser(since_days: int) -> None:
 
 
 @ingest_group.command("bilibili")
-@click.option("--history", is_flag=True)
-def ingest_bilibili(history: bool) -> None:
-    if history:
-        result = ingest.ingest_bilibili()
-        console.print(f"[green]导入 B站观看历史 {result['count']} 条[/]")
+@click.option("--history-only", is_flag=True, help="仅拉取观看历史（默认拉取历史+收藏+点赞+关注）")
+def ingest_bilibili(history_only: bool) -> None:
+    result = ingest.ingest_bilibili_sync(
+        include_favorites=not history_only,
+        include_likes=not history_only,
+    )
+    console.print(f"[green]B站导入 {result['count']} 条[/]")
+    for warning in result.get("warnings") or []:
+        console.print(f"[yellow]{warning}[/]")
 
 
 @ingest_group.command("zhihu")
-@click.option("--votes", is_flag=True)
-def ingest_zhihu(votes: bool) -> None:
-    if votes:
-        result = ingest.ingest_zhihu()
-        console.print(f"[green]导入知乎赞同 {result['count']} 条[/]")
+def ingest_zhihu() -> None:
+    result = ingest.ingest_zhihu_sync()
+    console.print(f"[green]知乎导入 {result['count']} 条[/]")
+    for warning in result.get("warnings") or []:
+        console.print(f"[yellow]{warning}[/]")
 
 
 @ingest_group.command("likes")
 def ingest_likes() -> None:
     result = ingest.get_likes()
     console.print(f"认可记录: {result['count']} 条")
+
+
+@ingest_group.command("browser-sync")
+@click.option(
+    "--platform",
+    "platforms",
+    multiple=True,
+    type=click.Choice(["bilibili", "zhihu", "all"]),
+    default=["all"],
+)
+@click.option("--cdp", is_flag=True, help="使用 CDP 附着已开调试端口的 Edge")
+@click.option("--headed", is_flag=True, help="显示浏览器窗口（非 headless）")
+def ingest_browser_sync(platforms: tuple[str, ...], cdp: bool, headed: bool) -> None:
+    """Playwright 本机 Edge 会话补洞（需 pip install -e \".[browser]\"）。"""
+    from osint_toolkit.services import browser_sync as browser_sync_service
+
+    selected: tuple[str, ...]
+    if "all" in platforms or not platforms:
+        selected = ("bilibili", "zhihu")
+    else:
+        selected = tuple(p for p in platforms if p != "all")
+    mode = "cdp" if cdp else None
+    console.print("[cyan]浏览器会话同步中…（Persistent 模式需关闭 Edge）[/]")
+    result = asyncio.run(
+        browser_sync_service.execute_browser_sync(
+            platforms=selected,
+            mode=mode,
+            headless=not headed,
+        )
+    )
+    console.print(f"[green]写入 {result.get('accepted', 0)} 条，跳过重复 {result.get('skipped', 0)}[/]")
+    for warning in result.get("warnings") or []:
+        console.print(f"[yellow]{warning}[/]")
+    if result.get("pages_visited"):
+        console.print(f"访问页面: {len(result['pages_visited'])}")
 
 
 main.add_command(ingest_group, name="ingest")

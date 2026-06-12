@@ -21,9 +21,48 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrate_fts(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = 'fts_schema_version'"
+    ).fetchone()
+    version = int(row["value"]) if row else 0
+    if version >= 2:
+        return
+    conn.execute("DROP TABLE IF EXISTS intel_fts")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE intel_fts USING fts5(
+            item_id UNINDEXED, title, content, summary, tokenize='unicode61'
+        )
+        """
+    )
+    rows = conn.execute("SELECT id, title, content, data_json FROM intel_items").fetchall()
+    for row in rows:
+        summary = ""
+        try:
+            import json
+
+            data = json.loads(row["data_json"] or "{}")
+            summary = str(data.get("summary") or "")
+        except (json.JSONDecodeError, TypeError):
+            pass
+        conn.execute(
+            "INSERT INTO intel_fts (item_id, title, content, summary) VALUES (?, ?, ?, ?)",
+            (row["id"], row["title"] or "", row["content"] or "", summary),
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_schema_version', '2')"
+    )
+    conn.commit()
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         CREATE TABLE IF NOT EXISTS intel_items (
             id TEXT PRIMARY KEY,
             source TEXT,
@@ -35,7 +74,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS intel_fts USING fts5(
-            title, content, summary, tokenize='unicode61'
+            item_id UNINDEXED, title, content, summary, tokenize='unicode61'
         );
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +91,12 @@ def init_schema(conn: sqlite3.Connection) -> None:
             data_json TEXT,
             endorsed_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS event_dedup (
+            dedup_key TEXT PRIMARY KEY,
+            event_type TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     conn.commit()
+    _migrate_fts(conn)

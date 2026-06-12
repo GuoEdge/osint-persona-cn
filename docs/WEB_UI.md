@@ -4,6 +4,26 @@
 
 ## 安装与启动
 
+### 一键启动（推荐，Windows）
+
+双击项目根目录：
+
+- **`start-osint-web.bat`**（或中文名 `启动情报台.bat`）— 启动服务并自动打开浏览器
+- **`stop-osint-web.bat`**（或 `停止情报台.bat`）— 释放 8787 端口
+
+固定到桌面（运行一次即可）：
+
+```powershell
+cd D:\gochj\gochj-web
+powershell -ExecutionPolicy Bypass -File .\scripts\create-desktop-shortcut.ps1
+```
+
+会在桌面生成 **OSINT Web.lnk** 和 **Stop OSINT Web.lnk**。
+
+脚本会自动使用 `.venv\Scripts\python.exe`（若存在），否则用系统 `python`，并设置 `PYTHONPATH=src`（无需每次手敲）。
+
+### 命令行启动
+
 ```powershell
 pip install -e ".[dev,web]"
 osint web

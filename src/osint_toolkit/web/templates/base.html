@@ -5,36 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}个人情报工具{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">个人情报工具</div>
+      <div class="brand">
+        个人情报
+        <span class="brand-sub">本地 OSINT 工作台</span>
+      </div>
       <nav>
-        {% for item in nav %}
-        <a href="{{ item.href }}" class="nav-item{% if active == item.id %} active{% endif %}">{{ item.label }}</a>
+        {% for group in nav_groups %}
+        <div class="nav-group">
+          <div class="nav-group-label">{{ group.label }}</div>
+          {% for item in group.links %}
+          <a href="{{ item.href }}" class="nav-item{% if active == item.id %} active{% endif %}">{{ item.label }}</a>
+          {% endfor %}
+        </div>
         {% endfor %}
       </nav>
+      <div class="sidebar-footer">
+        <div id="sidebar-extension-chip" class="sidebar-chip">扩展检测中…</div>
+        <div id="sidebar-setup-chip" class="sidebar-chip hidden"></div>
+        <div class="sidebar-footnote">数据仅存于本机 ~/.osint</div>
+      </div>
     </aside>
     <main class="main">
-      <header class="topbar">
-        <form class="global-search" action="/" method="get" id="global-search-form">
-          <input type="search" name="q" placeholder="搜索话题或知识库…" id="global-search-input">
-          <select name="mode" id="global-search-mode">
-            <option value="search">搜罗</option>
-            <option value="knowledge">仅知识库</option>
-          </select>
-        </form>
-      </header>
       <div class="content">
         {% block content %}{% endblock %}
       </div>
     </main>
   </div>
   <script src="/static/app.js"></script>
+  <script>initGlobalSidebar();</script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

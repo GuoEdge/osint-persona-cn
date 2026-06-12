@@ -1,29 +1,60 @@
 {% extends "base.html" %}
 {% block title %}知识库 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>知识库</h1>
-<p class="muted">检索已收录内容，不触发多源采集。</p>
-
-<form id="knowledge-form" class="card">
-  <div class="grid-2">
-    <div class="form-row">
-      <label for="knowledge-query">搜索</label>
-      <input type="search" id="knowledge-query" placeholder="关键词…">
-    </div>
-    <div class="form-row">
-      <label for="knowledge-source">来源过滤</label>
-      <select id="knowledge-source">
-        <option value="">全部</option>
-        <option value="zhihu">zhihu</option>
-        <option value="bilibili">bilibili</option>
-        <option value="web">web</option>
-      </select>
-    </div>
+<div class="page-header">
+  <div>
+    <h1>知识库</h1>
+    <p class="page-desc">检索与收录已保存内容，不触发多源采集。</p>
   </div>
-  <button type="submit" class="btn">检索</button>
-</form>
+</div>
 
-<div id="knowledge-results" class="mt-1"></div>
+<div class="tab-row">
+  <button type="button" class="tab active" data-knowledge-tab="search">检索</button>
+  <button type="button" class="tab" data-knowledge-tab="save">收录</button>
+</div>
+
+<div id="knowledge-tab-search" class="tab-panel active">
+  <form id="knowledge-form" class="card">
+    <div class="grid-2">
+      <div class="form-row">
+        <label for="knowledge-query">搜索</label>
+        <input type="search" id="knowledge-query" placeholder="关键词…">
+      </div>
+      <div class="form-row">
+        <label for="knowledge-source">来源过滤</label>
+        <select id="knowledge-source">
+          <option value="">全部</option>
+          <option value="zhihu">知乎</option>
+          <option value="bilibili">B站</option>
+          <option value="web">网页</option>
+        </select>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <label><input type="radio" name="knowledge-mode" value="keyword" checked> 关键词</label>
+      <label><input type="radio" name="knowledge-mode" value="semantic"> 语义（FTS）</label>
+    </div>
+    <button type="submit" class="btn">检索</button>
+  </form>
+  <div id="knowledge-results" class="mt-1"></div>
+</div>
+
+<div id="knowledge-tab-save" class="tab-panel hidden">
+  <form id="save-form" class="card">
+    <div class="form-row">
+      <label for="save-url">URL</label>
+      <input type="url" id="save-url" placeholder="https://…" required>
+    </div>
+    <div class="toggle-row">
+      <label><input type="checkbox" id="save-comments"> 抓取评论</label>
+      <label><input type="checkbox" id="save-no-ai"> 跳过 AI 摘要</label>
+    </div>
+    <button type="submit" class="btn">收录</button>
+    <div id="save-message" class="mt-1"></div>
+  </form>
+  <h2 class="mt-1">最近收录</h2>
+  <div id="recent-items"></div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>initKnowledge();</script>

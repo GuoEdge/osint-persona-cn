@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from typing import Any
 from urllib.parse import quote
 
 from osint_toolkit.collectors.base import BaseCollector
@@ -13,38 +15,57 @@ from osint_toolkit.processors.normalize import html_to_text
 
 class BilibiliCollector(BaseCollector):
     name = "bilibili"
+    _oid_cache: dict[str, str] = {}
 
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
 
     async def search(self, query: str, limit: int = 10) -> list[IntelItem]:
+        items: list[IntelItem] = []
+        errors: list[str] = []
+        for search_type, parser in (
+            ("video", self._parse_video),
+            ("article", self._parse_article),
+        ):
+            try:
+                for entry in await self._search_type(query, search_type, limit):
+                    item = parser(entry)
+                    if item:
+                        items.append(item)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{search_type}: {exc}")
+        seen: set[str] = set()
+        deduped: list[IntelItem] = []
+        for item in items:
+            if item.url in seen:
+                continue
+            seen.add(item.url)
+            deduped.append(item)
+        if not deduped and errors:
+            raise RuntimeError("; ".join(errors))
+        return deduped[:limit]
+
+    async def _search_type(self, query: str, search_type: str, limit: int) -> list[dict]:
         url = (
             "https://api.bilibili.com/x/web-interface/search/type?"
-            f"search_type=video&keyword={quote(query)}&page=1&page_size={limit}"
+            f"search_type={search_type}&keyword={quote(query)}&page=1&page_size={limit}"
         )
-        items: list[IntelItem] = []
+        resp = await self.client.get(url)
+        text = (resp.text or "").strip()
+        if not text:
+            raise RuntimeError(f"bilibili {search_type}: empty response (status={resp.status_code})")
+        if text[0] not in "{[":
+            raise RuntimeError(
+                f"bilibili {search_type}: non-json response (status={resp.status_code}, head={text[:80]!r})"
+            )
         try:
-            resp = await self.client.get(url)
             data = resp.json()
-            if data.get("code") not in (0, None):
-                raise RuntimeError(data.get("message") or f"bilibili api code={data.get('code')}")
-            payload = data.get("data") or {}
-            for entry in (payload.get("result") or [])[:limit]:
-                item = self._parse_video(entry)
-                if item:
-                    items.append(item)
-        except Exception:  # noqa: BLE001
-            if not items:
-                items = [
-                    IntelItem(
-                        source="bilibili",
-                        type="search_link",
-                        url=f"https://search.bilibili.com/all?keyword={quote(query)}",
-                        title=f"B站搜索: {query}",
-                        content="API 请求失败，请检查网络或 Cookie",
-                    )
-                ]
-        return items[:limit]
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"bilibili {search_type}: invalid json ({exc})") from exc
+        if data.get("code") not in (0, None):
+            raise RuntimeError(data.get("message") or f"bilibili api code={data.get('code')}")
+        payload = data.get("data") or {}
+        return (payload.get("result") or [])[:limit]
 
     def _parse_video(self, entry: dict) -> IntelItem | None:
         bvid = entry.get("bvid") or ""
@@ -61,6 +82,26 @@ class BilibiliCollector(BaseCollector):
             author=entry.get("author", ""),
             metrics=IntelMetrics(
                 views=int(entry.get("play", 0) or 0),
+                likes=int(entry.get("like", 0) or 0),
+            ),
+        )
+
+    def _parse_article(self, entry: dict) -> IntelItem | None:
+        cv_id = entry.get("id") or entry.get("cvid") or entry.get("aid")
+        if not cv_id:
+            return None
+        url = f"https://www.bilibili.com/read/cv{cv_id}"
+        title = re.sub(r"<[^>]+>", "", entry.get("title", ""))
+        desc = html_to_text(entry.get("desc", "") or entry.get("description", ""))
+        return IntelItem(
+            source="bilibili",
+            type="article",
+            url=url,
+            title=title,
+            content=desc,
+            author=entry.get("author", "") or entry.get("author_name", ""),
+            metrics=IntelMetrics(
+                views=int(entry.get("view", 0) or 0),
                 likes=int(entry.get("like", 0) or 0),
             ),
         )
@@ -108,30 +149,100 @@ class BilibiliCollector(BaseCollector):
         except Exception:  # noqa: BLE001
             return ""
 
-    async def fetch_comments(self, url: str, limit: int = 20) -> list[dict]:
+    async def fetch_comments(self, url: str, limit: int = 40) -> list[dict]:
         oid = await self._resolve_oid(url)
         if not oid:
             return []
-        api = f"https://api.bilibili.com/x/v2/reply/main?type=1&oid={oid}&mode=3"
+        comment_type = self._comment_type_from_url(url)
+        collected: list[dict] = []
+        seen_rpids: set[int] = set()
+        next_offset = 0
+        pages = 0
+        while len(collected) < limit and pages < 2:
+            replies, next_offset = await self._fetch_reply_page(oid, next_offset, comment_type)
+            if not replies:
+                break
+            for r in replies:
+                rpid = r.get("rpid")
+                if rpid in seen_rpids:
+                    continue
+                seen_rpids.add(rpid)
+                collected.append(
+                    {
+                        "author": r.get("member", {}).get("uname", ""),
+                        "content": html_to_text(r.get("content", {}).get("message", "")),
+                        "likes": r.get("like", 0),
+                        "rpid": rpid,
+                    }
+                )
+                if len(collected) >= limit:
+                    break
+            pages += 1
+            if not next_offset:
+                break
+        collected.sort(key=lambda c: c.get("likes", 0), reverse=True)
+        return collected[:limit]
+
+    def _comment_type_from_url(self, url: str) -> int:
+        if re.search(r"(?:/read/)?cv\d+", url, re.I):
+            return 12
+        if re.search(r"/opus/\d+", url):
+            return 17
+        return 1
+
+    async def _fetch_reply_page(
+        self, oid: str, next_offset: int, comment_type: int = 1
+    ) -> tuple[list[dict], int]:
+        base = "https://api.bilibili.com/x/v2/reply/wbi/main"
+        params: dict[str, Any] = {
+            "type": comment_type,
+            "oid": oid,
+            "mode": 3,
+            "plat": 1,
+        }
+        if next_offset:
+            params["pagination_reply"] = json.dumps({"offset": next_offset})
+        try:
+            from osint_toolkit.ingest.bilibili_wbi import wbi_get
+
+            data = await wbi_get(self.client, base, params)
+            if data.get("code") not in (0, None):
+                raise RuntimeError(data.get("message") or "wbi reply failed")
+            payload = data.get("data") or {}
+            replies = payload.get("replies") or []
+            cursor = payload.get("cursor") or {}
+            return replies, int(cursor.get("pagination_reply", {}).get("next_offset") or 0)
+        except Exception:  # noqa: BLE001
+            pass
+        api = (
+            f"https://api.bilibili.com/x/v2/reply/main?type={comment_type}&oid={oid}&mode=3&plat=1"
+        )
         try:
             resp = await self.client.get(api)
-            data = resp.json().get("data", {})
-            replies = data.get("replies") or []
-            return [
-                {
-                    "author": r.get("member", {}).get("uname", ""),
-                    "content": html_to_text(r.get("content", {}).get("message", "")),
-                    "likes": r.get("like", 0),
-                }
-                for r in replies[:limit]
-            ]
+            data = resp.json()
+            if data.get("code") not in (0, None):
+                return [], 0
+            payload = data.get("data") or {}
+            return payload.get("replies") or [], 0
         except Exception:  # noqa: BLE001
-            return []
+            return [], 0
 
     async def _resolve_oid(self, url: str) -> str | None:
-        if "BV" in url:
+        if url in self._oid_cache:
+            return self._oid_cache[url]
+        oid: str | None = None
+        cv = re.search(r"(?:/read/)?cv(\d+)", url, re.I)
+        if cv:
+            oid = cv.group(1)
+        elif (opus := re.search(r"/opus/(\d+)", url)):
+            oid = opus.group(1)
+        elif "BV" in url:
             text = await self.client.get_text(url)
             aid_match = re.search(r'"aid":(\d+)', text)
-            return aid_match.group(1) if aid_match else None
-        av = re.search(r"av(\d+)", url)
-        return av.group(1) if av else None
+            oid = aid_match.group(1) if aid_match else None
+        else:
+            av = re.search(r"av(\d+)", url)
+            oid = av.group(1) if av else None
+        if oid:
+            self._oid_cache[url] = oid
+        return oid

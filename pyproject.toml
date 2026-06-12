@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "开源信息情报工具 / Open Source Intelligence Toolkit"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 authors = [{ name = "guoedge" }]
 keywords = ["osint", "intelligence", "security", "reconnaissance"]
 classifiers = [
@@ -47,6 +47,9 @@ web = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
 ]
+browser = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 osint = "osint_toolkit.cli:main"
@@ -57,6 +60,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that need local Edge/Playwright",
+]
 
 [tool.ruff]
 line-length = 120

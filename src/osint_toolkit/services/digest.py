@@ -9,8 +9,25 @@ from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.exporters.digest import generate_daily_digest
 
 
-def get_daily_digest() -> str:
-    return generate_daily_digest()
+def get_daily_digest(*, use_ai: bool = False, no_ai: bool = False) -> str:
+    return generate_daily_digest(use_ai=use_ai, no_ai=no_ai)
+
+
+def list_daily_digests(limit: int = 30) -> list[dict[str, Any]]:
+    digests_dir = get_data_dir() / "digests"
+    if not digests_dir.exists():
+        return []
+    files = sorted(digests_dir.glob("*.md"), reverse=True)[:limit]
+    results: list[dict[str, Any]] = []
+    for path in files:
+        results.append(
+            {
+                "date": path.stem,
+                "path": str(path),
+                "preview": path.read_text(encoding="utf-8")[:200],
+            }
+        )
+    return results
 
 
 def list_reports(limit: int = 50) -> list[dict[str, Any]]:

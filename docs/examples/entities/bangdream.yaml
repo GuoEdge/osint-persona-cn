@@ -1,0 +1,29 @@
+# 示例实体词表 — 复制到 ~/.osint/entities/ 目录即可生效
+# 格式: canonical 为规范名，aliases 为常用称呼，slurs 为贬义/梗称（受 search.include_slurs 控制）
+
+entities:
+  丰川祥子:
+    aliases:
+      - 祥子
+      - 小祥
+      - Sakiko
+      - 祥子碳
+      - Ob一串字母女士
+    slurs:
+      - 祥处
+
+  若叶睦:
+    aliases:
+      - 睦
+      - 小睦
+      - Mutsumi
+    slurs:
+      - 木头
+
+  长崎素世:
+    aliases:
+      - 素世
+      - Soyorin
+      - 长崎爽世
+    slurs:
+      - soyo

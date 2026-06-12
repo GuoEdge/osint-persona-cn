@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block title %}AI 控制 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>AI 控制</h1>
-<p class="muted">硬约束 &gt; 用户 prompt &gt; 软偏好 &gt; Persona 推断。AI 不静默删除采集结果。</p>
+<div class="page-header">
+  <div>
+    <h1>AI 控制</h1>
+    <p class="page-desc">硬约束 &gt; 用户 prompt &gt; 软偏好 &gt; Persona 推断。AI 不静默删除采集结果。</p>
+  </div>
+</div>
 <div id="hard-constraints" class="alert alert-warn"></div>
 
 <div class="tabs">

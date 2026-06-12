@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block title %}运行详情 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>运行详情</h1>
-<p class="muted">Run ID: {{ run_id }}</p>
+<div class="page-header">
+  <div>
+    <h1>运行详情</h1>
+    <p class="page-desc">Run ID: {{ run_id }}</p>
+  </div>
+</div>
 <div id="run-detail">加载中…</div>
 {% endblock %}
 {% block scripts %}

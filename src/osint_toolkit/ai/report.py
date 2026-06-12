@@ -18,6 +18,8 @@ def _fallback_report(query: str, items: list[IntelItem], run_id: str) -> str:
         lines.append(f"### [{item.source}] {item.title}")
         lines.append(f"- URL: {item.url}")
         lines.append(f"- 摘要: {item.summary or item.content[:200]}")
+        if item.layers.get("comments_summary"):
+            lines.append(f"- 社区观点: {item.layers['comments_summary'][:300]}")
         if item.signals.fold_reason:
             lines.append(f"- 折叠原因: {item.signals.fold_reason}")
         lines.append("")
@@ -50,6 +52,7 @@ def generate_report(
                         "title": i.title,
                         "url": i.url,
                         "summary": i.summary,
+                        "comments_summary": i.layers.get("comments_summary") or "",
                         "signals": i.signals.model_dump(),
                     }
                     for i in c["items"]

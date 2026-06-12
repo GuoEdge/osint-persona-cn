@@ -1,9 +1,17 @@
 {% extends "base.html" %}
-{% block title %}画像 — 个人情报工具{% endblock %}
+{% block title %}心智画像 — 个人情报工具{% endblock %}
 {% block content %}
-<h1>心智画像</h1>
-<p class="muted">画像来自导入行为与反馈，用于搜索时的 Persona 模拟。</p>
-<button id="btn-build-persona" class="btn">构建画像</button>
+<div class="page-header">
+  <div>
+    <h1>心智画像</h1>
+    <p class="page-desc">画像来自行为时间线（含高停留、点赞、收藏）；搜罗时会参考近期高关注内容做模拟。</p>
+  </div>
+  <div class="page-actions">
+    <button id="btn-build-persona" class="btn btn-sm">构建画像</button>
+  </div>
+</div>
+<div id="persona-stale-banner" class="alert alert-warn hidden"></div>
+<div id="persona-review-panel" class="card hidden"></div>
 <div id="persona-content" class="mt-1"></div>
 {% endblock %}
 {% block scripts %}

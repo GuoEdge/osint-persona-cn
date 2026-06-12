@@ -29,6 +29,7 @@ DEFAULT_DIRECTIVES: dict[str, Any] = {
     ],
     "enabled_steps": {
         "query_analyze": True,
+        "alias_discover": True,
         "summarize": True,
         "report": True,
         "persona_simulate": True,

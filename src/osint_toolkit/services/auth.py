@@ -9,6 +9,7 @@ from osint_toolkit.ai.steering import directives_path
 from osint_toolkit.auth.cookie_sync import (
     DEFAULT_DOMAINS,
     CookieSyncResult,
+    import_cookie_headers,
     sync_browser_cookies,
     validate_domain_cookie,
 )
@@ -44,6 +45,14 @@ def sync_cookies(
     domains: list[str] | None = None,
 ) -> CookieSyncResult:
     return sync_browser_cookies(browser=browser, domains=domains)
+
+
+def import_cookies(
+    *,
+    headers_by_domain: dict[str, str],
+    browser: str = "extension",
+) -> CookieSyncResult:
+    return import_cookie_headers(headers_by_domain=headers_by_domain, browser=browser)
 
 
 def get_paths() -> dict[str, Any]:

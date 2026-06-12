@@ -129,7 +129,13 @@ def sync_browser_cookies(
             hint = " 请先完全关闭 Edge 后重试。"
         else:
             hint = f" 当前系统为 {platform.system()}，请在 Windows 本机运行此命令。"
-        result.errors.append(f"读取浏览器 Cookie 失败: {exc}.{hint}")
+        msg = f"读取浏览器 Cookie 失败: {exc}.{hint}"
+        if "rookiepy" in str(exc):
+            msg += " 请用 gochj-web 目录下的 .venv 启动 Web（start-osint-web.bat），不要用系统 Python 3.14。"
+        low = str(exc).lower()
+        if "appbound" in low or "app-bound" in low or "running as admin" in low:
+            msg += " Edge 130+ 请用扩展弹窗「从浏览器同步 Cookie」，或右键以管理员运行 sync-cookies-admin.bat。"
+        result.errors.append(msg)
         _write_index(result)
         return result
 
@@ -172,6 +178,108 @@ def _write_index(result: CookieSyncResult) -> None:
     )
 
 
+def import_cookie_headers(
+    *,
+    headers_by_domain: dict[str, str],
+    browser: str = "extension",
+    output_dir: Path | None = None,
+) -> CookieSyncResult:
+    """从扩展或手动粘贴写入 Cookie 文件（绕过 Edge App-Bound 加密）。"""
+    output_dir = output_dir or get_cookies_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    domains = [_normalize_domain(d) for d in headers_by_domain]
+    result = CookieSyncResult(
+        browser=browser,
+        output_dir=output_dir,
+        domains_requested=domains,
+    )
+    for domain in domains:
+        header = str(headers_by_domain.get(domain) or headers_by_domain.get(f".{domain}") or "").strip()
+        if not header:
+            continue
+        payload = {
+            "domain": domain,
+            "browser": browser,
+            "synced_at": result.synced_at,
+            "cookie_header": header,
+            "cookies": [],
+        }
+        out_file = output_dir / f"{domain}.json"
+        out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        result.domains_synced.append(domain)
+        result.cookie_counts[domain] = max(1, header.count(";") + 1)
+    if not result.domains_synced:
+        result.errors.append("未收到任何域名的 Cookie 字符串")
+    _write_index(result)
+    return result
+
+
+def load_domain_cookie_file(domain: str, cookies_dir: Path | None = None) -> dict[str, Any] | None:
+    """读取某域名 Cookie JSON 文件。"""
+    domain = _normalize_domain(domain)
+    path = (cookies_dir or get_cookies_dir()) / f"{domain}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def cookies_for_playwright(domains: list[str] | None = None) -> list[dict[str, Any]]:
+    """将 ~/.osint/cookies 转为 Playwright add_cookies 格式。"""
+    domains = domains or ["bilibili.com", "zhihu.com"]
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for domain in domains:
+        data = load_domain_cookie_file(domain)
+        if not data:
+            continue
+        raw = data.get("cookies") or []
+        if raw:
+            for c in raw:
+                name = str(c.get("name") or "")
+                value = c.get("value")
+                if not name or value is None:
+                    continue
+                dom = str(c.get("domain") or f".{domain}")
+                path = str(c.get("path") or "/")
+                key = (name, dom, path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                item: dict[str, Any] = {
+                    "name": name,
+                    "value": str(value),
+                    "domain": dom,
+                    "path": path,
+                }
+                if c.get("expires") is not None:
+                    item["expires"] = int(c["expires"])
+                if c.get("httpOnly") is not None:
+                    item["httpOnly"] = bool(c["httpOnly"])
+                if c.get("secure") is not None:
+                    item["secure"] = bool(c["secure"])
+                out.append(item)
+            continue
+        header = str(data.get("cookie_header") or "")
+        for part in header.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, _, value = part.partition("=")
+            name = name.strip()
+            if not name:
+                continue
+            dom = f".{domain}" if not domain.startswith(".") else domain
+            key = (name, dom, "/")
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"name": name, "value": value.strip(), "domain": dom, "path": "/"})
+    return out
+
+
 def load_cookie_header(domain: str, cookies_dir: Path | None = None) -> str | None:
     """读取某域名已同步的 Cookie 请求头字符串。"""
     domain = _normalize_domain(domain)
@@ -181,6 +289,19 @@ def load_cookie_header(domain: str, cookies_dir: Path | None = None) -> str | No
     data = json.loads(path.read_text(encoding="utf-8"))
     header = data.get("cookie_header")
     return str(header) if header else None
+
+
+def get_last_sync_errors(cookies_dir: Path | None = None) -> list[str]:
+    """读取最近一次 Cookie 同步的错误信息。"""
+    index_path = (cookies_dir or get_cookies_dir()) / "_index.json"
+    if not index_path.exists():
+        return []
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    errors = data.get("errors") or []
+    return [str(e) for e in errors if e]
 
 
 def validate_domain_cookie(domain: str, cookies_dir: Path | None = None) -> dict[str, Any]:

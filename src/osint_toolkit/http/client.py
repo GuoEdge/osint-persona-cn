@@ -38,7 +38,10 @@ class HttpClient:
 
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         async with httpx.AsyncClient(
-            timeout=self.timeout, proxy=self._proxy, follow_redirects=True
+            timeout=self.timeout,
+            proxy=self._proxy,
+            follow_redirects=True,
+            trust_env=False,
         ) as client:
             return await client.get(url, headers=self._headers(url), **kwargs)
 

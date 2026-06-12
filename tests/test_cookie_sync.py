@@ -5,6 +5,7 @@ import json
 from osint_toolkit.auth.cookie_sync import (
     _group_cookies_by_domain,
     _to_cookie_header,
+    import_cookie_headers,
     load_cookie_header,
     sync_browser_cookies,
     validate_domain_cookie,
@@ -47,6 +48,19 @@ def test_validate_domain_cookie_with_sessdata(tmp_path):
     result = validate_domain_cookie("bilibili.com", tmp_path)
     assert result["ok"] is True
     assert load_cookie_header("bilibili.com", tmp_path) == "SESSDATA=abc; bili_jct=def"
+
+
+def test_import_cookie_headers_writes_files(tmp_path):
+    result = import_cookie_headers(
+        headers_by_domain={
+            "bilibili.com": "SESSDATA=abc; bili_jct=def",
+            "zhihu.com": "z_c0=token",
+        },
+        browser="extension",
+        output_dir=tmp_path,
+    )
+    assert "bilibili.com" in result.domains_synced
+    assert validate_domain_cookie("bilibili.com", tmp_path)["ok"] is True
 
 
 def test_sync_browser_cookies_handles_missing_browser(monkeypatch, tmp_path):

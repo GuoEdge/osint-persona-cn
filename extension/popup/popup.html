@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OSINT 个人采集</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>OSINT 个人采集</h1>
+  <p class="muted">后台静默写入本机 <code>127.0.0.1:8787</code></p>
+  <label class="row">
+    <input type="checkbox" id="enabled" checked>
+    <span>启用采集</span>
+  </label>
+  <label class="row">
+    <input type="checkbox" id="passive" checked>
+    <span>被动浏览记录（日常上网自动记）</span>
+  </label>
+  <label class="row">
+    <input type="checkbox" id="background-sync" checked>
+    <span>定时后台同步（每 4 小时）</span>
+  </label>
+  <div id="status" class="status">加载中…</div>
+  <button id="sync-cookies" type="button" class="btn-primary">从浏览器同步 Cookie</button>
+  <button id="sync-now" type="button">服务端拉取 B站/知乎</button>
+  <button id="flush" type="button">上传浏览采集队列</button>
+  <button id="sync-aicu" type="button">浏览器拉取 AICU 发评</button>
+  <p id="platforms" class="hint"></p>
+  <p class="hint"><strong>服务端拉取</strong>含 B站关注 + 知乎动态/收藏；并会自动打开 recent-viewed 与主页补洞。日常浏览仍走<strong>上传浏览采集队列</strong>（每 1 分钟也会自动上传）。</p>
+  <p class="hint">内容页停留 ≥90 秒会自动进知识库；右键「收录」可立即收录。</p>
+  <script src="popup.js"></script>
+</body>
+</html>

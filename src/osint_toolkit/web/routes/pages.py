@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from osint_toolkit.utils.config import load_config
@@ -18,16 +18,42 @@ router = APIRouter()
 
 def _nav_context(active: str) -> dict:
     return {
-        "nav": [
-            {"id": "workspace", "label": "搜罗", "href": "/"},
-            {"id": "save", "label": "收录", "href": "/save"},
-            {"id": "knowledge", "label": "知识库", "href": "/knowledge"},
-            {"id": "digest", "label": "简报", "href": "/digest"},
-            {"id": "persona", "label": "画像", "href": "/persona"},
-            {"id": "ingest", "label": "导入", "href": "/ingest"},
-            {"id": "runs", "label": "运行记录", "href": "/runs"},
-            {"id": "ai", "label": "AI 控制", "href": "/ai"},
-            {"id": "settings", "label": "设置", "href": "/settings"},
+        "nav_groups": [
+            {
+                "label": "采集",
+                "links": [
+                    {"id": "workspace", "label": "搜罗", "href": "/"},
+                    {"id": "save", "label": "收录", "href": "/save"},
+                ],
+            },
+            {
+                "label": "沉淀",
+                "links": [
+                    {"id": "knowledge", "label": "知识库", "href": "/knowledge"},
+                    {"id": "digest", "label": "简报", "href": "/digest"},
+                ],
+            },
+            {
+                "label": "画像",
+                "links": [
+                    {"id": "ingest", "label": "扩展与导入", "href": "/ingest"},
+                    {"id": "behavior", "label": "行为时间线", "href": "/behavior"},
+                    {"id": "persona", "label": "心智画像", "href": "/persona"},
+                ],
+            },
+            {
+                "label": "审计",
+                "links": [
+                    {"id": "runs", "label": "运行记录", "href": "/runs"},
+                ],
+            },
+            {
+                "label": "系统",
+                "links": [
+                    {"id": "ai", "label": "AI 控制", "href": "/ai"},
+                    {"id": "settings", "label": "设置", "href": "/settings"},
+                ],
+            },
         ],
         "active": active,
         "profiles": list(load_config().get("profiles", {}).keys()),
@@ -43,9 +69,10 @@ async def page_workspace(request: Request) -> HTMLResponse:
 
 @router.get("/save", response_class=HTMLResponse)
 async def page_save(request: Request, url: str = "") -> HTMLResponse:
-    ctx = _nav_context("save")
-    ctx["prefill_url"] = url
-    return templates.TemplateResponse(request, "save.html", ctx)
+    target = "/knowledge?tab=save"
+    if url:
+        target += f"&url={url}"
+    return RedirectResponse(url=target, status_code=302)
 
 
 @router.get("/knowledge", response_class=HTMLResponse)
@@ -66,6 +93,11 @@ async def page_persona(request: Request) -> HTMLResponse:
 @router.get("/ingest", response_class=HTMLResponse)
 async def page_ingest(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "ingest.html", _nav_context("ingest"))
+
+
+@router.get("/behavior", response_class=HTMLResponse)
+async def page_behavior(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "behavior.html", _nav_context("behavior"))
 
 
 @router.get("/runs", response_class=HTMLResponse)

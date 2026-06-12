@@ -15,6 +15,8 @@
 
 ## 安装
 
+推荐 **Python 3.12**（3.10–3.13 均可；3.14 暂不支持 `rookiepy` 浏览器历史导入）。
+
 ```bash
 git clone https://github.com/GuoEdge/gochj.git
 cd gochj
@@ -26,6 +28,8 @@ pip install -e ".[dev,web]"
 ```
 
 ## Web 控制台
+
+**Windows 一键启动**：双击 [`启动情报台.bat`](启动情报台.bat)（详见 [docs/WEB_UI.md](docs/WEB_UI.md)）。
 
 ```bash
 osint web

@@ -46,3 +46,22 @@ class FeedbackStore:
         lines = self.path.read_text(encoding="utf-8").strip().splitlines()
         entries = [json.loads(line) for line in lines if line.strip()]
         return entries[-limit:]
+
+    def map_latest_by_target(
+        self,
+        target_ids: list[str] | None = None,
+        *,
+        limit: int = 2000,
+    ) -> dict[str, str]:
+        """Return latest rating per ``target_type:target_id`` key."""
+        allowed = set(target_ids) if target_ids is not None else None
+        out: dict[str, str] = {}
+        for entry in self.list_recent(limit):
+            tid = str(entry.get("target_id", ""))
+            if not tid:
+                continue
+            if allowed is not None and tid not in allowed:
+                continue
+            ttype = str(entry.get("target_type") or "item")
+            out[f"{ttype}:{tid}"] = str(entry.get("rating") or "")
+        return out

@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -54,3 +54,6 @@ reports/
 *.log
 cards/
 digests/
+
+# Local scratch / temp research
+_tmp_bili-apis/

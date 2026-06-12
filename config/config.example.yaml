@@ -48,4 +48,28 @@ output:
   default_format: markdown
   reports_dir: reports
 
+# 统一同步（Web 完整同步 + 扩展 background sync 共用）
+sync:
+  prefer_server_api: true
+  probe_pages_enabled: true
+  scroll_rounds: 4
+  scroll_interval_ms: 1500
+  initial_wait_ms: 3000
+  page_gap_ms: 8000
+  max_pages_per_run: 6
+  browser_sync_enabled: true
+  browser_sync_after_api: true
+  browser_sync_mode: auto
+  browser_sync_cdp_url: http://127.0.0.1:9222
+  browser_sync_headless: true
+  aicu_enabled: false
+
+ingest:
+  aicu_enabled: false
+  browser_sync_enabled: true
+  browser_sync_after_api: true
+  browser_sync_mode: auto
+  browser_sync_scroll_rounds: 4
+  browser_sync_max_pages: 6
+
 # AI 持久导向建议放在用户目录: %USERPROFILE%\.osint\ai_directives.yaml

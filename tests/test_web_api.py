@@ -17,11 +17,13 @@ def client():
 def test_page_workspace(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "搜罗工作台" in r.text
+    assert "搜罗" in r.text
+    assert "nav_groups" not in r.text  # rendered, not variable name
+    assert "个人情报" in r.text
 
 
 def test_page_routes(client):
-    for path in ["/save", "/knowledge", "/digest", "/persona", "/ingest", "/runs", "/ai", "/settings"]:
+    for path in ["/save", "/knowledge", "/digest", "/persona", "/ingest", "/behavior", "/runs", "/ai", "/settings"]:
         r = client.get(path)
         assert r.status_code == 200, path
 
@@ -31,6 +33,20 @@ def test_auth_status(client):
     assert r.status_code == 200
     data = r.json()
     assert "items" in data
+
+
+def test_setup_status(client):
+    r = client.get("/api/setup/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert "steps" in data
+    assert "ready" in data
+
+
+def test_ingest_capabilities(client):
+    r = client.get("/api/ingest/capabilities")
+    assert r.status_code == 200
+    assert "items" in r.json()
 
 
 def test_auth_paths(client):
@@ -114,6 +130,20 @@ def test_feedback(client, tmp_path, monkeypatch):
     )
     assert r.status_code == 200
     assert "entry" in r.json()
+
+    r2 = client.get("/api/feedback/recent?target_ids=item-1")
+    assert r2.status_code == 200
+    assert r2.json()["feedback"]["item:item-1"] == "useful"
+
+
+def test_aicu_status(client, monkeypatch):
+    monkeypatch.setattr(
+        "osint_toolkit.utils.config.load_config",
+        lambda: {"ingest": {"aicu_enabled": True}},
+    )
+    r = client.get("/api/ingest/aicu-status")
+    assert r.status_code == 200
+    assert r.json()["enabled"] is True
 
 
 def test_run_detail_skips_list_artifacts(client, tmp_path, monkeypatch):
