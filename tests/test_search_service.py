@@ -29,6 +29,8 @@ async def test_run_search_with_mocked_collectors(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(search_service, "simulate_items", lambda *args, **kwargs: [])
 
-    result = await search_service.run_search("MCP", sources=["zhihu", "web"], trace=True)
+    result = await search_service.run_search(
+        "MCP", sources=["zhihu", "web"], trace=True, no_ai=True
+    )
     assert result["run_id"]
     assert len(result["items"]) == 2
