@@ -59,6 +59,45 @@ osint --help
 osint domain example.com
 ```
 
+## 认证配置 / Authentication
+
+### DeepSeek API Key
+
+推荐在 **Windows 用户环境变量** 中设置（不要把 Key 提交到 Git）：
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的新Key", "User")
+```
+
+也可写入 `config/config.yaml` 的 `ai.api_key`，或使用用户目录 `%USERPROFILE%\.osint\config.yaml`。
+
+查看配置位置：
+
+```bash
+osint auth show-paths
+```
+
+测试 API 与 Cookie：
+
+```bash
+osint auth test --target all
+```
+
+官方文档：https://api-docs.deepseek.com/zh-cn/
+
+### Edge 浏览器 Cookie 同步（Windows）
+
+1. 在 Edge 中登录 B 站、知乎等站点  
+2. **完全关闭 Edge**  
+3. 同步 Cookie 到本地：
+
+```bash
+osint auth sync-cookies --browser edge
+```
+
+Cookie 默认保存到 `%USERPROFILE%\.osint\cookies\`，可按域名自动供采集器使用。  
+建议定期同步，或在任务计划程序中每天执行一次上述命令。
+
 ## 配置 / Configuration
 
 复制示例配置并按需修改：

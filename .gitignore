@@ -40,6 +40,10 @@ htmlcov/
 config/config.yaml
 config/secrets.yaml
 
+# Local auth & personal data
+.osint/
+cookies/
+
 # OS
 .DS_Store
 Thumbs.db
