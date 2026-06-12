@@ -1,0 +1,19 @@
+# OSINT Toolkit 配置示例
+# 复制为 config.yaml 后修改: cp config/config.example.yaml config/config.yaml
+
+# HTTP 请求设置
+http:
+  timeout: 30
+  user_agent: "OSINT-Toolkit/0.1.0"
+  proxy: null  # 例: "http://127.0.0.1:7890"
+
+# API 密钥（按需填写）
+api_keys:
+  shodan: ""
+  virustotal: ""
+  censys: ""
+
+# 输出设置
+output:
+  default_format: "json"  # json | markdown | html
+  reports_dir: "reports"
