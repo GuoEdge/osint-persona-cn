@@ -1,11 +1,5 @@
 # OSINT Toolkit 配置示例
-# 复制为 config.yaml 后修改:
-#   cp config/config.example.yaml config/config.yaml
-# 或放到用户目录:
-#   %USERPROFILE%\.osint\config.yaml
 
-# DeepSeek AI（OpenAI 兼容 API）
-# 推荐用环境变量 DEEPSEEK_API_KEY，不要把真实 Key 写进仓库
 ai:
   provider: deepseek
   api_key: ${DEEPSEEK_API_KEY}
@@ -13,9 +7,8 @@ ai:
   model: deepseek-v4-flash
   timeout: 120
 
-# 浏览器 Cookie 同步
 cookie_sync:
-  browser: edge          # windows 推荐 edge
+  browser: edge
   profile: Default
   auto_sync_before_search: true
   domains:
@@ -29,13 +22,30 @@ cookie_sync:
     - huxiu.com
     - 36kr.com
 
-# HTTP 请求设置
+profiles:
+  default:
+    sources: [zhihu, bilibili, web]
+  research:
+    sources: [zhihu, bilibili, v2ex, web, rss]
+    simulate_persona: true
+
+rules:
+  boost_authors: []
+  block_patterns: ["万字干货"]
+
+rss_feeds:
+  - https://sspai.com/feed
+
+source_packs:
+  tech_research: [zhihu, bilibili, v2ex, web, rss]
+
 http:
   timeout: 30
   user_agent: "OSINT-Toolkit/0.1.0"
   proxy: null
 
-# 输出设置
 output:
-  default_format: "markdown"
-  reports_dir: "reports"
+  default_format: markdown
+  reports_dir: reports
+
+# AI 持久导向建议放在用户目录: %USERPROFILE%\.osint\ai_directives.yaml

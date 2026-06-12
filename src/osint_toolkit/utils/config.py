@@ -79,6 +79,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "default_format": "markdown",
         "reports_dir": "reports",
     },
+    "profiles": {
+        "default": {"sources": ["zhihu", "bilibili", "web"]},
+        "research": {"sources": ["zhihu", "bilibili", "v2ex", "web"], "simulate_persona": True},
+    },
+    "rules": {
+        "boost_authors": [],
+        "block_patterns": [],
+    },
+    "rss_feeds": ["https://sspai.com/feed"],
+    "source_packs": {
+        "tech_research": ["zhihu", "bilibili", "v2ex", "web", "rss"],
+    },
 }
 
 

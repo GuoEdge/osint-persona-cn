@@ -52,3 +52,5 @@ Thumbs.db
 reports/
 .cache/
 *.log
+cards/
+digests/

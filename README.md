@@ -1,128 +1,54 @@
-# OSINT Toolkit / 开源信息情报工具
+# OSINT Toolkit / 个人情报工具
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+中文互联网的个人情报操作系统：多源搜罗、分层理解、AI 归纳、流程透明、反馈可纠正。
 
-一个模块化的开源信息情报（OSINT）工具集，用于从公开来源收集、整理与分析信息。
+## 功能
 
-A modular Open Source Intelligence (OSINT) toolkit for collecting, organizing, and analyzing information from public sources.
+- **多源搜索**: 知乎、B站、Web、V2EX、RSS
+- **AI 情报报告**: DeepSeek V4 Flash，`--digest`
+- **流程透明**: `--trace`，`osint run show <run_id>`
+- **AI 可控**: `ai_directives`、用户 prompt 覆盖、`--ai-instruct`
+- **收录与知识库**: `save` / `recall`
+- **行为导入**: 浏览器历史、B站观看、知乎赞同
+- **Persona**: 心智画像构建与回滚
 
-## 功能规划 / Roadmap
-
-- [ ] 域名与 DNS 信息收集
-- [ ] IP 地址与 ASN 查询
-- [ ] 社交媒体公开资料检索
-- [ ] 元数据提取（图片、文档）
-- [ ] 报告导出（JSON / Markdown / HTML）
-
-## 项目结构 / Project Structure
-
-```
-osint-toolkit/
-├── src/osint_toolkit/     # 核心代码
-│   ├── collectors/        # 信息采集模块
-│   ├── analyzers/         # 数据分析模块
-│   ├── exporters/         # 报告导出模块
-│   └── utils/             # 通用工具
-├── config/                # 配置文件
-├── tests/                 # 测试
-└── docs/                  # 文档
-```
-
-## 快速开始 / Quick Start
-
-### 环境要求
-
-- Python 3.10+
-
-### 安装
+## 安装
 
 ```bash
-# 克隆仓库
-git clone https://github.com/guoedge/gochj.git
+git clone https://github.com/GuoEdge/gochj.git
 cd gochj
-
-# 创建虚拟环境
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# 安装依赖
+.venv\Scripts\activate   # Windows
 pip install -e ".[dev]"
 ```
 
-### 使用
+## 配置 API Key
 
-```bash
-# 查看帮助
-osint --help
-
-# 示例：查询域名信息
-osint domain example.com
-```
-
-## 认证配置 / Authentication
-
-### DeepSeek API Key
-
-推荐在 **Windows 用户环境变量** 中设置（不要把 Key 提交到 Git）：
+PowerShell:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的新Key", "User")
+[System.Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的Key", "User")
 ```
 
-也可写入 `config/config.yaml` 的 `ai.api_key`，或使用用户目录 `%USERPROFILE%\.osint\config.yaml`。
-
-查看配置位置：
-
-```bash
-osint auth show-paths
-```
-
-测试 API 与 Cookie：
-
-```bash
-osint auth test --target all
-```
-
-官方文档：https://api-docs.deepseek.com/zh-cn/
-
-### Edge 浏览器 Cookie 同步（Windows）
-
-1. 在 Edge 中登录 B 站、知乎等站点  
-2. **完全关闭 Edge**  
-3. 同步 Cookie 到本地：
+## 快速开始
 
 ```bash
 osint auth sync-cookies --browser edge
+osint auth test --target all
+osint search "MCP协议" --sources zhihu,bilibili,web --trace
+osint search "MCP协议" --digest --profile research
+osint save "https://www.zhihu.com/question/..." --with-comments
+osint recall "MCP"
+osint persona build --review
+osint run list
 ```
 
-Cookie 默认保存到 `%USERPROFILE%\.osint\cookies\`，可按域名自动供采集器使用。  
-建议定期同步，或在任务计划程序中每天执行一次上述命令。
+## 文档
 
-## 配置 / Configuration
+- [docs/MANUAL_TEST.md](docs/MANUAL_TEST.md) — Windows 验收
+- [docs/AI_CONTROL.md](docs/AI_CONTROL.md) — AI 导向控制
+- [docs/PRIVACY.md](docs/PRIVACY.md) — 隐私说明
 
-复制示例配置并按需修改：
+## 本地数据
 
-```bash
-cp config/config.example.yaml config/config.yaml
-```
-
-## 开发 / Development
-
-```bash
-# 运行测试
-pytest
-
-# 代码格式化
-ruff check src tests
-ruff format src tests
-```
-
-## 免责声明 / Disclaimer
-
-本工具仅用于合法的安全研究、授权渗透测试与学术研究。使用者须遵守当地法律法规，作者不对任何滥用行为负责。
-
-This tool is intended for lawful security research, authorized penetration testing, and academic study only. Users must comply with applicable laws. The authors are not responsible for misuse.
-
-## 许可证 / License
-
-[MIT](LICENSE)
+`%USERPROFILE%\.osint\` — Cookie、知识库、runs、persona（不进 Git）
