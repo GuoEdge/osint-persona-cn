@@ -29,7 +29,7 @@ class ZhihuCollector(BaseCollector):
             if resp.status_code != 200:
                 return await self._fallback_search(query, limit)
             data = resp.json()
-            for entry in data.get("data", [])[:limit]:
+            for entry in (data.get("data") or [])[:limit]:
                 obj = entry.get("object", {}) or entry
                 item = self._parse_object(obj)
                 if item:

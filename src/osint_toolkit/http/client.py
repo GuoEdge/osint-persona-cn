@@ -14,7 +14,13 @@ class HttpClient:
     def __init__(self) -> None:
         cfg = load_config().get("http", {})
         self.timeout = float(cfg.get("timeout", 30))
-        self.user_agent = str(cfg.get("user_agent", "OSINT-Toolkit/0.1.0"))
+        self.user_agent = str(
+            cfg.get(
+                "user_agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+            )
+        )
         proxy = cfg.get("proxy")
         self._proxy = proxy if proxy else None
 
@@ -23,6 +29,11 @@ class HttpClient:
         cookie = cookie_header_for_url(url)
         if cookie:
             headers["Cookie"] = cookie
+        if "bilibili.com" in url:
+            headers["Referer"] = "https://www.bilibili.com/"
+            headers["Origin"] = "https://www.bilibili.com"
+        elif "zhihu.com" in url:
+            headers["Referer"] = "https://www.zhihu.com/"
         return headers
 
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:

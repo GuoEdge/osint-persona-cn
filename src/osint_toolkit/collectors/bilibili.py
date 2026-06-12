@@ -26,20 +26,24 @@ class BilibiliCollector(BaseCollector):
         try:
             resp = await self.client.get(url)
             data = resp.json()
-            for entry in data.get("data", {}).get("result", [])[:limit]:
+            if data.get("code") not in (0, None):
+                raise RuntimeError(data.get("message") or f"bilibili api code={data.get('code')}")
+            payload = data.get("data") or {}
+            for entry in (payload.get("result") or [])[:limit]:
                 item = self._parse_video(entry)
                 if item:
                     items.append(item)
         except Exception:  # noqa: BLE001
-            items = [
-                IntelItem(
-                    source="bilibili",
-                    type="search_link",
-                    url=f"https://search.bilibili.com/all?keyword={quote(query)}",
-                    title=f"B站搜索: {query}",
-                    content="API 请求失败，请检查网络或 Cookie",
-                )
-            ]
+            if not items:
+                items = [
+                    IntelItem(
+                        source="bilibili",
+                        type="search_link",
+                        url=f"https://search.bilibili.com/all?keyword={quote(query)}",
+                        title=f"B站搜索: {query}",
+                        content="API 请求失败，请检查网络或 Cookie",
+                    )
+                ]
         return items[:limit]
 
     def _parse_video(self, entry: dict) -> IntelItem | None:

@@ -12,6 +12,12 @@ def test_dedup_items():
     assert len(dedup_items([a, b])) == 1
 
 
+def test_dedup_keeps_same_title_different_url():
+    a = IntelItem(source="zhihu", type="answer", url="https://x.com/1", title="同一问题")
+    b = IntelItem(source="zhihu", type="answer", url="https://x.com/2", title="同一问题")
+    assert len(dedup_items([a, b])) == 2
+
+
 def test_extract_signals():
     item = IntelItem(
         source="zhihu",
