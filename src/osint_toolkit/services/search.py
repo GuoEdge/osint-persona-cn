@@ -43,6 +43,8 @@ from osint_toolkit.collectors.v2ex import V2exCollector
 
 from osint_toolkit.collectors.web import WebCollector
 
+from osint_toolkit.collectors.weixin import WeixinCollector
+
 from osint_toolkit.collectors.zhihu import ZhihuCollector
 
 from osint_toolkit.exporters.report import export_report
@@ -68,6 +70,8 @@ COLLECTORS = {
     "v2ex": V2exCollector,
 
     "rss": RssCollector,
+
+    "weixin": WeixinCollector,
 
 }
 

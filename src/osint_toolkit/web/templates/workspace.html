@@ -33,7 +33,7 @@
       {% for s in sources %}
       <label class="chip">
         <input type="checkbox" name="sources" value="{{ s }}" {% if s in ['zhihu','bilibili','web'] %}checked{% endif %}>
-        {% if s == 'zhihu' %}知乎{% elif s == 'bilibili' %}B站{% elif s == 'web' %}网页{% elif s == 'v2ex' %}V2EX{% elif s == 'rss' %}RSS{% else %}{{ s }}{% endif %}
+        {% if s == 'zhihu' %}知乎{% elif s == 'bilibili' %}B站{% elif s == 'web' %}网页{% elif s == 'v2ex' %}V2EX{% elif s == 'rss' %}RSS{% elif s == 'weixin' %}微信{% else %}{{ s }}{% endif %}
       </label>
       {% endfor %}
     </div>

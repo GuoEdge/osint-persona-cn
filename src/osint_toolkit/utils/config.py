@@ -85,7 +85,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "profiles": {
         "default": {"sources": ["zhihu", "bilibili", "web", "v2ex"]},
-        "full": {"sources": ["zhihu", "bilibili", "web", "v2ex", "rss"]},
+        "full": {"sources": ["zhihu", "bilibili", "web", "v2ex", "rss", "weixin"]},
         "research": {"sources": ["zhihu", "bilibili", "v2ex", "web"], "simulate_persona": True},
     },
     "rules": {

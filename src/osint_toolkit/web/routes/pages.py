@@ -57,7 +57,7 @@ def _nav_context(active: str) -> dict:
         ],
         "active": active,
         "profiles": list(load_config().get("profiles", {}).keys()),
-        "sources": ["zhihu", "bilibili", "web", "v2ex", "rss"],
+        "sources": ["zhihu", "bilibili", "web", "v2ex", "rss", "weixin"],
     }
 
 
