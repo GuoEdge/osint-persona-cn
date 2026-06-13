@@ -119,6 +119,7 @@ profiles:
 
 - 默认对 top N 条结果按信源分配配额拉取热评（`search.comment_mine_top`）
 - 支持 **B站**（视频 type=1、专栏 type=12、opus type=17）与 **知乎**（回答/文章 comment_v5）
+- 知乎搜罗：`search_v3` 多类型（`general`+`content`）分页搜提问/回答，对 top 提问再拉 `questions/{id}/answers` 高赞回答；评论默认挖更多条（`zhihu_comment_mine_top` / `zhihu_comment_limit`）
 - `services/save.py` 的 `with_comments` 同样支持双平台
 
 ## 配置 (`~/.osint/config.yaml` 或 `config/config.yaml`)
@@ -140,6 +141,14 @@ ai:
 search:
   max_expanded_queries: 8
   comment_mine_top: 3
+  zhihu_search_types: [general, content]
+  zhihu_search_pages: 2
+  zhihu_expand_answers: true
+  zhihu_expand_question_top: 5
+  zhihu_answers_per_question: 20
+  zhihu_comment_limit: 60
+  zhihu_comment_pages: 4
+  zhihu_comment_mine_top: 6
   discover_sources: [bilibili, zhihu, web, v2ex]
 
 ingest:

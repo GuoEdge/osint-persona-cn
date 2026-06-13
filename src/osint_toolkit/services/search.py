@@ -211,6 +211,16 @@ def _allocate_comment_quota(sources: list[str], top: int) -> dict[str, int]:
     return quotas
 
 
+def _comment_mine_top_for_source(source: str, default_top: int) -> int:
+    if source != "zhihu":
+        return default_top
+    cfg = get_search_config()
+    zh_top = cfg.get("zhihu_comment_mine_top")
+    if zh_top is None:
+        return default_top
+    return max(0, int(zh_top))
+
+
 async def _mine_comments(
 
     items: list[IntelItem],
@@ -251,7 +261,15 @@ async def _mine_comments(
 
         return []
 
-    quotas = _allocate_comment_quota(list(by_source.keys()), top)
+    zhihu_top = _comment_mine_top_for_source("zhihu", top)
+    if "zhihu" in by_source and zhihu_top != top:
+        other_sources = [s for s in by_source if s != "zhihu"]
+        other_top = max(0, top - zhihu_top) if other_sources else 0
+        quotas = {"zhihu": zhihu_top}
+        if other_sources and other_top > 0:
+            quotas.update(_allocate_comment_quota(other_sources, other_top))
+    else:
+        quotas = _allocate_comment_quota(list(by_source.keys()), top)
 
     mined: list[dict[str, Any]] = []
 
@@ -260,6 +278,8 @@ async def _mine_comments(
         collector = collectors[src]
 
         for item in by_source[src][:quota]:
+            if src == "zhihu" and item.type not in {"answer", "article"}:
+                continue
 
             comments = await collector.fetch_comments(item.url)
 
