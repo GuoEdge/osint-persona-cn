@@ -108,9 +108,10 @@ def _rule_expand(query: str) -> list[str]:
 
 def per_query_limit(total_limit: int, num_queries: int) -> int:
     cfg = get_search_config()
-    ratio = float(cfg.get("per_query_limit_ratio", 0.6))
-    per = max(3, int(total_limit * ratio))
-    if num_queries > 1:
+    ratio = float(cfg.get("per_query_limit_ratio", 0.85))
+    floor = int(cfg.get("zhihu_per_query_limit_min", 20)) if cfg.get("zhihu_aggressive", True) else 3
+    per = max(floor, int(total_limit * ratio))
+    if num_queries > 1 and not cfg.get("zhihu_aggressive", True):
         per = max(3, min(per, total_limit))
     return per
 

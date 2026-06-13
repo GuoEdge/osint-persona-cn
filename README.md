@@ -52,6 +52,7 @@ PowerShell:
 osint auth sync-cookies --browser edge
 osint auth test --target all
 osint search "MCP协议" --sources zhihu,bilibili,web --trace
+osint search "MCP协议" --profile zhihu_deep --limit 20 --trace
 osint search "MCP协议" --digest --profile research
 osint save "https://www.zhihu.com/question/..." --with-comments
 osint recall "MCP"

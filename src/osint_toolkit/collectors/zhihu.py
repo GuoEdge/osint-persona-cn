@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
@@ -33,6 +34,17 @@ class ZhihuCollector(BaseCollector):
             return None
         match = _QUESTION_URL.search(url)
         return match.group(1) if match else None
+
+    @staticmethod
+    def question_id_from_ref(url: str) -> str | None:
+        match = _QUESTION_URL.search(url or "")
+        return match.group(1) if match else None
+
+    def _search_per_type_limit(self, limit: int, num_types: int) -> int:
+        cfg = self._zhihu_search_cfg()
+        if cfg.get("zhihu_aggressive", True):
+            return int(cfg.get("zhihu_search_per_type", max(limit, 40)))
+        return max(3, limit // max(1, num_types))
 
     @staticmethod
     def _next_search_url(paging: dict[str, Any]) -> str | None:
@@ -80,8 +92,9 @@ class ZhihuCollector(BaseCollector):
     async def search(self, query: str, limit: int = 10) -> list[IntelItem]:
         cfg = self._zhihu_search_cfg()
         search_types = cfg.get("zhihu_search_types") or ["general", "content"]
-        pages = int(cfg.get("zhihu_search_pages", 2))
-        per_type = max(3, limit // max(1, len(search_types)))
+        pages = int(cfg.get("zhihu_search_pages", 5))
+        per_type = self._search_per_type_limit(limit, len(search_types))
+        aggressive = bool(cfg.get("zhihu_aggressive", True))
 
         items: list[IntelItem] = []
         seen: set[str] = set()
@@ -100,14 +113,14 @@ class ZhihuCollector(BaseCollector):
                     items.append(item)
         except Exception as exc:  # noqa: BLE001
             for fallback in (self._bing_site_search, self._local_event_search):
-                items = await fallback(query, limit)
+                items = await fallback(query, limit if not aggressive else per_type)
                 if items:
-                    return items[:limit]
+                    return items if aggressive else items[:limit]
             raise RuntimeError(f"知乎搜索 API 不可用 ({exc})；回退也无结果") from exc
 
         if not items:
             for fallback in (self._bing_site_search, self._local_event_search):
-                items = await fallback(query, limit)
+                items = await fallback(query, limit if not aggressive else per_type)
                 if items:
                     break
 
@@ -118,42 +131,66 @@ class ZhihuCollector(BaseCollector):
                     continue
                 seen.add(item.url)
                 items.append(item)
-        return items[: max(limit, len(items))]
+        if aggressive:
+            return items
+        return items[:limit]
 
     async def expand_questions(self, items: list[IntelItem]) -> list[IntelItem]:
-        """对搜索到的提问批量拉取高赞回答。"""
+        """对搜索到的提问（及回答所属提问）批量拉取高赞回答。"""
         cfg = self._zhihu_search_cfg()
         if not cfg.get("zhihu_expand_answers", True):
             return []
-        max_questions = int(cfg.get("zhihu_expand_question_top", 5))
-        per_question = int(cfg.get("zhihu_answers_per_question", 20))
+        max_questions = int(cfg.get("zhihu_expand_question_top", 15))
+        per_question = int(cfg.get("zhihu_answers_per_question", 50))
+        expand_from_answers = bool(cfg.get("zhihu_expand_from_answers", True))
 
-        questions: list[IntelItem] = []
-        seen_q: set[str] = set()
-        for item in items:
-            if item.source != "zhihu":
+        question_meta: dict[str, tuple[str, str]] = {}
+        ordered = sorted(
+            [i for i in items if i.source == "zhihu"],
+            key=lambda i: (0 if i.type == "question" else 1, i.url),
+        )
+        for item in ordered:
+            qid = self.question_id_from_ref(item.url)
+            if not qid or qid in question_meta:
+                continue
+            if "/answer/" in item.url and not expand_from_answers:
                 continue
             if "/answer/" in item.url:
-                continue
-            qid = self.question_id_from_url(item.url)
-            if not qid or qid in seen_q:
-                continue
-            seen_q.add(qid)
-            questions.append(item)
-            if len(questions) >= max_questions:
+                qurl = f"https://www.zhihu.com/question/{qid}"
+                title = str(item.personal.get("parent_question_title") or "")
+            else:
+                qurl = item.url if "/question/" in item.url else f"https://www.zhihu.com/question/{qid}"
+                title = item.title or qurl
+            question_meta[qid] = (qurl, title)
+            if len(question_meta) >= max_questions:
                 break
 
-        expanded: list[IntelItem] = []
-        for question in questions:
-            answers = await self.fetch_question_answers(question.url, limit=per_question)
+        if not question_meta:
+            return []
+
+        async def fetch_for_question(qid: str) -> list[IntelItem]:
+            qurl, title = question_meta[qid]
+            answers = await self.fetch_question_answers(qurl, limit=per_question)
+            if answers and not title:
+                title = answers[0].title or title
             for answer in answers:
-                answer.personal["parent_question_url"] = question.url
-                answer.personal["parent_question_title"] = question.title
-                expanded.append(answer)
+                answer.personal["parent_question_url"] = qurl
+                answer.personal["parent_question_title"] = title
+            return answers
+
+        batches = await asyncio.gather(
+            *[fetch_for_question(qid) for qid in question_meta],
+            return_exceptions=True,
+        )
+        expanded: list[IntelItem] = []
+        for batch in batches:
+            if isinstance(batch, Exception):
+                continue
+            expanded.extend(batch)
         return expanded
 
     async def fetch_question_answers(self, question_ref: str, *, limit: int = 20) -> list[IntelItem]:
-        qid = self.question_id_from_url(question_ref) or str(question_ref).strip()
+        qid = self.question_id_from_ref(question_ref) or str(question_ref).strip()
         if not qid.isdigit():
             return []
 
@@ -480,14 +517,58 @@ class ZhihuCollector(BaseCollector):
 
     def _comment_limits(self) -> tuple[int, int]:
         cfg = self._zhihu_search_cfg()
-        limit = int(cfg.get("zhihu_comment_limit", 60))
-        pages = int(cfg.get("zhihu_comment_pages", 4))
+        limit = int(cfg.get("zhihu_comment_limit", 120))
+        pages = int(cfg.get("zhihu_comment_pages", 8))
         return limit, pages
+
+    async def _fetch_child_comments(
+        self,
+        kind: str,
+        rid: str,
+        root_id: str,
+        *,
+        limit: int,
+    ) -> list[dict]:
+        collected: list[dict] = []
+        offset = ""
+        pages = 0
+        while len(collected) < limit and pages < 3:
+            api = (
+                f"https://www.zhihu.com/api/v4/comment_v5/{kind}/{rid}/root_comment/{root_id}/child_comment"
+                f"?limit=20&order_by=score"
+            )
+            if offset:
+                api += f"&offset={quote(offset)}"
+            try:
+                resp = await self.client.get(api)
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+            except Exception:  # noqa: BLE001
+                break
+            for entry in data.get("data") or []:
+                collected.append(
+                    {
+                        "author": (entry.get("author") or {}).get("name", ""),
+                        "content": html_to_text(entry.get("content", "")),
+                        "likes": entry.get("vote_count", 0),
+                        "id": entry.get("id"),
+                    }
+                )
+                if len(collected) >= limit:
+                    break
+            paging = data.get("paging") or {}
+            if paging.get("is_end") or not paging.get("next"):
+                break
+            offset = str(paging.get("next") or "")
+            pages += 1
+        return collected[:limit]
 
     async def fetch_comments(self, url: str, limit: int | None = None) -> list[dict]:
         resource = self._comment_resource(url)
         if not resource:
             return []
+        cfg = self._zhihu_search_cfg()
         cfg_limit, max_pages = self._comment_limits()
         target_limit = limit if limit is not None else cfg_limit
         kind, rid = resource
@@ -526,4 +607,24 @@ class ZhihuCollector(BaseCollector):
             offset = str(paging.get("next") or "")
             pages += 1
         collected.sort(key=lambda c: c.get("likes", 0), reverse=True)
-        return collected[:target_limit]
+        collected = collected[:target_limit]
+
+        if cfg.get("zhihu_fetch_child_comments", True):
+            roots = int(cfg.get("zhihu_child_comment_roots", 10))
+            child_limit = int(cfg.get("zhihu_child_comment_limit", 20))
+            child_tasks = []
+            targets: list[dict] = []
+            for entry in collected[:roots]:
+                child_id = entry.get("id")
+                if not child_id or not entry.get("child_count"):
+                    continue
+                targets.append(entry)
+                child_tasks.append(
+                    self._fetch_child_comments(kind, rid, str(child_id), limit=child_limit)
+                )
+            if child_tasks:
+                child_batches = await asyncio.gather(*child_tasks, return_exceptions=True)
+                for entry, batch in zip(targets, child_batches, strict=False):
+                    if isinstance(batch, list) and batch:
+                        entry["replies"] = batch
+        return collected

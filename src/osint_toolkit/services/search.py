@@ -221,6 +221,14 @@ def _comment_mine_top_for_source(source: str, default_top: int) -> int:
     return max(0, int(zh_top))
 
 
+def _effective_comment_top(default_top: int) -> int:
+    cfg = get_search_config()
+    zh_top = cfg.get("zhihu_comment_mine_top")
+    if zh_top is None:
+        return default_top
+    return max(default_top, int(zh_top))
+
+
 async def _mine_comments(
 
     items: list[IntelItem],
@@ -232,6 +240,8 @@ async def _mine_comments(
     no_ai: bool,
 
 ) -> list[dict[str, Any]]:
+
+    top = _effective_comment_top(top)
 
     if top <= 0:
 
