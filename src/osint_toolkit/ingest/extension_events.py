@@ -75,6 +75,8 @@ def parse_api_capture(url: str, body: Any) -> list[tuple[str, dict[str, Any], st
     """Parse hooked API response into (event_type, data, dedup_key) tuples."""
     if not isinstance(body, dict):
         return []
+    if body.get("_osint_reply_post") and "bilibili.com" in url:
+        return _parse_reply_post(body)
     if not should_capture_url(url):
         return []
     if "bilibili.com" in url:
@@ -111,6 +113,33 @@ def _iter_reply_nodes(nodes: Any) -> list[dict[str, Any]]:
 
     walk(nodes)
     return found
+
+
+def _parse_reply_post(body: dict[str, Any]) -> list[tuple[str, dict[str, Any], str]]:
+    params = body.get("_osint_reply_post") or {}
+    message = str(params.get("message") or "").strip()
+    oid = str(params.get("oid") or "")
+    comment_type = str(params.get("type") or "1")
+    if not message or not oid:
+        return []
+    parent_url = _parent_url_for_comment(oid=oid, comment_type=comment_type)
+    resp = body.get("_osint_response") or {}
+    rpid = ""
+    if isinstance(resp, dict):
+        reply = (resp.get("data") or {}).get("reply") or {}
+        rpid = str(reply.get("rpid") or "")
+    entry = {
+        "source": "bilibili",
+        "title": message[:200],
+        "url": parent_url,
+        "message": message,
+        "rpid": rpid,
+        "oid": oid,
+        "event_kind": "comment_post",
+        "via": "extension",
+    }
+    extra = rpid or f"{oid}:{hashlib.sha256(message.encode()).hexdigest()[:16]}"
+    return [("bilibili_comment_post", entry, _dedup_key("bilibili_comment_post", parent_url, extra))]
 
 
 def _parse_reply_action(body: dict[str, Any]) -> list[tuple[str, dict[str, Any], str]]:

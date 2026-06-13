@@ -227,6 +227,12 @@ async def ingest_aicu() -> dict[str, Any]:
     return await ingest_aicu_comments()
 
 
+async def ingest_my_comments(limit: int = 10_000) -> dict[str, Any]:
+    from osint_toolkit.ingest.bilibili_sdk import ingest_my_comments as _sdk_my_comments
+
+    return await _sdk_my_comments(limit=limit)
+
+
 async def ingest_aicu_json(payload: Any) -> dict[str, Any]:
     return await ingest_aicu_from_json(payload)
 
@@ -237,10 +243,9 @@ async def bilibili_mid() -> dict[str, Any]:
 
 
 def aicu_status() -> dict[str, Any]:
-    from osint_toolkit.utils.config import load_config
+    from osint_toolkit.utils.config import get_aicu_enabled
 
-    cfg = load_config().get("ingest", {})
-    return {"enabled": bool(cfg.get("aicu_enabled", False))}
+    return {"enabled": get_aicu_enabled()}
 
 
 async def ingest_accounts_sync() -> dict[str, Any]:
@@ -281,10 +286,10 @@ async def ingest_accounts_sync() -> dict[str, Any]:
 
         result["persona_rebuild"] = await maybe_auto_rebuild_persona()
 
-    from osint_toolkit.utils.config import load_config
+    from osint_toolkit.utils.config import get_browser_sync_config
 
-    ingest_cfg = load_config().get("ingest", {})
-    if ingest_cfg.get("browser_sync_enabled", True) and ingest_cfg.get("browser_sync_after_api", True):
+    bs_cfg = get_browser_sync_config()
+    if bs_cfg.get("browser_sync_enabled", True) and bs_cfg.get("browser_sync_after_api", True):
         try:
             from osint_toolkit.services import browser_sync as browser_sync_service
 

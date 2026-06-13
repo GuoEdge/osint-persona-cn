@@ -10,13 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from osint_toolkit.ingest.aicu import AICU_GETREPLY, _aicu_request_headers, _is_waf_block, get_bilibili_mid
-from osint_toolkit.utils.config import load_config
+from osint_toolkit.utils.config import get_aicu_enabled, load_config
 
 
 async def probe_aicu() -> dict:
-    cfg = load_config().get("ingest", {})
-    if not cfg.get("aicu_enabled", False):
-        return {"status": "DISABLE", "reason": "ingest.aicu_enabled 未开启"}
+    if not get_aicu_enabled():
+        return {"status": "DISABLE", "reason": "sync.aicu_enabled / ingest.aicu_enabled 未开启"}
 
     mid = await get_bilibili_mid()
     if not mid:

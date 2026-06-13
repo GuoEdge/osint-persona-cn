@@ -122,10 +122,7 @@ def test_ingest_aicu_from_json(tmp_path, monkeypatch):
     db = tmp_path / "knowledge.db"
     monkeypatch.setattr("osint_toolkit.storage.sqlite.get_db_path", lambda: db)
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(
-        "osint_toolkit.ingest.aicu.load_config",
-        lambda: {"ingest": {"aicu_enabled": True}},
-    )
+    monkeypatch.setattr("osint_toolkit.utils.config.get_aicu_enabled", lambda: True)
 
     payload = {
         "code": 0,
@@ -180,8 +177,9 @@ def test_aicu_dedup_on_import(tmp_path, monkeypatch):
     monkeypatch.setattr(aicu_mod, "_nav_mid", fake_nav)
     monkeypatch.setattr(aicu_mod, "_resolve_bvid", noop_resolve)
 
-    cfg = {"ingest": {"aicu_enabled": True, "aicu_page_size": 10, "aicu_delay_sec": 0}}
+    cfg = {"ingest": {"aicu_page_size": 10, "aicu_delay_sec": 0}}
     monkeypatch.setattr(aicu_mod, "load_config", lambda: cfg)
+    monkeypatch.setattr("osint_toolkit.utils.config.get_aicu_enabled", lambda: True)
 
     first = asyncio.run(aicu_mod.ingest_aicu_comments())
     second = asyncio.run(aicu_mod.ingest_aicu_comments())

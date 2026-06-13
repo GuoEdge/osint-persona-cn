@@ -42,7 +42,7 @@
 | 收录 `/save` | `POST /api/save` |
 | 知识库 `/knowledge` | `GET /api/knowledge/items`, `GET /api/knowledge/recall` |
 | 简报 `/digest` | `GET /api/digest/daily`, `GET /api/digest/reports` |
-| 扩展与导入 `/ingest` | `POST /api/ingest/*`, `GET /api/extension/status` |
+| 行为同步 `/ingest` | `POST /api/ingest/*`, `GET /api/extension/status`, `GET /api/setup/operations` |
 | 行为时间线 `/behavior` | `GET /api/events/recent`, `GET /api/events/insights` |
 | 心智画像 `/persona` | `GET/POST /api/persona/*` |
 | 运行记录 `/runs` | `GET /api/runs`, `GET /api/runs/{id}` |
@@ -73,7 +73,7 @@
 1. Cookie preflight
 2. `POST /api/ingest/accounts-sync`（B站/知乎 Cookie API）
 3. `POST /api/ingest/browser-sync`（Playwright 补洞，可选）
-4. AICU 发评（仅 `ingest.aicu_enabled` 且 probe PASS）
+4. AICU 发评（`sync.aicu_enabled` 或 `ingest.aicu_enabled`，且 probe PASS）
 5. 提示扩展 flush 上报队列
 
 扩展「服务端拉取 + 轻量补洞」：
@@ -139,7 +139,7 @@ ai:
 
 search:
   max_expanded_queries: 8
-  comment_mine_top: 3
+  comment_mine_top: 12
   discover_sources: [bilibili, zhihu, web, v2ex]
 
 ingest:
@@ -157,7 +157,13 @@ ingest:
 
 ## 用户旅程
 
-1. **采集**：安装扩展 + 可选批量导入（B站/知乎/浏览器历史）
-2. **画像**：构建心智画像（行为达阈值后 prompt/auto 重建）
-3. **搜罗**：多源采集 + AI 摘要 + 画像模拟 + 情报报告
-4. **沉淀**：收录到知识库、生成每日简报、审计运行记录
+统一操作入口：`services/ops.py`（CLI `osint sync` / Web `GET /api/setup/operations`）
+
+1. **启动**：`osint web` → http://127.0.0.1:8787
+2. **Cookie**：扩展弹窗或 `osint auth sync-cookies`
+3. **同步**：`osint sync`（完整）或行为同步页「一键完整同步」
+4. **搜罗**：`osint search "关键词"` 或 Web 搜罗页
+5. **画像**：`osint persona build --review` 或心智画像页
+6. **诊断**：`osint doctor` 检查 Cookie / Playwright / 扩展连接
+
+分步同步（仅故障排查）：`osint sync --mode accounts` / `--mode browser`

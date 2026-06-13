@@ -8,6 +8,9 @@
   </div>
 </div>
 
+<h2>推荐流程</h2>
+<div id="ops-runbook" class="card muted">加载中…</div>
+
 <h2>连接状态</h2>
 <div id="auth-status" class="card">加载中…</div>
 
@@ -23,7 +26,7 @@
 <details class="mt-1">
   <summary>Playwright 浏览器会话补洞（CDP 模式）</summary>
   <div class="card mt-1 muted">
-    <p>当 Edge 必须保持打开时，可用 CDP 附着调试端口（在 <code>~/.osint/config.yaml</code> 设 <code>ingest.browser_sync_mode: cdp</code>）：</p>
+    <p>当 Edge 必须保持打开时，可用 CDP 附着调试端口（在 <code>~/.osint/config.yaml</code> 设 <code>sync.browser_sync_mode: cdp</code>）：</p>
     <ol>
       <li>完全退出 Edge 后，用调试端口启动（PowerShell）：</li>
     </ol>
@@ -52,7 +55,7 @@
     <ul>
       <li><code>include_slurs: true</code> — 搜罗时默认扩展贬义/黑称关联词</li>
       <li><code>max_expanded_queries: 8</code> — 单次搜索最多并行查询数</li>
-      <li><code>comment_mine_top: 3</code> — 默认挖掘 top N 条 B 站视频热评</li>
+      <li><code>comment_mine_top: 12</code> — 默认对 top N 条结果拉取热评/字幕/弹幕</li>
       <li><code>discover_sources: [bilibili, zhihu, web, v2ex]</code> — 联网发现关联词的探针来源</li>
       <li><code>persist_discovered_aliases: true</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
     </ul>

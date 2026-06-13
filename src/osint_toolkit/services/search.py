@@ -36,13 +36,7 @@ from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_con
 from osint_toolkit.auth.cookie_sync import sync_browser_cookies
 
 from osint_toolkit.collectors.bilibili import BilibiliCollector
-
-from osint_toolkit.collectors.rss import RssCollector
-
-from osint_toolkit.collectors.v2ex import V2exCollector
-
-from osint_toolkit.collectors.web import WebCollector
-
+from osint_toolkit.collectors.registry import COLLECTORS, DEFAULT_SEARCH_SOURCES, normalize_sources
 from osint_toolkit.collectors.zhihu import ZhihuCollector
 
 from osint_toolkit.exporters.report import export_report
@@ -54,24 +48,6 @@ from osint_toolkit.pipeline.context import RunContext
 from osint_toolkit.pipeline.runner import PipelineRunner
 
 from osint_toolkit.utils.config import get_search_config, load_config
-
-
-
-COLLECTORS = {
-
-    "zhihu": ZhihuCollector,
-
-    "bilibili": BilibiliCollector,
-
-    "web": WebCollector,
-
-    "v2ex": V2exCollector,
-
-    "rss": RssCollector,
-
-}
-
-
 
 
 
@@ -261,6 +237,12 @@ async def _mine_comments(
 
         for item in by_source[src][:quota]:
 
+            if src == "bilibili" and item.type == "video":
+                try:
+                    await collector.enrich_video(item)
+                except Exception:  # noqa: BLE001
+                    pass
+
             comments = await collector.fetch_comments(item.url)
 
             item.layers["comments"] = comments
@@ -286,6 +268,10 @@ async def _mine_comments(
                     "comment_count": len(comments),
 
                     "comments_summary": summary,
+
+                    "subtitle_kind": (item.layers.get("subtitle") or {}).get("kind"),
+
+                    "danmaku_summary": item.layers.get("danmaku_summary", ""),
 
                 }
 
@@ -335,17 +321,13 @@ async def run_search(
 
     search_cfg = get_search_config()
 
-    profiles = cfg.get("profiles", {})
-
-    prof = profiles.get(profile, {})
-
-    sources = sources or prof.get("sources") or ["zhihu", "bilibili", "web"]
+    sources, unknown_sources = normalize_sources(sources, profile=profile)
 
 
 
     if comment_mine_top is None:
 
-        comment_mine_top = int(search_cfg.get("comment_mine_top", 3))
+        comment_mine_top = int(search_cfg.get("comment_mine_top", 12))
 
     if deep_top > 0 and comment_mine_top == 0:
 
@@ -438,7 +420,9 @@ async def run_search(
 
     match_terms: list[str] = list(queries_used) + list(query_analysis.get("aliases") or [])
 
-    collect_sources = query_analysis.get("recommended_sources") or sources
+    collect_sources = [
+        s for s in (query_analysis.get("recommended_sources") or sources) if s in COLLECTORS
+    ]
 
     per_limit = per_query_limit(limit, len(queries_used))
 
@@ -463,6 +447,8 @@ async def run_search(
         items: list[IntelItem] = []
 
         source_errors: list[dict[str, str]] = []
+        for name in unknown_sources:
+            source_errors.append({"source": name, "error": "未知来源（已忽略）", "query": query})
 
         for (source_name, q), group in zip(task_meta, groups, strict=False):
 
@@ -707,7 +693,7 @@ async def preview_query_expansion(
 ) -> dict[str, Any]:
     """Preview expanded queries without running full search."""
     persona_ctx = maybe_load_persona_context()
-    sources = sources or ["zhihu", "bilibili", "web"]
+    sources, _unknown = normalize_sources(sources, profile="default")
     search_cfg = get_search_config()
     discover_meta: dict[str, Any] = {}
     if search_cfg.get("discover_aliases", True) and not no_ai:

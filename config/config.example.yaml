@@ -21,10 +21,13 @@ cookie_sync:
     - sspai.com
     - huxiu.com
     - 36kr.com
+    - sogou.com
+    - weixin.sogou.com
+    - mp.weixin.qq.com
 
 profiles:
   default:
-    sources: [zhihu, bilibili, web]
+    sources: [zhihu, bilibili, web, weixin]
   research:
     sources: [zhihu, bilibili, v2ex, web, rss]
     simulate_persona: true
@@ -43,6 +46,34 @@ http:
   timeout: 30
   user_agent: "OSINT-Toolkit/0.1.0"
   proxy: null
+
+# bilibili-api-python 折中集成：搜索/评论/账号深采走 SDK，失败回退自研 WBI + SERP
+bilibili:
+  use_sdk: true
+  sdk_client: httpx          # httpx | aiohttp | curl_cffi
+  enable_bili_ticket: false
+  features:
+    search: true
+    comments: true
+    subtitle: true
+    danmaku: true
+    ingest_history: true
+    ingest_favorites: true
+    ingest_followings: true
+    my_comments: true
+  comments_fetch_limit: 60
+  danmaku_max_lines: 800
+  search:
+    types: [video, article, bili_user]   # 还可加 topic, media_bangumi, media_ft
+    order_video: totalrank               # totalrank|click|pubdate|dm|stow|scores
+    order_article: totalrank
+    order_user: fans                      # fans|level
+    time_start: null                      # YYYY-MM-DD，与 time_end 搭配
+    time_end: null
+    video_zone_tid: null                  # 视频分区 tid
+    time_range_minutes: -1                # 视频时长筛选；-1 表示不限
+    serp_fallback: true
+    legacy_wbi_fallback: true
 
 output:
   default_format: markdown
@@ -73,3 +104,26 @@ ingest:
   browser_sync_max_pages: 6
 
 # AI 持久导向建议放在用户目录: %USERPROFILE%\.osint\ai_directives.yaml
+
+# 搜索引擎（搜罗 web 源 + 知乎/B站 site: 回退）
+search:
+  comment_mine_top: 12
+  serp:
+    primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
+    strategy: fallback     # fallback | merge_html（API 仍优先，HTML 多引擎合并）
+    fallbacks: [duckduckgo_html, bing_html, baidu_html, sogou_html]
+    merge_min_hits: 5
+    bing_api_key: ${BING_SEARCH_API_KEY}
+    serpapi_key: ${SERPAPI_KEY}
+    searxng_base_url: ${SEARXNG_BASE_URL}   # 自建或私有 SearXNG，如 http://127.0.0.1:8080
+    duckduckgo_region: cn-zh
+    provider_delay_ms: 300
+    enabled_providers: []    # 非空时仅启用列出的 provider
+    site_searches: [github.com, bilibili.com, zhihu.com]
+    web_fetch_content: true
+    web_fetch_top: 5
+  weixin:
+    resolve_mp_urls: true   # 尝试将搜狗跳转链解析为 mp.weixin.qq.com 永久链
+    resolve_top: 3
+    playwright_on_block: true
+    serp_fallback: true      # 搜狗失败时用 site:mp.weixin.qq.com

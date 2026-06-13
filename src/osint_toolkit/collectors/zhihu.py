@@ -20,69 +20,72 @@ class ZhihuCollector(BaseCollector):
         self.client = client or HttpClient()
 
     async def search(self, query: str, limit: int = 10) -> list[IntelItem]:
+        fallbacks = (self._playwright_search, self._bing_site_search, self._local_event_search)
+        try:
+            items = await self._api_search(query, limit)
+            if items:
+                return items[:limit]
+        except Exception as exc:  # noqa: BLE001
+            api_err = exc
+        else:
+            api_err = None
+
+        for fallback in fallbacks:
+            try:
+                items = await fallback(query, limit)
+                if items:
+                    return items[:limit]
+            except Exception:  # noqa: BLE001
+                continue
+
+        if api_err:
+            raise RuntimeError(f"知乎搜索失败 ({api_err})；API 与回退均无结果") from api_err
+        raise RuntimeError("知乎搜索失败：API 与回退均无结果")
+
+    async def _api_search(self, query: str, limit: int) -> list[IntelItem]:
         api = (
             "https://www.zhihu.com/api/v4/search_v3?"
             f"t=general&q={quote(query)}&correction=1&offset=0&limit={limit}"
         )
         items: list[IntelItem] = []
-        try:
-            resp = await self.client.get(api)
-            if resp.status_code != 200:
-                raise RuntimeError(f"search_v3 status={resp.status_code}")
-            data = resp.json()
-            for entry in (data.get("data") or [])[:limit]:
-                obj = entry.get("object", {}) or entry
-                item = self._parse_object(obj)
-                if item:
-                    items.append(item)
-        except Exception as exc:  # noqa: BLE001
-            for fallback in (self._bing_site_search, self._local_event_search):
-                items = await fallback(query, limit)
-                if items:
-                    return items[:limit]
-            raise RuntimeError(f"知乎搜索 API 不可用 ({exc})；回退也无结果") from exc
-        if not items:
-            for fallback in (self._bing_site_search, self._local_event_search):
-                items = await fallback(query, limit)
-                if items:
-                    break
-        return items[:limit]
+        resp = await self.client.get(api)
+        if resp.status_code != 200:
+            raise RuntimeError(f"search_v3 status={resp.status_code}")
+        data = resp.json()
+        for entry in (data.get("data") or [])[:limit]:
+            obj = entry.get("object", {}) or entry
+            item = self._parse_object(obj)
+            if item:
+                items.append(item)
+        return items
+
+    async def _playwright_search(self, query: str, limit: int) -> list[IntelItem]:
+        """在真实浏览器上下文中调用 search_v3（自动附带 x-zse-96）。"""
+        from osint_toolkit.ingest.playwright_session import playwright_available
+        from osint_toolkit.ingest.zhihu_playwright import fetch_search_v3
+
+        if not playwright_available():
+            raise RuntimeError("playwright 未安装")
+
+        data = await fetch_search_v3(query, limit=limit)
+        items: list[IntelItem] = []
+        for entry in (data.get("data") or [])[:limit]:
+            obj = entry.get("object", {}) or entry
+            item = self._parse_object(obj)
+            if item:
+                items.append(item)
+        return items
 
     async def _bing_site_search(self, query: str, limit: int) -> list[IntelItem]:
-        """search_v3 被风控时，用 Bing site:zhihu.com 回退。"""
-        url = f"https://www.bing.com/search?q={quote(f'site:zhihu.com {query}')}&setlang=zh-Hans"
-        items: list[IntelItem] = []
-        try:
-            html = await self.client.get_text(url)
-            soup = BeautifulSoup(html, "html.parser")
-            seen: set[str] = set()
-            for li in soup.select("li.b_algo"):
-                a = li.find("a")
-                if not a or not a.get("href"):
-                    continue
-                href = a["href"]
-                if "zhihu.com" not in href or href in seen:
-                    continue
-                seen.add(href)
-                title = a.get_text(strip=True)
-                snippet = ""
-                p = li.find("p")
-                if p:
-                    snippet = p.get_text(strip=True)
-                item_type = "answer" if "/answer/" in href else "article" if "/p/" in href else "snippet"
-                items.append(
-                    IntelItem(
-                        source="zhihu",
-                        type=item_type,
-                        url=href,
-                        title=title,
-                        content=snippet,
-                    )
-                )
-                if len(items) >= limit:
-                    break
-        except Exception:  # noqa: BLE001
-            return []
+        """search_v3 被风控时，用 SERP site:zhihu.com 回退（支持多引擎轮换）。"""
+        from osint_toolkit.collectors.serp.engine import SerpEngine, hits_to_items
+
+        engine = SerpEngine(client=self.client)
+        hits, _ = await engine.site_search("zhihu.com", query, limit=limit)
+        items = hits_to_items(hits, source="zhihu")
+        for item in items:
+            href = item.url
+            item.type = "answer" if "/answer/" in href else "article" if "/p/" in href else "snippet"
         return items
 
     async def _local_event_search(self, query: str, limit: int) -> list[IntelItem]:

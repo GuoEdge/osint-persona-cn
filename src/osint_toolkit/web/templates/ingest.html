@@ -1,25 +1,27 @@
 {% extends "base.html" %}
 
-{% block title %}扩展与导入 — 个人情报工具{% endblock %}
+{% block title %}行为同步 — 个人情报工具{% endblock %}
 
 {% block content %}
 
 <div class="page-header">
   <div>
-    <h1>扩展与导入</h1>
-    <p class="page-desc">安装扩展并导入行为数据，用于构建心智画像。</p>
+    <h1>行为同步</h1>
+    <p class="page-desc">一条主路径完成 B站/知乎行为导入；扩展负责日常被动采集。</p>
   </div>
 </div>
 
-<nav class="pipeline-steps card" aria-label="采集流水线">
-  <a href="/ingest#extension" class="pipeline-step active">1. 扩展</a>
+<nav class="pipeline-steps card" aria-label="推荐流程">
+  <span class="pipeline-step">1. Cookie</span>
   <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">2. 导入</span>
+  <span class="pipeline-step active">2. 完整同步</span>
   <span class="pipeline-arrow">→</span>
   <a href="/persona" class="pipeline-step">3. 构建画像</a>
   <span class="pipeline-arrow">→</span>
-  <a href="/" class="pipeline-step">4. 去搜罗</a>
+  <a href="/" class="pipeline-step">4. 搜罗</a>
 </nav>
+
+<div id="setup-wizard" class="setup-wizard card hidden"></div>
 
 <div id="auth-banner" class="alert alert-warn hidden"></div>
 
@@ -28,104 +30,85 @@
   <div id="ingest-health-content" class="muted">加载中…</div>
 </div>
 
-<nav class="pipeline-steps card ingest-wizard" aria-label="首次使用向导">
-  <strong class="pipeline-step-label">首次使用 5 步：</strong>
-  <span class="pipeline-step">1. 启动 Web</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">2. 加载扩展</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">3. 同步 Cookie</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">4. 完整同步</span>
-  <span class="pipeline-arrow">→</span>
-  <a href="/persona" class="pipeline-step">5. 构建画像</a>
-</nav>
-
-<div class="grid-2">
-
-  <div class="card" id="extension">
-    <h2>浏览器扩展</h2>
-    <p class="muted">安装后<strong>日常上网即后台采集</strong>：12+ 平台浏览/停留、B站/知乎 API 拦截、每 4h 自动同步。右键可收录进知识库。</p>
-    <div id="extension-status" class="muted">检测中…</div>
-    <ol class="muted install-steps">
-      <li>双击 <code>start-osint-web.bat</code> 启动本机 Web（8787）</li>
-      <li>扩展弹窗 → <strong>从浏览器同步 Cookie</strong>（Edge 130+ 推荐，无需管理员）</li>
-      <li>Edge/Chrome → 扩展 → 加载已解压 → 选 <code>gochj-web/extension/</code>（不是 gochj-master）</li>
-      <li>扩展弹窗 → <strong>服务端拉取 B站/知乎</strong>；或直接用下方网页一键拉取</li>
-    </ol>
-    <div class="form-row mt-1">
-      <button id="btn-ingest-full-sync" class="btn btn-primary" type="button">完整同步</button>
-      <button id="btn-ingest-accounts-sync" class="btn btn-secondary" type="button">一键服务端拉取（B站+知乎）</button>
-      <button id="btn-ingest-browser-sync" class="btn btn-secondary" type="button">浏览器会话补洞（Playwright）</button>
-      <button id="btn-extension-refresh" class="btn btn-secondary" type="button">刷新扩展状态</button>
-    </div>
-    <div id="ingest-full-sync-progress" class="mt-1 muted hidden"></div>
-    <div id="ingest-full-sync-result" class="mt-1"></div>
-    <div id="ingest-accounts-sync-result" class="mt-1"></div>
-    <div id="ingest-browser-sync-result" class="mt-1"></div>
-    <p class="muted install-steps mt-1">
-      <strong>Playwright 补洞</strong>：在真实 Edge 登录态中打开知乎 recent-viewed / B站 space 页并拦截 API。
-      Persistent 模式需<strong>完全关闭 Edge</strong>；或见 <a href="/settings">设置页</a> CDP 调试说明。
-      首次使用请运行 <code>scripts/install-browser-sync.ps1</code>。
-    </p>
+<div class="card mb-1" id="extension">
+  <h2>推荐：一键完整同步</h2>
+  <p class="muted">等价于 CLI <code>osint sync</code>：预检 → B站/知乎 API → Playwright 补洞 → 可选 AICU → 提示上传扩展队列。</p>
+  <div class="form-row mt-1">
+    <button id="btn-ingest-full-sync" class="btn btn-primary" type="button">开始完整同步</button>
+    <button id="btn-extension-refresh" class="btn btn-secondary" type="button">刷新状态</button>
   </div>
-
-  <div class="card">
-    <h2>浏览器历史</h2>
-    <p class="muted">从 Edge 浏览历史导入</p>
-    <div class="form-row">
-      <label for="browser-since">最近天数</label>
-      <input type="number" id="browser-since" value="90" min="1" max="365">
-    </div>
-    <button id="btn-ingest-browser" class="btn">导入</button>
-    <div id="ingest-browser-result" class="mt-1"></div>
-  </div>
-
-  <div class="card">
-    <h2>B站行为</h2>
-    <p class="muted">观看历史 + 收藏夹 + 点赞。需 bilibili Cookie；点赞全量请配合扩展。</p>
-    <button id="btn-ingest-bilibili" class="btn">导入</button>
-    <div id="ingest-bilibili-result" class="mt-1"></div>
-  </div>
-
-  <div class="card">
-    <h2>B站发过的评论</h2>
-    <p class="muted">通过 <a href="https://www.aicu.cc/" target="_blank" rel="noopener">AICU</a> 补发评历史。与 B 站 Cookie 无关：服务端直连常被 WAF 拦截，<strong>推荐用扩展按钮</strong>或粘贴 JSON。</p>
-    <ol class="muted install-steps">
-      <li><code>~/.osint/config.yaml</code> 设 <code>ingest.aicu_enabled: true</code></li>
-      <li>浏览器先打开 <a href="https://www.aicu.cc/" target="_blank" rel="noopener">aicu.cc</a> 查一次你的 UID</li>
-      <li>扩展弹窗 →「浏览器拉取 AICU 发评」（需重载扩展 v0.2.8+，并先打开 <a href="https://www.aicu.cc/" target="_blank" rel="noopener">aicu.cc</a> 通过验证）</li>
-    </ol>
-    <button id="btn-ingest-aicu" class="btn">服务端导入（可能被 WAF 拦截）</button>
-    <details class="mt-1">
-      <summary>或粘贴 AICU Network 响应 JSON</summary>
-      <textarea id="aicu-json-input" rows="6" class="mt-1" placeholder='粘贴 getreply 接口返回的 JSON，或 {"data":{"replies":[...]}}'></textarea>
-      <button id="btn-ingest-aicu-json" class="btn btn-secondary mt-1" type="button">导入 JSON</button>
-    </details>
-    <div id="ingest-aicu-result" class="mt-1"></div>
-  </div>
-
-  <div class="card">
-    <h2>知乎行为</h2>
-    <p class="muted">收藏夹 + 赞同统计。赞同明细请用扩展打开赞同页。</p>
-    <button id="btn-ingest-zhihu" class="btn">导入</button>
-    <div id="ingest-zhihu-result" class="mt-1"></div>
-  </div>
-
-  <div class="card">
-    <h2>认可记录</h2>
-    <div id="likes-list" class="muted">加载中…</div>
-  </div>
-
+  <div id="ingest-full-sync-progress" class="mt-1 muted hidden"></div>
+  <div id="ingest-full-sync-result" class="mt-1"></div>
 </div>
 
-<div class="card mt-1">
-  <h2>平台能力说明</h2>
-  <div id="ingest-capabilities" class="muted">加载中…</div>
+<details class="card mb-1">
+  <summary><strong>分步同步</strong>（仅在某一步失败时使用）</summary>
+  <div class="form-row mt-1">
+    <button id="btn-ingest-accounts-sync" class="btn btn-secondary" type="button">仅 API 拉取（B站+知乎）</button>
+    <button id="btn-ingest-browser-sync" class="btn btn-secondary" type="button">仅浏览器补洞（Playwright）</button>
+  </div>
+  <div id="ingest-accounts-sync-result" class="mt-1"></div>
+  <div id="ingest-browser-sync-result" class="mt-1"></div>
+  <p class="muted install-steps mt-1">Playwright Persistent 模式需<strong>完全关闭 Edge</strong>；或见 <a href="/settings">设置</a> 配置 CDP。</p>
+</details>
+
+<details class="card mb-1">
+  <summary><strong>浏览器扩展</strong>（日常被动采集 + Cookie 同步）</summary>
+  <p class="muted mt-1">安装后日常上网即记录浏览/停留；每 4h 自动同步；右键可收录知识库。</p>
+  <div id="extension-status" class="muted">检测中…</div>
+  <ol class="muted install-steps">
+    <li>双击 <code>start-osint-web.bat</code> 启动本机 Web（8787）</li>
+    <li>Edge/Chrome → 扩展 → 加载已解压 → 选仓库内 <code>extension/</code> 目录</li>
+    <li>扩展弹窗 → <strong>从浏览器同步 Cookie</strong>（Edge 130+ 推荐）</li>
+    <li>扩展弹窗 → <strong>上传浏览采集队列</strong>（完整同步结束后点一次）</li>
+  </ol>
+</details>
+
+<details class="card mb-1">
+  <summary><strong>高级：按平台单独导入</strong></summary>
+  <div class="grid-2 mt-1">
+    <div>
+      <h3>浏览器历史</h3>
+      <div class="form-row">
+        <label for="browser-since">最近天数</label>
+        <input type="number" id="browser-since" value="90" min="1" max="365">
+      </div>
+      <button id="btn-ingest-browser" class="btn btn-sm">导入</button>
+      <div id="ingest-browser-result" class="mt-1"></div>
+    </div>
+    <div>
+      <h3>B站行为</h3>
+      <p class="muted">观看/收藏/点赞/关注</p>
+      <button id="btn-ingest-bilibili" class="btn btn-sm">导入</button>
+      <div id="ingest-bilibili-result" class="mt-1"></div>
+    </div>
+    <div>
+      <h3>知乎行为</h3>
+      <button id="btn-ingest-zhihu" class="btn btn-sm">导入</button>
+      <div id="ingest-zhihu-result" class="mt-1"></div>
+    </div>
+    <div>
+      <h3>B站发过的评论</h3>
+      <p class="muted">AICU 批量或扩展增量。配置 <code>sync.aicu_enabled: true</code></p>
+      <button id="btn-ingest-aicu" class="btn btn-sm">服务端 AICU 导入</button>
+      <details class="mt-1">
+        <summary>粘贴 AICU JSON</summary>
+        <textarea id="aicu-json-input" rows="4" class="mt-1" placeholder='{"data":{"replies":[...]}}'></textarea>
+        <button id="btn-ingest-aicu-json" class="btn btn-secondary btn-sm mt-1" type="button">导入 JSON</button>
+      </details>
+      <div id="ingest-aicu-result" class="mt-1"></div>
+    </div>
+  </div>
+</details>
+
+<div class="card">
+  <h2>认可记录</h2>
+  <div id="likes-list" class="muted">加载中…</div>
 </div>
 
-{% endblock %}
+<div id="ingest-capabilities" class="card mt-1">
+  <h2>能力说明</h2>
+  <p class="muted">加载中…</p>
+</div>
 
-{% block scripts %}
-<script>initIngest();</script>
 {% endblock %}

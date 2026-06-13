@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from osint_toolkit.ai.steering import directives_path
+from osint_toolkit.collectors.registry import DEFAULT_SEARCH_SOURCES
 from osint_toolkit.services import ai_config, auth, digest, feedback, ingest, knowledge, persona, runs, tools
 from osint_toolkit.services import save as save_svc
 from osint_toolkit.services import search as search_svc
@@ -144,7 +145,7 @@ def ai_prompts_reset(name: str) -> None:
 
 @main.command("search")
 @click.argument("query")
-@click.option("--sources", default="zhihu,bilibili,web")
+@click.option("--sources", default=",".join(DEFAULT_SEARCH_SOURCES))
 @click.option("--limit", default=10, type=int)
 @click.option("--digest", is_flag=True)
 @click.option("--trace", is_flag=True)
@@ -400,11 +401,76 @@ def feedback_cmd(target_id: str, rating: str, reason: str, run_id: str | None, s
 
 
 @main.command("digest")
-@click.option("--daily", is_flag=True)
+@click.option("--daily/--no-daily", default=True, help="生成每日简报（默认开启）")
 def digest_cmd(daily: bool) -> None:
     """生成简报。"""
-    if daily:
-        console.print(digest.get_daily_digest())
+    if not daily:
+        console.print("[yellow]使用 --daily 生成简报（此为默认行为）[/]")
+        return
+    console.print(digest.get_daily_digest())
+
+
+@main.command("sync")
+@click.option(
+    "--mode",
+    type=click.Choice(["full", "accounts", "browser"]),
+    default="full",
+    help="full=完整同步；accounts=仅 API；browser=仅 Playwright 补洞",
+)
+def sync_cmd(mode: str) -> None:
+    """一键同步 B站/知乎行为数据（推荐入口）。"""
+    from osint_toolkit.services import ops
+
+    console.print(f"[cyan]{ops.SYNC_LABELS.get(mode, mode)}…[/]")
+    result = asyncio.run(ops.run_sync(mode))
+    if result.get("steps"):
+        for step in result["steps"]:
+            name = step.get("step", "?")
+            ok = step.get("ok")
+            mark = "[green]✓[/]" if ok else "[yellow]·[/]"
+            extra = ""
+            if step.get("count") is not None:
+                extra = f" ({step['count']} 条)"
+            elif step.get("accepted") is not None:
+                extra = f" ({step['accepted']} 条)"
+            console.print(f"  {mark} {name}{extra}")
+    elif result.get("count") is not None:
+        console.print(f"[green]写入 {result.get('count', 0)} 条[/]")
+    for warning in result.get("warnings") or []:
+        console.print(f"[yellow]{warning}[/]")
+    hint = result.get("extension_flush_hint") or {}
+    if hint.get("message"):
+        console.print(f"[dim]{hint['message']}[/]")
+    if not result.get("ok"):
+        raise click.ClickException("同步未完成，请运行 osint doctor 检查")
+
+
+@main.command("doctor")
+def doctor_cmd() -> None:
+    """检查 Cookie、登录态、Playwright、数据覆盖度。"""
+    from osint_toolkit.services import health as health_service
+
+    status = asyncio.run(health_service.get_health_status())
+    table = Table(title="系统诊断")
+    table.add_column("项目")
+    table.add_column("状态")
+    table.add_column("说明")
+    for item in status.get("auth") or []:
+        ok = item.get("ok")
+        table.add_row(
+            str(item.get("name", "")),
+            "[green]通过[/]" if ok else "[red]失败[/]",
+            str(item.get("detail") or item.get("reason") or ""),
+        )
+    preflight = status.get("preflight") or {}
+    table.add_row(
+        "导入预检",
+        "[green]就绪[/]" if preflight.get("ready") else "[red]未就绪[/]",
+        "; ".join(preflight.get("hints") or [])[:120],
+    )
+    console.print(table)
+    console.print(f"行为事件总数: {status.get('events', {}).get('total', 0)}")
+    console.print("[dim]推荐流程: osint auth sync-cookies → osint sync → osint search \"关键词\"[/]")
 
 
 @main.command()

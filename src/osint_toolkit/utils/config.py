@@ -71,6 +71,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "sspai.com",
             "huxiu.com",
             "36kr.com",
+            "sogou.com",
+            "weixin.sogou.com",
+            "mp.weixin.qq.com",
         ],
         "auto_sync_before_search": True,
     },
@@ -79,13 +82,42 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "user_agent": "OSINT-Toolkit/0.1.0",
         "proxy": None,
     },
+    "bilibili": {
+        "use_sdk": True,
+        "sdk_client": "httpx",
+        "enable_bili_ticket": False,
+        "features": {
+            "search": True,
+            "comments": True,
+            "subtitle": True,
+            "danmaku": True,
+            "ingest_history": True,
+            "ingest_favorites": True,
+            "ingest_followings": True,
+            "my_comments": True,
+        },
+        "comments_fetch_limit": 60,
+        "danmaku_max_lines": 800,
+        "search": {
+            "types": ["video", "article", "bili_user"],
+            "order_video": "totalrank",
+            "order_article": "totalrank",
+            "order_user": "fans",
+            "time_start": None,
+            "time_end": None,
+            "video_zone_tid": None,
+            "time_range_minutes": -1,
+            "serp_fallback": True,
+            "legacy_wbi_fallback": True,
+        },
+    },
     "output": {
         "default_format": "markdown",
         "reports_dir": "reports",
     },
     "profiles": {
-        "default": {"sources": ["zhihu", "bilibili", "web", "v2ex"]},
-        "full": {"sources": ["zhihu", "bilibili", "web", "v2ex", "rss"]},
+        "default": {"sources": ["zhihu", "bilibili", "web", "weixin"]},
+        "full": {"sources": ["zhihu", "bilibili", "web", "v2ex", "rss", "weixin"]},
         "research": {"sources": ["zhihu", "bilibili", "v2ex", "web"], "simulate_persona": True},
     },
     "rules": {
@@ -96,11 +128,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_expanded_queries": 8,
         "per_query_limit_ratio": 0.6,
         "include_slurs": True,
-        "comment_mine_top": 3,
+        "comment_mine_top": 12,
         "discover_aliases": True,
         "discover_probe_limit": 5,
-        "discover_sources": ["bilibili", "zhihu", "web", "v2ex"],
+        "discover_sources": ["bilibili", "zhihu", "web", "v2ex", "weixin"],
         "persist_discovered_aliases": True,
+        "serp": {
+            "primary": "auto",
+            "strategy": "fallback",
+            "fallbacks": ["duckduckgo_html", "bing_html", "baidu_html", "sogou_html"],
+            "merge_min_hits": 5,
+            "bing_api_key": "${BING_SEARCH_API_KEY}",
+            "serpapi_key": "${SERPAPI_KEY}",
+            "searxng_base_url": "${SEARXNG_BASE_URL}",
+            "duckduckgo_region": "cn-zh",
+            "provider_delay_ms": 300,
+            "enabled_providers": [],
+            "site_searches": ["github.com", "bilibili.com", "zhihu.com"],
+            "web_fetch_content": True,
+            "web_fetch_top": 5,
+        },
+        "weixin": {
+            "resolve_mp_urls": True,
+            "resolve_top": 3,
+            "playwright_on_block": True,
+            "serp_fallback": True,
+        },
     },
     "extension": {
         "dwell_save_enabled": True,
@@ -174,6 +227,24 @@ def get_search_config() -> dict[str, Any]:
     return dict(load_config().get("search", {}))
 
 
+def get_serp_config() -> dict[str, Any]:
+    search = get_search_config()
+    serp = dict(search.get("serp") or {})
+    defaults = dict(DEFAULT_CONFIG.get("search", {}).get("serp") or {})
+    merged = dict(defaults)
+    merged.update(serp)
+    return merged
+
+
+def get_weixin_config() -> dict[str, Any]:
+    search = get_search_config()
+    weixin = dict(search.get("weixin") or {})
+    defaults = dict(DEFAULT_CONFIG.get("search", {}).get("weixin") or {})
+    merged = dict(defaults)
+    merged.update(weixin)
+    return merged
+
+
 def get_extension_sync_config() -> dict[str, Any]:
     return load_sync_config()
 
@@ -202,7 +273,13 @@ def load_sync_config() -> dict[str, Any]:
     for key, val in legacy_map.items():
         if val is not None and key not in sync:
             sync[key] = val
+    # aicu：sync 与 ingest 任一为 true 即启用
+    sync["aicu_enabled"] = bool(sync.get("aicu_enabled", False) or ingest.get("aicu_enabled", False))
     return sync
+
+
+def get_aicu_enabled() -> bool:
+    return bool(load_sync_config().get("aicu_enabled", False))
 
 
 def get_browser_sync_config() -> dict[str, Any]:

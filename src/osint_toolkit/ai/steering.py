@@ -34,7 +34,7 @@ DEFAULT_DIRECTIVES: dict[str, Any] = {
         "report": True,
         "persona_simulate": True,
         "comment_mine": True,
-        "danmaku_interpret": False,
+        "danmaku_interpret": True,
     },
 }
 

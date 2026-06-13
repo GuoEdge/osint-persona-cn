@@ -15,7 +15,7 @@ const AicuSync = {
     const data = await resp.json();
     if (!data.enabled) {
       throw new Error(
-        "AICU 导入未开启：在 ~/.osint/config.yaml 设置 ingest.aicu_enabled: true 后重启 Web 服务"
+        "AICU 导入未开启：在 ~/.osint/config.yaml 设置 sync.aicu_enabled: true（或 ingest.aicu_enabled）后重启 Web 服务"
       );
     }
   },
@@ -126,7 +126,7 @@ const AicuSync = {
     }
     if (result.ok === false) {
       if (result.error === "aicu_disabled") {
-        throw new Error("服务端 AICU 未开启：config.yaml 设 ingest.aicu_enabled: true 并重启 Web");
+        throw new Error("服务端 AICU 未开启：config.yaml 设 sync.aicu_enabled: true（或 ingest.aicu_enabled）并重启 Web");
       }
       throw new Error(result.error || "导入失败");
     }

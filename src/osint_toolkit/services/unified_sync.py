@@ -107,6 +107,10 @@ async def run_full_sync(
     emit({"step": "extension-flush", "ok": True, "hint": flush_hint})
 
     ok = accounts_count > 0 or bool(bs_result and bs_result.get("accepted"))
+    if ok:
+        from osint_toolkit.services.setup import record_full_sync
+
+        record_full_sync()
     return {
         "ok": ok,
         "count": accounts_count + int((bs_result or {}).get("accepted") or 0),
@@ -120,7 +124,7 @@ async def run_full_sync(
 def _extension_flush_hint() -> dict[str, Any]:
     return {
         "action": "flush_queue",
-        "message": "请在扩展弹窗点击「立即上报」或等待自动 flush，以提交浏览器拦截的 API 数据。",
+        "message": "请在扩展弹窗点击「上传浏览采集队列」或等待自动同步（约 1 分钟）。",
         "alarm": "flush-queue",
     }
 
@@ -132,11 +136,10 @@ async def _probe_aicu() -> dict[str, Any]:
     import httpx
 
     from osint_toolkit.ingest.aicu import AICU_GETREPLY, _aicu_request_headers, _is_waf_block, get_bilibili_mid
-    from osint_toolkit.utils.config import load_config
+    from osint_toolkit.utils.config import get_aicu_enabled
 
-    ingest_cfg = load_config().get("ingest", {})
-    if not ingest_cfg.get("aicu_enabled", False):
-        return {"status": "DISABLE", "reason": "ingest.aicu_enabled 未开启"}
+    if not get_aicu_enabled():
+        return {"status": "DISABLE", "reason": "sync.aicu_enabled / ingest.aicu_enabled 未开启"}
 
     mid = await get_bilibili_mid()
     if not mid:

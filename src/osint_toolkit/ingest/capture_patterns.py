@@ -14,7 +14,10 @@ CAPTURE_URL_PATTERNS: tuple[str, ...] = (
     r"bilibili\.com/x/v2/reply/(wbi/)?main",
     r"bilibili\.com/x/v2/reply",
     r"bilibili\.com/x/relation/followings",
+    r"bilibili\.com/x/web-interface/wbi/search",
+    r"bilibili\.com/x/web-interface/search",
     r"bilibili\.com/x/web-interface/wbi/like",
+    r"zhihu\.com/api/v4/search_v3",
     r"zhihu\.com/api/v4/.*collections.*items",
     r"zhihu\.com/api/v4/.*voteanswers",
     r"zhihu\.com/api/v4/.*vote_answers",
@@ -25,6 +28,7 @@ CAPTURE_URL_PATTERNS: tuple[str, ...] = (
     r"zhihu\.com/api/v4/.*recent",
     r"zhihu\.com/api/v4/.*record_viewed",
     r"zhihu\.com/api/v4/.*viewed",
+    r"mp\.weixin\.qq\.com/s\?",
     r"api\.github\.com/graphql",
 )
 

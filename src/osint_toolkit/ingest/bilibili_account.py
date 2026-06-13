@@ -22,6 +22,17 @@ async def _nav_mid(client: HttpClient) -> int | None:
 
 
 async def ingest_history(limit: int = 500) -> list[dict]:
+    from osint_toolkit.ingest import bilibili_sdk
+
+    if bilibili_sdk.sdk_enabled("ingest_history"):
+        try:
+            rows = await bilibili_sdk.ingest_history(limit)
+            for entry in rows:
+                log_event("bilibili_watch", entry)
+            return rows
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk history failed, fallback to httpx: %s", exc)
+
     client = HttpClient()
     url = "https://api.bilibili.com/x/web-interface/history/cursor?max=0&view_at=0&ps=20"
     results: list[dict] = []
@@ -63,6 +74,17 @@ async def ingest_history(limit: int = 500) -> list[dict]:
 
 
 async def ingest_favorites(limit: int = 500) -> list[dict]:
+    from osint_toolkit.ingest import bilibili_sdk
+
+    if bilibili_sdk.sdk_enabled("ingest_favorites"):
+        try:
+            rows = await bilibili_sdk.ingest_favorites(limit)
+            for entry in rows:
+                log_event("bilibili_fav", entry)
+            return rows
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk favorites failed, fallback to httpx: %s", exc)
+
     client = HttpClient()
     results: list[dict] = []
     seen: set[str] = set()
@@ -209,7 +231,18 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
 
 
 async def ingest_followings(limit: int = 500) -> list[dict]:
-    """B站关注列表（x/relation/followings）。"""
+    """B站关注列表（SDK user.get_followings，回退 x/relation/followings）。"""
+    from osint_toolkit.ingest import bilibili_sdk
+
+    if bilibili_sdk.sdk_enabled("ingest_followings"):
+        try:
+            rows = await bilibili_sdk.ingest_followings(limit)
+            for entry in rows:
+                log_event("bilibili_follow", entry)
+            return rows
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk followings failed, fallback to httpx: %s", exc)
+
     client = HttpClient()
     mid = await _nav_mid(client)
     if not mid:

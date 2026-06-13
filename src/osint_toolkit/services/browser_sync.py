@@ -19,7 +19,7 @@ async def browser_sync_status() -> dict[str, Any]:
     return {
         "enabled": bool(cfg.get("browser_sync_enabled", True)),
         "playwright_installed": playwright_ok,
-        "mode": cfg.get("browser_sync_mode", "persistent"),
+        "mode": cfg.get("browser_sync_mode", "auto"),
         "cdp_url": cfg.get("browser_sync_cdp_url"),
         "after_api": bool(cfg.get("browser_sync_after_api", True)),
     }

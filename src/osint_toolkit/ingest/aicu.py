@@ -223,8 +223,9 @@ async def get_bilibili_mid() -> int | None:
 
 
 async def ingest_aicu_from_json(payload: Any, *, limit: int = 10_000) -> dict[str, Any]:
-    cfg = load_config().get("ingest", {})
-    if not cfg.get("aicu_enabled", False):
+    from osint_toolkit.utils.config import get_aicu_enabled
+
+    if not get_aicu_enabled():
         return {"ok": False, "error": "aicu_disabled", "count": 0}
 
     replies = extract_replies_from_payload(payload)
@@ -248,8 +249,10 @@ async def ingest_aicu_comments(
     page_size: int | None = None,
     delay_sec: float | None = None,
 ) -> dict[str, Any]:
+    from osint_toolkit.utils.config import get_aicu_enabled
+
     cfg = load_config().get("ingest", {})
-    if not cfg.get("aicu_enabled", False):
+    if not get_aicu_enabled():
         return {"ok": False, "error": "aicu_disabled", "count": 0}
 
     ps = int(page_size or cfg.get("aicu_page_size") or 100)

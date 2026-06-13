@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
@@ -33,17 +34,35 @@ class HttpClient:
             headers["Referer"] = "https://www.bilibili.com/"
             headers["Origin"] = "https://www.bilibili.com"
         elif "zhihu.com" in url:
-            headers["Referer"] = "https://www.zhihu.com/"
+            headers["Referer"] = self._zhihu_referer(url)
+        elif "weixin.sogou.com" in url:
+            headers["Referer"] = "https://weixin.sogou.com/"
+        elif "mp.weixin.qq.com" in url:
+            headers["Referer"] = "https://mp.weixin.qq.com/"
         return headers
 
+    @staticmethod
+    def _zhihu_referer(url: str) -> str:
+        if "search_v3" in url:
+            parsed = urlparse(url)
+            q = (parse_qs(parsed.query).get("q") or [""])[0]
+            if q:
+                return f"https://www.zhihu.com/search?type=content&q={quote(q)}"
+            return "https://www.zhihu.com/search?type=content"
+        return "https://www.zhihu.com/"
+
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        headers = self._headers(url)
+        extra = kwargs.pop("headers", None)
+        if extra:
+            headers = {**headers, **extra}
         async with httpx.AsyncClient(
             timeout=self.timeout,
             proxy=self._proxy,
             follow_redirects=True,
             trust_env=False,
         ) as client:
-            return await client.get(url, headers=self._headers(url), **kwargs)
+            return await client.get(url, headers=headers, **kwargs)
 
     async def get_text(self, url: str) -> str:
         resp = await self.get(url)

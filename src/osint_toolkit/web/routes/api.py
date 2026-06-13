@@ -80,7 +80,7 @@ async def api_search_expand(body: SearchExpandRequest) -> dict[str, Any]:
 async def api_search(body: SearchRequest) -> dict[str, Any]:
     comment_mine_top = body.comment_mine_top
     if comment_mine_top is None:
-        comment_mine_top = 3 if body.mine_comments else 0
+        comment_mine_top = 12 if body.mine_comments else 0
     run_id = start_search_job(
         query=body.query,
         sources=body.sources,
@@ -270,6 +270,13 @@ async def api_ingest_capabilities() -> dict[str, Any]:
 @router.get("/setup/status")
 async def api_setup_status() -> dict[str, Any]:
     return setup.get_setup_status()
+
+
+@router.get("/setup/operations")
+async def api_setup_operations() -> dict[str, Any]:
+    from osint_toolkit.services import ops
+
+    return ops.get_operations_runbook()
 
 
 @router.get("/setup/sync-config")

@@ -15,6 +15,7 @@ from osint_toolkit.ai.entity_store import classify_slurs, merge_discovered_alias
 from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.web import WebCollector
+from osint_toolkit.collectors.weixin import WeixinCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.processors.normalize import html_to_text
@@ -25,6 +26,7 @@ _PROBE_COLLECTORS = {
     "zhihu": ZhihuCollector,
     "web": WebCollector,
     "v2ex": V2exCollector,
+    "weixin": WeixinCollector,
 }
 
 _QUOTE_PATTERNS = [
@@ -142,7 +144,7 @@ async def probe_network(
 ) -> list[IntelItem]:
     """用原查询在多源做轻量探针检索。"""
     cfg = get_search_config()
-    default_sources = ["bilibili", "zhihu", "web", "v2ex"]
+    default_sources = ["bilibili", "zhihu", "web", "v2ex", "weixin"]
     probe_sources = cfg.get("discover_sources") or sources or default_sources
     if sources:
         allowed = set(sources)
