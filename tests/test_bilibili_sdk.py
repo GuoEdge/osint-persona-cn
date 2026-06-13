@@ -184,6 +184,72 @@ async def test_resolve_video_aid_cid_uses_bvid_view_api():
 
 
 @pytest.mark.asyncio
+async def test_fetch_video_meta_from_view_api():
+    class FakeResp:
+        def json(self):
+            return {
+                "code": 0,
+                "data": {
+                    "title": "Qwen 3.7 Max",
+                    "desc": "国产大模型评测",
+                    "owner": {"name": "浪浪妈"},
+                },
+            }
+
+    class FakeClient:
+        last_url = ""
+
+        async def get(self, url: str):
+            FakeClient.last_url = url
+            return FakeResp()
+
+    meta = await bilibili_sdk.fetch_video_meta(
+        "https://www.bilibili.com/video/BVqwen37",
+        client=FakeClient(),
+    )
+    assert "bvid=BVqwen37" in FakeClient.last_url
+    assert meta["title"] == "Qwen 3.7 Max"
+    assert meta["desc"] == "国产大模型评测"
+    assert meta["author"] == "浪浪妈"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_video_descriptions_fills_empty_content(monkeypatch):
+    from osint_toolkit.models.intel_item import IntelItem
+
+    col = BilibiliCollector()
+    item = IntelItem(
+        source="bilibili",
+        type="video",
+        url="https://www.bilibili.com/video/BVempty",
+        title="国模第一梯队",
+        content="",
+    )
+
+    async def fake_meta(url, *, client=None):
+        assert "BVempty" in url
+        return {"desc": "Qwen 3.7 Max 稳步迭代", "author": "浪浪妈"}
+
+    monkeypatch.setattr(bilibili_sdk, "fetch_video_meta", fake_meta)
+    await col._hydrate_video_descriptions([item])
+    assert item.content == "Qwen 3.7 Max 稳步迭代"
+    assert item.author == "浪浪妈"
+
+
+def test_parse_video_uses_tags_when_no_desc():
+    col = BilibiliCollector()
+    item = col._parse_video(
+        {
+            "bvid": "BVtag",
+            "title": "AI 模型",
+            "tag": "Qwen,国模,大模型",
+        }
+    )
+    assert item is not None
+    assert item.content == "标签: Qwen 国模 大模型"
+
+
+@pytest.mark.asyncio
 async def test_fetch_subtitle_for_url_uses_matched_aid_cid(monkeypatch):
     monkeypatch.setattr(bilibili_sdk, "sdk_installed", lambda: False)
 

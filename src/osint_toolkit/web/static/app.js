@@ -70,7 +70,8 @@ function hydrateItemCards(container, items) {
     const item = byId[card.dataset.itemId];
     if (!item) return;
     const raw = card.querySelector(".raw-body");
-    if (raw && item.content) renderMarkdown(raw, item.content);
+    const rawText = (item.content || item.layers?.subtitle?.text || "").trim();
+    if (raw && rawText) renderMarkdown(raw, rawText);
     const summary = card.querySelector(".summary-body");
     if (summary && item.summary) renderMarkdown(summary, item.summary);
     const cs = card.querySelector(".comments-summary-body");
@@ -527,11 +528,17 @@ function renderItemCard(item, sim, runId, feedbackMap = {}) {
   const itemRating = feedbackMap[`item:${item.id}`] || "";
   const isShort = (item.content?.length || 0) <= 400 || item.type === "comment";
   const sections = [];
+  const rawText = (item.content || item.layers?.subtitle?.text || "").trim();
 
-  if (item.content) {
+  if (rawText) {
     sections.push(`<section class="content-section raw-section${isShort ? " raw-prominent" : ""}">
       <h4 class="section-label">原始内容</h4>
       <div class="md-content raw-body"></div>
+    </section>`);
+  } else if (item.source === "bilibili" && item.type === "video") {
+    sections.push(`<section class="content-section raw-section">
+      <h4 class="section-label">原始内容</h4>
+      <p class="muted">B站搜索未返回简介；可点「原文」查看，或勾选评论挖掘以尝试拉字幕。</p>
     </section>`);
   }
 

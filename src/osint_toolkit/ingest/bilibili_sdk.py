@@ -611,6 +611,31 @@ async def resolve_video_aid_cid(
     return aid_int, cid_int
 
 
+async def fetch_video_meta(url: str, *, client=None) -> dict[str, Any]:
+    """拉取视频详情页 meta（简介/UP 主），搜索列表接口常不带 desc。"""
+    from osint_toolkit.http.client import HttpClient
+    from osint_toolkit.processors.normalize import html_to_text
+
+    bvid, aid = parse_video_ref(url)
+    http = client or HttpClient()
+    if bvid:
+        resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
+    elif aid:
+        resp = await http.get(f"{_VIEW_API}?aid={aid}")
+    else:
+        return {}
+    payload = resp.json()
+    if payload.get("code") not in (0, None):
+        return {}
+    data = payload.get("data") or {}
+    owner = data.get("owner") or {}
+    return {
+        "title": str(data.get("title") or ""),
+        "desc": html_to_text(str(data.get("desc") or data.get("description") or "")),
+        "author": str(owner.get("name") or ""),
+    }
+
+
 async def fetch_subtitle_for_aid_cid(
     aid: int,
     cid: int,

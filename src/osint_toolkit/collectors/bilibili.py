@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -60,10 +61,31 @@ class BilibiliCollector(BaseCollector):
             if search_cfg.get("serp_fallback", True):
                 fallback = await self._serp_site_search(query, limit)
                 if fallback:
-                    return fallback[:limit]
+                    out = fallback[:limit]
+                    await self._hydrate_video_descriptions(out)
+                    return out
             if errors:
                 raise RuntimeError("; ".join(errors))
-        return deduped[:limit]
+        out = deduped[:limit]
+        await self._hydrate_video_descriptions(out)
+        return out
+
+    async def _hydrate_video_descriptions(self, items: list[IntelItem]) -> None:
+        """搜索 API 常不返回简介，用 view 接口补全空 content。"""
+        from osint_toolkit.ingest import bilibili_sdk
+
+        async def fill(item: IntelItem) -> None:
+            if item.type != "video" or (item.content or "").strip():
+                return
+            meta = await bilibili_sdk.fetch_video_meta(item.url, client=self.client)
+            desc = str(meta.get("desc") or "").strip()
+            if desc:
+                item.content = desc[:12000]
+            if meta.get("author") and not item.author:
+                item.author = str(meta["author"])
+
+        if items:
+            await asyncio.gather(*[fill(i) for i in items], return_exceptions=True)
 
     async def _search_type(self, query: str, search_type: str, limit: int) -> list[dict]:
         from osint_toolkit.ingest import bilibili_sdk
@@ -128,6 +150,10 @@ class BilibiliCollector(BaseCollector):
         url = f"https://www.bilibili.com/video/{bvid or ('av' + str(aid))}"
         title = re.sub(r"<[^>]+>", "", entry.get("title", ""))
         desc = html_to_text(entry.get("description", "") or entry.get("desc", ""))
+        if not desc:
+            tags = str(entry.get("tag") or "").strip()
+            if tags:
+                desc = f"标签: {tags.replace(',', ' ')}"
         return IntelItem(
             source="bilibili",
             type="video",
