@@ -149,6 +149,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "discover_probe_limit": 5,
         "discover_sources": ["bilibili", "zhihu", "web", "v2ex", "weixin"],
         "persist_discovered_aliases": True,
+        "rule_expand_enabled": True,
+        "rule_expand_min_existing": 2,
+        "rule_nickname_suffixes": False,
         "serp": {
             "primary": "auto",
             "strategy": "fallback",

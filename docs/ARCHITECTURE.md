@@ -54,8 +54,8 @@
 搜罗前通过 **联网发现 + 合并扩展** 决定关联词：
 
 0. **联网探针**（`ai/alias_discover.py`）：用原查询在 B站/知乎/Web/V2EX 各取若干条标题摘要 → 启发式抽词 + AI **仅从证据**归纳当代称呼（禁编造）→ 合并写入 `~/.osint/entities/discovered.yaml` 供下次复用
-1. **实体词表** `~/.osint/entities/*.yaml`（静态补充，示例见 `docs/examples/entities/`）
-2. **规则兜底**（中文名简称、小X、酱/碳/女士后缀）
+1. **实体词表** `~/.osint/entities/*.yaml`（支持精确/包含匹配，如搜「祥子」可命中「丰川祥子」词条）
+2. **规则兜底**（仅当联网+词表仍不足时：中文名简称、`小X`；`rule_nickname_suffixes` 可开机械后缀）
 3. **AI query_analyze**（意图与信源策略；扩展词优先级低于联网发现）
 
 配置：`search.discover_aliases`、`discover_probe_limit`、`discover_sources`（含 v2ex）、`persist_discovered_aliases`

@@ -18,6 +18,28 @@ def test_rule_expand_chinese_name():
     aliases = _rule_expand("丰川祥子")
     assert "祥子" in aliases
     assert "小祥" in aliases
+    assert "祥子酱" not in aliases
+
+
+def test_rule_expand_skips_when_enough_existing():
+    aliases = _rule_expand("丰川祥子", existing_aliases=["祥子", "小祥", "网络梗"])
+    assert aliases == []
+
+
+def test_entity_partial_match(tmp_path, monkeypatch):
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir()
+    (entities_dir / "test.yaml").write_text(
+        yaml.safe_dump(
+            {"entities": {"丰川祥子": {"aliases": ["祥子", "Sakiko"], "slurs": []}}},
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OSINT_DATA_DIR", str(tmp_path))
+    aliases = _entity_aliases_for_query("祥子", include_slurs=False)
+    assert "丰川祥子" in aliases
+    assert "Sakiko" in aliases
 
 
 def test_entity_aliases_with_slurs(tmp_path, monkeypatch):

@@ -53,56 +53,95 @@ def _load_entity_packs() -> list[dict[str, Any]]:
     return packs
 
 
+def _name_matches_query(name: str, query: str) -> bool:
+    """精确或包含匹配：搜「祥子」可命中词表里的「丰川祥子」。"""
+    n = name.strip()
+    q = query.strip()
+    if not n or not q:
+        return False
+    nl, ql = n.lower(), q.lower()
+    if nl == ql:
+        return True
+    if len(q) >= 2 and ql in nl:
+        return True
+    if len(n) >= 2 and len(q) > len(n) and nl in ql:
+        return True
+    return False
+
+
+def _collect_entity_names(
+    entities: dict | list,
+    *,
+    include_slurs: bool,
+) -> list[tuple[str, list[str]]]:
+    """Return (canonical, all_names) pairs from a pack section."""
+    rows: list[tuple[str, list[str]]] = []
+    if isinstance(entities, list):
+        for entry in entities:
+            if not isinstance(entry, dict):
+                continue
+            canonical = str(entry.get("canonical") or entry.get("name") or "").strip()
+            aliases = [str(a) for a in (entry.get("aliases") or [])]
+            slurs = [str(s) for s in (entry.get("slurs") or [])] if include_slurs else []
+            names = _dedupe_preserve_order([canonical, *aliases, *slurs])
+            if canonical:
+                rows.append((canonical, names))
+    elif isinstance(entities, dict):
+        for canonical, spec in entities.items():
+            if not isinstance(spec, dict):
+                continue
+            aliases = [str(a) for a in (spec.get("aliases") or [])]
+            slurs = [str(s) for s in (spec.get("slurs") or [])] if include_slurs else []
+            names = _dedupe_preserve_order([str(canonical), *aliases, *slurs])
+            rows.append((str(canonical), names))
+    return rows
+
+
 def _entity_aliases_for_query(query: str, *, include_slurs: bool) -> list[str]:
     q = query.strip()
     if not q:
         return []
-    ql = q.lower()
     found: list[str] = []
     for pack in _load_entity_packs():
-        entities = pack.get("entities") or {}
-        if isinstance(entities, list):
-            for entry in entities:
-                if not isinstance(entry, dict):
-                    continue
-                canonical = str(entry.get("canonical") or entry.get("name") or "").strip()
-                aliases = entry.get("aliases") or []
-                slurs = entry.get("slurs") or []
-                names = [canonical] + [str(a) for a in aliases]
-                if include_slurs:
-                    names.extend(str(s) for s in slurs)
-                if any(n.lower() == ql for n in names if n):
-                    found.extend(names)
-        elif isinstance(entities, dict):
-            for canonical, spec in entities.items():
-                if not isinstance(spec, dict):
-                    continue
-                aliases = spec.get("aliases") or []
-                slurs = spec.get("slurs") or []
-                names = [canonical] + [str(a) for a in aliases]
-                if include_slurs:
-                    names.extend(str(s) for s in slurs)
-                if any(n.lower() == ql for n in names if n):
-                    found.extend(names)
+        for _canonical, names in _collect_entity_names(
+            pack.get("entities") or {},
+            include_slurs=include_slurs,
+        ):
+            if any(_name_matches_query(n, q) for n in names if n):
+                found.extend(names)
+    ql = q.lower()
     return _dedupe_preserve_order([a for a in found if a.lower() != ql])
 
 
-def _rule_expand(query: str) -> list[str]:
+def _rule_expand(query: str, *, existing_aliases: list[str] | None = None) -> list[str]:
+    """轻量昵称规则：仅在联网/词表仍不足时补简称，默认不再机械追加酱/碳/女士。"""
+    cfg = get_search_config()
+    if not cfg.get("rule_expand_enabled", True):
+        return []
+
     q = query.strip()
     if not q:
         return []
+
+    existing = {t.lower() for t in _dedupe_preserve_order(existing_aliases or [])}
+    min_existing = int(cfg.get("rule_expand_min_existing", 2))
+    if len(existing) >= min_existing:
+        return []
+
     out: list[str] = []
     if re.fullmatch(r"[\u4e00-\u9fff]{3,6}", q):
         given = q[-2:] if len(q) >= 3 else q
-        if given and given != q:
+        if given and given != q and given.lower() not in existing:
             out.append(given)
-            if len(given) >= 2:
-                out.append(f"小{given[0]}")
-            else:
-                out.append(f"小{given}")
-        for suffix in ("酱", "碳", "女士"):
-            if not q.endswith(suffix) and given:
-                out.append(f"{given}{suffix}")
+            short = f"小{given[0]}" if len(given) >= 2 else f"小{given}"
+            if short.lower() not in existing and short.lower() != q.lower():
+                out.append(short)
+        if cfg.get("rule_nickname_suffixes", False) and given:
+            for suffix in ("酱", "碳", "女士"):
+                if not q.endswith(suffix):
+                    candidate = f"{given}{suffix}"
+                    if candidate.lower() not in existing:
+                        out.append(candidate)
     return _dedupe_preserve_order([t for t in out if t.lower() != q.lower()])
 
 
@@ -134,7 +173,7 @@ def expand_query(
 
     network_aliases = _dedupe_preserve_order(discovered_aliases or [])
     entity_aliases = _entity_aliases_for_query(query, include_slurs=include_slurs)
-    rule_aliases = _rule_expand(query)
+    rule_aliases = _rule_expand(query, existing_aliases=network_aliases + entity_aliases)
 
     analysis = analyze_query(
         query,
