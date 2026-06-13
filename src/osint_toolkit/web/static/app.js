@@ -121,7 +121,7 @@ async function initGlobalSidebar() {
         const done = (data.steps || []).filter((s) => s.done).length;
         const total = (data.steps || []).length;
         setupChip.classList.remove("hidden");
-        setupChip.innerHTML = `入门 <a href="/">${done}/${total}</a>`;
+        setupChip.innerHTML = `入门 <a href="/ingest">${done}/${total}</a>`;
       }
     } catch (_) {}
   }
