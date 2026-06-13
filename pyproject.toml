@@ -50,6 +50,10 @@ web = [
 browser = [
     "playwright>=1.40",
 ]
+bilibili = [
+    "bilibili-api-python>=16.0",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 osint = "osint_toolkit.cli:main"

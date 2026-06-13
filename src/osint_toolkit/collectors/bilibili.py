@@ -171,6 +171,17 @@ class BilibiliCollector(BaseCollector):
         if not oid:
             return []
         comment_type = self._comment_type_from_url(url)
+        from osint_toolkit.ingest import bilibili_sdk
+
+        if bilibili_sdk.sdk_enabled("comments"):
+            try:
+                return await bilibili_sdk.fetch_comments_lazy(
+                    oid,
+                    comment_type=comment_type,
+                    limit=limit,
+                )
+            except Exception:  # noqa: BLE001
+                pass
         collected: list[dict] = []
         seen_rpids: set[int] = set()
         next_offset = 0

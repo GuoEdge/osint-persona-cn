@@ -47,6 +47,17 @@ http:
   user_agent: "OSINT-Toolkit/0.1.0"
   proxy: null
 
+# bilibili-api-python 折中集成：搜索仍用自研 WBI；评论与账号深采走 SDK（需 pip install osint-toolkit[bilibili]）
+bilibili:
+  use_sdk: true
+  sdk_client: httpx          # httpx | aiohttp | curl_cffi
+  enable_bili_ticket: false
+  features:
+    comments: true
+    ingest_history: true
+    ingest_favorites: true
+    ingest_followings: true
+
 output:
   default_format: markdown
   reports_dir: reports

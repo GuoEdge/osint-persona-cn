@@ -82,6 +82,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "user_agent": "OSINT-Toolkit/0.1.0",
         "proxy": None,
     },
+    "bilibili": {
+        "use_sdk": True,
+        "sdk_client": "httpx",
+        "enable_bili_ticket": False,
+        "features": {
+            "comments": True,
+            "ingest_history": True,
+            "ingest_favorites": True,
+            "ingest_followings": True,
+        },
+    },
     "output": {
         "default_format": "markdown",
         "reports_dir": "reports",
