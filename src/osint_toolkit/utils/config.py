@@ -87,10 +87,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "sdk_client": "httpx",
         "enable_bili_ticket": False,
         "features": {
+            "search": True,
             "comments": True,
             "ingest_history": True,
             "ingest_favorites": True,
             "ingest_followings": True,
+        },
+        "search": {
+            "types": ["video", "article", "bili_user"],
+            "order_video": "totalrank",
+            "order_article": "totalrank",
+            "order_user": "fans",
+            "time_start": None,
+            "time_end": None,
+            "video_zone_tid": None,
+            "time_range_minutes": -1,
+            "serp_fallback": True,
+            "legacy_wbi_fallback": True,
         },
     },
     "output": {

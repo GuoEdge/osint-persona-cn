@@ -19,13 +19,28 @@ class BilibiliCollector(BaseCollector):
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
 
+    def _search_handlers(self) -> dict[str, Any]:
+        return {
+            "video": self._parse_video,
+            "article": self._parse_article,
+            "bili_user": self._parse_user,
+            "topic": self._parse_topic,
+            "media_bangumi": self._parse_bangumi,
+            "media_ft": self._parse_media_ft,
+        }
+
     async def search(self, query: str, limit: int = 10) -> list[IntelItem]:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        handlers = self._search_handlers()
+        search_types = bilibili_sdk.configured_search_types()
         items: list[IntelItem] = []
         errors: list[str] = []
-        for search_type, parser in (
-            ("video", self._parse_video),
-            ("article", self._parse_article),
-        ):
+        for search_type in search_types:
+            parser = handlers.get(search_type)
+            if not parser:
+                errors.append(f"{search_type}: no parser")
+                continue
             try:
                 for entry in await self._search_type(query, search_type, limit):
                     item = parser(entry)
@@ -41,19 +56,42 @@ class BilibiliCollector(BaseCollector):
             seen.add(item.url)
             deduped.append(item)
         if not deduped:
-            fallback = await self._serp_site_search(query, limit)
-            if fallback:
-                return fallback[:limit]
+            search_cfg = bilibili_sdk.get_search_config()
+            if search_cfg.get("serp_fallback", True):
+                fallback = await self._serp_site_search(query, limit)
+                if fallback:
+                    return fallback[:limit]
             if errors:
                 raise RuntimeError("; ".join(errors))
         return deduped[:limit]
 
     async def _search_type(self, query: str, search_type: str, limit: int) -> list[dict]:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        normalized = bilibili_sdk.normalize_search_type(search_type)
+        search_cfg = bilibili_sdk.get_search_config()
+
+        if bilibili_sdk.sdk_enabled("search"):
+            try:
+                return await bilibili_sdk.search_entries(
+                    query,
+                    normalized,
+                    limit=limit,
+                )
+            except Exception:
+                if not search_cfg.get("legacy_wbi_fallback", True):
+                    raise
+                if not bilibili_sdk.legacy_wbi_supports(normalized):
+                    raise
+
+        if not bilibili_sdk.legacy_wbi_supports(normalized):
+            raise RuntimeError(f"legacy wbi search does not support type={normalized}")
+
         from osint_toolkit.ingest.bilibili_wbi import wbi_get
 
         base = "https://api.bilibili.com/x/web-interface/wbi/search/type"
         params = {
-            "search_type": search_type,
+            "search_type": normalized,
             "keyword": query,
             "page": 1,
             "page_size": limit,
@@ -122,6 +160,66 @@ class BilibiliCollector(BaseCollector):
                 likes=int(entry.get("like", 0) or 0),
             ),
         )
+
+    def _parse_user(self, entry: dict) -> IntelItem | None:
+        mid = entry.get("mid")
+        if not mid:
+            return None
+        uname = re.sub(r"<[^>]+>", "", entry.get("uname", "") or entry.get("title", ""))
+        sign = html_to_text(entry.get("usign", "") or entry.get("sign", "") or "")
+        return IntelItem(
+            source="bilibili",
+            type="user",
+            url=f"https://space.bilibili.com/{mid}",
+            title=uname,
+            content=sign,
+            author=uname,
+            metrics=IntelMetrics(views=int(entry.get("fans", 0) or 0)),
+        )
+
+    def _parse_topic(self, entry: dict) -> IntelItem | None:
+        topic_id = entry.get("id") or entry.get("topic_id")
+        if not topic_id:
+            return None
+        title = re.sub(r"<[^>]+>", "", entry.get("title", "") or entry.get("name", ""))
+        desc = html_to_text(entry.get("description", "") or entry.get("desc", "") or "")
+        return IntelItem(
+            source="bilibili",
+            type="topic",
+            url=f"https://www.bilibili.com/v/topic/detail/?topic_id={topic_id}",
+            title=title,
+            content=desc,
+            metrics=IntelMetrics(views=int(entry.get("view", 0) or entry.get("arc", 0) or 0)),
+        )
+
+    def _parse_bangumi(self, entry: dict) -> IntelItem | None:
+        season_id = entry.get("season_id")
+        media_id = entry.get("media_id") or entry.get("id")
+        if season_id:
+            url = f"https://www.bilibili.com/bangumi/play/ss{season_id}"
+        elif media_id:
+            url = f"https://www.bilibili.com/bangumi/media/md{media_id}"
+        else:
+            return None
+        title = re.sub(r"<[^>]+>", "", entry.get("title", "") or entry.get("org_title", ""))
+        desc = html_to_text(entry.get("desc", "") or entry.get("evaluate", "") or "")
+        return IntelItem(
+            source="bilibili",
+            type="bangumi",
+            url=url,
+            title=title,
+            content=desc,
+            metrics=IntelMetrics(
+                views=int(entry.get("play", 0) or entry.get("view", 0) or 0),
+                likes=int(entry.get("favorites", 0) or entry.get("follow", 0) or 0),
+            ),
+        )
+
+    def _parse_media_ft(self, entry: dict) -> IntelItem | None:
+        item = self._parse_bangumi(entry)
+        if item:
+            item.type = "media"
+        return item
 
     async def fetch(self, url: str) -> IntelItem:
         text = await self.client.get_text(url)

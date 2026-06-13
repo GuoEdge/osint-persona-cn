@@ -47,16 +47,28 @@ http:
   user_agent: "OSINT-Toolkit/0.1.0"
   proxy: null
 
-# bilibili-api-python 折中集成：搜索仍用自研 WBI；评论与账号深采走 SDK（需 pip install osint-toolkit[bilibili]）
+# bilibili-api-python 折中集成：搜索/评论/账号深采走 SDK，失败回退自研 WBI + SERP
 bilibili:
   use_sdk: true
   sdk_client: httpx          # httpx | aiohttp | curl_cffi
   enable_bili_ticket: false
   features:
+    search: true
     comments: true
     ingest_history: true
     ingest_favorites: true
     ingest_followings: true
+  search:
+    types: [video, article, bili_user]   # 还可加 topic, media_bangumi, media_ft
+    order_video: totalrank               # totalrank|click|pubdate|dm|stow|scores
+    order_article: totalrank
+    order_user: fans                      # fans|level
+    time_start: null                      # YYYY-MM-DD，与 time_end 搭配
+    time_end: null
+    video_zone_tid: null                  # 视频分区 tid
+    time_range_minutes: -1                # 视频时长筛选；-1 表示不限
+    serp_fallback: true
+    legacy_wbi_fallback: true
 
 output:
   default_format: markdown

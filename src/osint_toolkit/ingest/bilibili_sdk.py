@@ -1,4 +1,4 @@
-"""bilibili-api-python 桥接层（折中集成：深采/评论，搜索仍用自研 WBI）。"""
+"""bilibili-api-python 桥接层（折中集成：搜索/深采/评论，失败回退自研 WBI）。"""
 
 from __future__ import annotations
 
@@ -29,17 +29,143 @@ def get_bilibili_config() -> dict[str, Any]:
         "sdk_client": "httpx",
         "enable_bili_ticket": False,
         "features": {
+            "search": True,
             "comments": True,
             "ingest_history": True,
             "ingest_favorites": True,
             "ingest_followings": True,
         },
+        "search": {
+            "types": ["video", "article", "bili_user"],
+            "order_video": "totalrank",
+            "order_article": "totalrank",
+            "order_user": "fans",
+            "time_start": None,
+            "time_end": None,
+            "video_zone_tid": None,
+            "time_range_minutes": -1,
+            "serp_fallback": True,
+            "legacy_wbi_fallback": True,
+        },
     }
     cfg = dict(load_config().get("bilibili") or {})
     features = dict(defaults["features"])
     features.update(cfg.get("features") or {})
-    merged = {**defaults, **cfg, "features": features}
+    search_defaults = dict(defaults["search"])
+    search_defaults.update(cfg.get("search") or {})
+    merged = {**defaults, **cfg, "features": features, "search": search_defaults}
     return merged
+
+
+def get_search_config() -> dict[str, Any]:
+    return dict(get_bilibili_config().get("search") or {})
+
+
+_SEARCH_TYPE_ALIASES: dict[str, str] = {
+    "user": "bili_user",
+    "liveuser": "live_user",
+    "bangumi": "media_bangumi",
+    "ft": "media_ft",
+    "media": "media_ft",
+}
+
+
+def normalize_search_type(search_type: str) -> str:
+    key = str(search_type or "").strip().lower()
+    return _SEARCH_TYPE_ALIASES.get(key, key)
+
+
+def configured_search_types() -> list[str]:
+    types = get_search_config().get("types") or ["video", "article"]
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in types:
+        normalized = normalize_search_type(str(raw))
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            out.append(normalized)
+    return out or ["video", "article"]
+
+
+_LEGACY_WBI_TYPES = frozenset({"video", "article"})
+
+
+def legacy_wbi_supports(search_type: str) -> bool:
+    return normalize_search_type(search_type) in _LEGACY_WBI_TYPES
+
+
+def _resolve_search_object_type(search_type: str):
+    from bilibili_api.search import SearchObjectType
+
+    normalized = normalize_search_type(search_type)
+    for item in SearchObjectType:
+        if item.value == normalized:
+            return item
+    raise ValueError(f"unsupported bilibili search type: {search_type}")
+
+
+def _resolve_order_type(search_enum, search_cfg: dict[str, Any]):
+    from bilibili_api.search import OrderArticle, OrderUser, OrderVideo
+
+    if search_enum.value == "video":
+        raw = search_cfg.get("order_video") or "totalrank"
+        return OrderVideo(str(raw))
+    if search_enum.value == "article":
+        raw = search_cfg.get("order_article") or "totalrank"
+        return OrderArticle(str(raw))
+    if search_enum.value == "bili_user":
+        raw = search_cfg.get("order_user") or "fans"
+        return OrderUser(str(raw))
+    return None
+
+
+async def search_entries(
+    query: str,
+    search_type: str,
+    *,
+    limit: int = 10,
+    page: int = 1,
+) -> list[dict]:
+    """调用 bilibili_api.search.search_by_type，返回原始 result 列表。"""
+    from bilibili_api import search
+
+    configure_sdk()
+    search_cfg = get_search_config()
+    search_enum = _resolve_search_object_type(search_type)
+    order_type = _resolve_order_type(search_enum, search_cfg)
+
+    kwargs: dict[str, Any] = {
+        "keyword": query,
+        "search_type": search_enum,
+        "page": page,
+        "page_size": limit,
+    }
+    if order_type is not None:
+        kwargs["order_type"] = order_type
+
+    time_start = search_cfg.get("time_start")
+    time_end = search_cfg.get("time_end")
+    if time_start and time_end:
+        kwargs["time_start"] = str(time_start)
+        kwargs["time_end"] = str(time_end)
+
+    zone_tid = search_cfg.get("video_zone_tid")
+    if zone_tid not in (None, "", 0, "0"):
+        kwargs["video_zone_type"] = int(zone_tid)
+
+    time_range = int(search_cfg.get("time_range_minutes", -1) or -1)
+    if time_range > 0:
+        kwargs["time_range"] = time_range
+
+    payload = await search.search_by_type(**kwargs)
+    code = payload.get("code")
+    if code == -352:
+        raise RuntimeError(payload.get("message") or "风控校验失败")
+    if code not in (0, None):
+        raise RuntimeError(payload.get("message") or f"bilibili sdk search code={code}")
+
+    data = payload.get("data") or {}
+    return (data.get("result") or [])[:limit]
 
 
 def sdk_enabled(feature: str) -> bool:
