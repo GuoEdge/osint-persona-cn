@@ -231,9 +231,38 @@ async def test_hydrate_video_descriptions_fills_empty_content(monkeypatch):
         return {"desc": "Qwen 3.7 Max 稳步迭代", "author": "浪浪妈"}
 
     monkeypatch.setattr(bilibili_sdk, "fetch_video_meta", fake_meta)
+    monkeypatch.setattr(col, "_apply_subtitle_from_url", lambda _item: None)
     await col._hydrate_video_descriptions([item])
     assert item.content == "Qwen 3.7 Max 稳步迭代"
     assert item.author == "浪浪妈"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_video_descriptions_falls_back_to_subtitle(monkeypatch):
+    from osint_toolkit.models.intel_item import IntelItem
+
+    col = BilibiliCollector()
+    item = IntelItem(
+        source="bilibili",
+        type="video",
+        url="https://www.bilibili.com/video/BVnosubdesc",
+        title="国模第一梯队",
+        content="",
+    )
+
+    async def fake_meta(url, *, client=None):
+        return {"desc": "", "author": ""}
+
+    async def fake_subtitle(self, target):
+        assert target is item
+        target.layers["subtitle"] = {"text": "AI字幕正文", "kind": "ai", "source": "view_api"}
+        target.content = "[字幕:ai]\nAI字幕正文"
+
+    monkeypatch.setattr(bilibili_sdk, "fetch_video_meta", fake_meta)
+    monkeypatch.setattr(BilibiliCollector, "_apply_subtitle_from_url", fake_subtitle)
+    await col._hydrate_video_descriptions([item])
+    assert item.layers["subtitle"]["text"] == "AI字幕正文"
+    assert "AI字幕正文" in item.content
 
 
 def test_parse_video_uses_tags_when_no_desc():

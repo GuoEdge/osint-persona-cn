@@ -538,7 +538,7 @@ function renderItemCard(item, sim, runId, feedbackMap = {}) {
   } else if (item.source === "bilibili" && item.type === "video") {
     sections.push(`<section class="content-section raw-section">
       <h4 class="section-label">原始内容</h4>
-      <p class="muted">B站搜索未返回简介；可点「原文」查看，或勾选评论挖掘以尝试拉字幕。</p>
+      <p class="muted">B站未获取到简介或字幕；可点「原文」查看，或勾选评论挖掘拉热评。</p>
     </section>`);
   }
 

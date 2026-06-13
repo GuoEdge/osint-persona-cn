@@ -70,19 +70,52 @@ class BilibiliCollector(BaseCollector):
         await self._hydrate_video_descriptions(out)
         return out
 
+    @staticmethod
+    def _needs_subtitle_fallback(content: str) -> bool:
+        text = (content or "").strip()
+        return not text or text.startswith("标签:")
+
+    async def _apply_subtitle_from_url(self, item: IntelItem) -> None:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        if (item.layers.get("subtitle") or {}).get("text"):
+            return
+        subtitle_result = await bilibili_sdk.fetch_subtitle_for_url(item.url)
+        text = str(subtitle_result.get("text") or "").strip()
+        if not text:
+            return
+        track = subtitle_result.get("track")
+        kind = "legacy"
+        if isinstance(track, dict):
+            kind = bilibili_sdk._track_label(track)
+        item.layers["subtitle"] = {
+            "text": text,
+            "kind": kind,
+            "source": subtitle_result.get("source"),
+            "aid": subtitle_result.get("aid"),
+            "cid": subtitle_result.get("cid"),
+        }
+        if text not in (item.content or ""):
+            item.content = (
+                str(item.content or "").strip() + f"\n\n[字幕:{kind}]\n{text}"
+            ).strip()[:16000]
+
     async def _hydrate_video_descriptions(self, items: list[IntelItem]) -> None:
-        """搜索 API 常不返回简介，用 view 接口补全空 content。"""
+        """搜索 API 常不返回简介；补 view desc，仍空则尝试 AI/CC 字幕。"""
         from osint_toolkit.ingest import bilibili_sdk
 
         async def fill(item: IntelItem) -> None:
-            if item.type != "video" or (item.content or "").strip():
+            if item.type != "video":
                 return
-            meta = await bilibili_sdk.fetch_video_meta(item.url, client=self.client)
-            desc = str(meta.get("desc") or "").strip()
-            if desc:
-                item.content = desc[:12000]
-            if meta.get("author") and not item.author:
-                item.author = str(meta["author"])
+            if not (item.content or "").strip():
+                meta = await bilibili_sdk.fetch_video_meta(item.url, client=self.client)
+                desc = str(meta.get("desc") or "").strip()
+                if desc:
+                    item.content = desc[:12000]
+                if meta.get("author") and not item.author:
+                    item.author = str(meta["author"])
+            if self._needs_subtitle_fallback(item.content or ""):
+                await self._apply_subtitle_from_url(item)
 
         if items:
             await asyncio.gather(*[fill(i) for i in items], return_exceptions=True)
@@ -276,26 +309,7 @@ class BilibiliCollector(BaseCollector):
                 return
             except Exception:  # noqa: BLE001
                 pass
-        subtitle_result = await bilibili_sdk.fetch_subtitle_for_url(item.url)
-        text = str(subtitle_result.get("text") or "").strip()
-        if text:
-            track = subtitle_result.get("track")
-            kind = "legacy"
-            if isinstance(track, dict):
-                from osint_toolkit.ingest.bilibili_sdk import _track_label
-
-                kind = _track_label(track)
-            item.layers["subtitle"] = {
-                "text": text,
-                "kind": kind,
-                "source": subtitle_result.get("source"),
-                "aid": subtitle_result.get("aid"),
-                "cid": subtitle_result.get("cid"),
-            }
-            if text not in (item.content or ""):
-                item.content = (
-                    str(item.content or "").strip() + f"\n\n[字幕:{kind}]\n{text}"
-                ).strip()[:16000]
+        await self._apply_subtitle_from_url(item)
 
     async def _fetch_subtitle_legacy(self, page_html: str) -> str:
         """Deprecated: page_html 不再用于解析 aid/cid。"""
