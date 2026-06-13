@@ -60,3 +60,31 @@ async def test_collect_uses_multiple_queries(monkeypatch):
     assert len(items) == 3
     for item in items:
         assert item.personal.get("matched_queries")
+
+
+@pytest.mark.asyncio
+async def test_run_search_discovers_when_no_ai(monkeypatch):
+    discover_calls: list[bool] = []
+
+    async def fake_discover(*args, **kwargs):
+        discover_calls.append(kwargs.get("no_ai", False))
+        return {"discovered_aliases": ["小祥"], "probe_count": 1}
+
+    monkeypatch.setattr(search_mod, "discover_aliases", fake_discover)
+    monkeypatch.setattr(search_mod, "_collect_source", AsyncMock(return_value=[]))
+    monkeypatch.setattr(search_mod, "maybe_load_persona_context", lambda: None)
+    monkeypatch.setattr(search_mod, "summarize_batch", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "simulate_items", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "_mine_comments", AsyncMock(return_value=[]))
+
+    with patch.object(search_mod, "sync_browser_cookies"):
+        await search_mod.run_search(
+            "丰川祥子",
+            sources=["bilibili"],
+            limit=10,
+            no_ai=True,
+            no_simulate=True,
+            comment_mine_top=0,
+        )
+
+    assert discover_calls == [True]

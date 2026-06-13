@@ -66,6 +66,23 @@ def test_expand_query_no_ai_merges_rules(tmp_path, monkeypatch):
     assert len(queries) >= 2
 
 
+def test_expand_query_aliases_respect_max_queries(monkeypatch):
+    monkeypatch.setattr(
+        "osint_toolkit.ai.query_expand.get_search_config",
+        lambda: {"max_expanded_queries": 2, "include_slurs": True},
+    )
+    result = expand_query(
+        "丰川祥子",
+        ["bilibili"],
+        None,
+        no_ai=True,
+        discovered_aliases=["词A", "词B", "词C"],
+    )
+    assert result["queries_used"] == ["丰川祥子", "词A"]
+    assert result["aliases"] == ["词A"]
+    assert "词B" not in result["aliases"]
+
+
 def test_per_query_limit_scales(monkeypatch):
     monkeypatch.setattr(
         "osint_toolkit.ai.query_expand.get_search_config",

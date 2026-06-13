@@ -413,7 +413,7 @@ async def run_search(
 
 
     discover_meta: dict[str, Any] = {}
-    if search_cfg.get("discover_aliases", True) and not no_ai:
+    if search_cfg.get("discover_aliases", True):
         discover_meta = await discover_aliases(
             query,
             sources,
@@ -449,7 +449,7 @@ async def run_search(
 
     queries_used: list[str] = query_analysis.get("queries_used") or [query]
 
-    match_terms: list[str] = list(queries_used) + list(query_analysis.get("aliases") or [])
+    match_terms: list[str] = list(queries_used)
 
     collect_sources = [
         s for s in (query_analysis.get("recommended_sources") or sources) if s in COLLECTORS
@@ -727,7 +727,7 @@ async def preview_query_expansion(
     sources, _unknown = normalize_sources(sources, profile="default")
     search_cfg = get_search_config()
     discover_meta: dict[str, Any] = {}
-    if search_cfg.get("discover_aliases", True) and not no_ai:
+    if search_cfg.get("discover_aliases", True):
         discover_meta = await discover_aliases(
             query,
             sources,

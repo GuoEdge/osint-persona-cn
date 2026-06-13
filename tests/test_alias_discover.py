@@ -104,3 +104,22 @@ def test_ai_extract_requires_evidence_items():
     terms, details = ai_extract_aliases("丰川祥子", [], no_ai=True)
     assert terms == []
     assert details == []
+
+
+@pytest.mark.asyncio
+async def test_discover_runs_heuristic_without_ai(monkeypatch):
+    async def fake_probe(query, sources=None, *, limit=5):
+        return [
+            IntelItem(
+                source="bilibili",
+                type="video",
+                url="https://bilibili.com/1",
+                title="【小祥】丰川祥子剪辑",
+                content="",
+            )
+        ]
+
+    monkeypatch.setattr("osint_toolkit.ai.alias_discover.probe_network", fake_probe)
+    result = await discover_aliases("丰川祥子", ["bilibili"], no_ai=True)
+    assert result.get("probe_count", 0) >= 1
+    assert result.get("discovered_aliases")
