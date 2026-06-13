@@ -111,6 +111,7 @@ class BilibiliCollector(BaseCollector):
         async def fill(item: IntelItem) -> None:
             if item.type != "video":
                 return
+            item.content = bilibili_sdk._normalize_video_desc(item.content or "")
             if not (item.content or "").strip():
                 meta = await bilibili_sdk.fetch_video_meta(item.url, client=self.client)
                 desc = str(meta.get("desc") or "").strip()
@@ -182,11 +183,15 @@ class BilibiliCollector(BaseCollector):
         return items
 
     def _parse_video(self, entry: dict) -> IntelItem | None:
+        from osint_toolkit.ingest import bilibili_sdk
+
         bvid = entry.get("bvid") or ""
         aid = entry.get("aid")
         url = f"https://www.bilibili.com/video/{bvid or ('av' + str(aid))}"
         title = re.sub(r"<[^>]+>", "", entry.get("title", ""))
-        desc = html_to_text(entry.get("description", "") or entry.get("desc", ""))
+        desc = bilibili_sdk._normalize_video_desc(
+            html_to_text(entry.get("description", "") or entry.get("desc", ""))
+        )
         if not desc:
             tags = str(entry.get("tag") or "").strip()
             if tags:
