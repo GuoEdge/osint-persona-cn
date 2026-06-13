@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
@@ -33,8 +34,18 @@ class HttpClient:
             headers["Referer"] = "https://www.bilibili.com/"
             headers["Origin"] = "https://www.bilibili.com"
         elif "zhihu.com" in url:
-            headers["Referer"] = "https://www.zhihu.com/"
+            headers["Referer"] = self._zhihu_referer(url)
         return headers
+
+    @staticmethod
+    def _zhihu_referer(url: str) -> str:
+        if "search_v3" in url:
+            parsed = urlparse(url)
+            q = (parse_qs(parsed.query).get("q") or [""])[0]
+            if q:
+                return f"https://www.zhihu.com/search?type=content&q={quote(q)}"
+            return "https://www.zhihu.com/search?type=content"
+        return "https://www.zhihu.com/"
 
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         headers = self._headers(url)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import quote
 
 from osint_toolkit.collectors.base import BaseCollector
 from osint_toolkit.http.client import HttpClient
@@ -41,31 +40,49 @@ class BilibiliCollector(BaseCollector):
                 continue
             seen.add(item.url)
             deduped.append(item)
-        if not deduped and errors:
-            raise RuntimeError("; ".join(errors))
+        if not deduped:
+            fallback = await self._serp_site_search(query, limit)
+            if fallback:
+                return fallback[:limit]
+            if errors:
+                raise RuntimeError("; ".join(errors))
         return deduped[:limit]
 
     async def _search_type(self, query: str, search_type: str, limit: int) -> list[dict]:
-        url = (
-            "https://api.bilibili.com/x/web-interface/search/type?"
-            f"search_type={search_type}&keyword={quote(query)}&page=1&page_size={limit}"
-        )
-        resp = await self.client.get(url)
-        text = (resp.text or "").strip()
-        if not text:
-            raise RuntimeError(f"bilibili {search_type}: empty response (status={resp.status_code})")
-        if text[0] not in "{[":
-            raise RuntimeError(
-                f"bilibili {search_type}: non-json response (status={resp.status_code}, head={text[:80]!r})"
-            )
-        try:
-            data = resp.json()
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"bilibili {search_type}: invalid json ({exc})") from exc
-        if data.get("code") not in (0, None):
-            raise RuntimeError(data.get("message") or f"bilibili api code={data.get('code')}")
+        from osint_toolkit.ingest.bilibili_wbi import wbi_get
+
+        base = "https://api.bilibili.com/x/web-interface/wbi/search/type"
+        params = {
+            "search_type": search_type,
+            "keyword": query,
+            "page": 1,
+            "page_size": limit,
+        }
+        data = await wbi_get(self.client, base, params)
+        code = data.get("code")
+        if code == -352:
+            raise RuntimeError(data.get("message") or "风控校验失败")
+        if code not in (0, None):
+            raise RuntimeError(data.get("message") or f"bilibili api code={code}")
         payload = data.get("data") or {}
         return (payload.get("result") or [])[:limit]
+
+    async def _serp_site_search(self, query: str, limit: int) -> list[IntelItem]:
+        """WBI 搜索失败时，用 SERP site:bilibili.com 回退。"""
+        from osint_toolkit.collectors.serp.engine import SerpEngine, hits_to_items
+
+        engine = SerpEngine(client=self.client)
+        hits, _ = await engine.site_search("bilibili.com", query, limit=limit)
+        items = hits_to_items(hits, source="bilibili")
+        for item in items:
+            href = item.url
+            if "/video/" in href or "BV" in href:
+                item.type = "video"
+            elif "/read/cv" in href:
+                item.type = "article"
+            else:
+                item.type = "snippet"
+        return items
 
     def _parse_video(self, entry: dict) -> IntelItem | None:
         bvid = entry.get("bvid") or ""

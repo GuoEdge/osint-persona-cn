@@ -23,6 +23,11 @@ def test_should_capture_zhihu_activities():
     assert should_capture_url("https://www.zhihu.com/api/v4/members/foo/activities")
 
 
+def test_should_capture_search_apis():
+    assert should_capture_url("https://www.zhihu.com/api/v4/search_v3?q=1")
+    assert should_capture_url("https://api.bilibili.com/x/web-interface/wbi/search/type")
+
+
 def test_build_sync_pages_requires_ids():
     pages = build_sync_pages(platforms=("bilibili", "zhihu"), bilibili_mid="123", zhihu_token="abc")
     urls = [p["url"] for p in pages]

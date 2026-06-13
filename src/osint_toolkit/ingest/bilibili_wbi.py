@@ -10,6 +10,9 @@ from typing import Any
 
 from osint_toolkit.http.client import HttpClient
 
+_WBI_KEY_TTL_SEC = 3600
+_wbi_key_cache: tuple[str, str, float] | None = None
+
 _MIXIN_KEY_ENC_TAB = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
     33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
@@ -41,7 +44,18 @@ def _key_from_url(url: str) -> str:
     return name.split(".", 1)[0]
 
 
-async def fetch_wbi_keys(client: HttpClient) -> tuple[str, str]:
+def clear_wbi_key_cache() -> None:
+    """测试或 nav 返回异常时清空 WBI key 缓存。"""
+    global _wbi_key_cache
+    _wbi_key_cache = None
+
+
+async def fetch_wbi_keys(client: HttpClient, *, force_refresh: bool = False) -> tuple[str, str]:
+    global _wbi_key_cache
+    now = time.time()
+    if not force_refresh and _wbi_key_cache and _wbi_key_cache[2] > now:
+        return _wbi_key_cache[0], _wbi_key_cache[1]
+
     resp = await client.get("https://api.bilibili.com/x/web-interface/nav")
     data = resp.json().get("data") or {}
     wbi = data.get("wbi_img") or {}
@@ -49,7 +63,9 @@ async def fetch_wbi_keys(client: HttpClient) -> tuple[str, str]:
     sub_url = wbi.get("sub_url") or ""
     if not img_url or not sub_url:
         raise RuntimeError("无法从 nav 获取 WBI keys")
-    return _key_from_url(img_url), _key_from_url(sub_url)
+    img_key, sub_key = _key_from_url(img_url), _key_from_url(sub_url)
+    _wbi_key_cache = (img_key, sub_key, now + _WBI_KEY_TTL_SEC)
+    return img_key, sub_key
 
 
 async def wbi_get(client: HttpClient, base_url: str, params: dict[str, Any]) -> Any:
