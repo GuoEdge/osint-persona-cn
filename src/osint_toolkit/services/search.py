@@ -364,7 +364,11 @@ async def _mine_comments(
             if src == "zhihu" and item.type not in {"answer", "article"}:
                 continue
 
-            comments = await collector.fetch_comments(item.url)
+            prefetched = item.personal.get("openapi_comments")
+            if prefetched:
+                comments = prefetched
+            else:
+                comments = await collector.fetch_comments(item.url)
 
             item.layers["comments"] = comments
 

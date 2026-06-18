@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
@@ -16,6 +17,7 @@ from osint_toolkit.utils.zhihu_urls import public_zhihu_url
 
 _QUESTION_URL = re.compile(r"/question/(\d+)")
 _ANSWER_URL = re.compile(r"/question/\d+/answer/(\d+)")
+logger = logging.getLogger(__name__)
 
 
 class ZhihuCollector(BaseCollector):
@@ -97,24 +99,43 @@ class ZhihuCollector(BaseCollector):
 
         items: list[IntelItem] = []
         seen: set[str] = set()
-        try:
-            for search_type in search_types:
-                batch = await self._search_v3(
-                    query,
-                    search_type=str(search_type),
-                    limit=per_type,
-                    pages=pages,
-                )
-                for item in batch:
+
+        from osint_toolkit.ingest import zhihu_openapi
+
+        openapi_cfg = zhihu_openapi.get_zhihu_config().get("openapi") or {}
+        if openapi_cfg.get("prefer_search", True) and zhihu_openapi.openapi_enabled("search"):
+            try:
+                openapi_items = await zhihu_openapi.search(query, limit=limit, client=self.client)
+                for item in openapi_items:
                     if item.url in seen:
                         continue
                     seen.add(item.url)
                     items.append(item)
-        except Exception as exc:  # noqa: BLE001
-            items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)
-            if items:
-                return items if aggressive else items[:limit]
-            raise RuntimeError(f"知乎搜索 API 不可用 ({exc})；回退也无结果") from exc
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("zhihu openapi search failed: %s", exc)
+
+        need_more = aggressive and len(items) < per_type
+        use_search_v3 = not items or (need_more and openapi_cfg.get("merge_search_v3", True))
+        if use_search_v3:
+            try:
+                for search_type in search_types:
+                    batch = await self._search_v3(
+                        query,
+                        search_type=str(search_type),
+                        limit=per_type,
+                        pages=pages,
+                    )
+                    for item in batch:
+                        if item.url in seen:
+                            continue
+                        seen.add(item.url)
+                        items.append(item)
+            except Exception as exc:  # noqa: BLE001
+                if not items:
+                    items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)
+                    if items:
+                        return items if aggressive else items[:limit]
+                    raise RuntimeError(f"知乎搜索 API 不可用 ({exc})；回退也无结果") from exc
 
         if not items:
             items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)

@@ -78,6 +78,22 @@ bilibili:
     serp_fallback: true
     legacy_wbi_fallback: true
 
+# 知乎数据开放平台（官方 API，免 Cookie 站内搜索 / 热榜）
+# 申请: https://developer.zhihu.com/docs?key=authorization
+zhihu:
+  openapi:
+    enabled: true
+    base_url: https://developer.zhihu.com
+    access_secret: ${ZHIHU_ACCESS_SECRET}
+    prefer_search: true       # 优先走 openapi，失败再 search_v3 / Playwright / SERP
+    merge_search_v3: true     # aggressive 模式下 openapi 结果不足时合并 search_v3
+    search_count: 10          # 单次站内搜索上限（官方 max 10）
+    hot_list_count: 30
+    features:
+      search: true
+      hot_list: true
+      global_search: false    # 全网搜索（含站外），默认关闭
+
 output:
   default_format: markdown
   reports_dir: reports

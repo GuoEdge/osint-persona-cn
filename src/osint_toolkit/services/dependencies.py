@@ -50,6 +50,7 @@ def get_dependencies_status() -> dict[str, Any]:
     deepseek = auth_map.get("deepseek", {})
     bilibili = auth_map.get("bilibili", {})
     zhihu = auth_map.get("zhihu", {})
+    zhihu_openapi = auth_map.get("zhihu_openapi", {})
     venv_ok, venv_detail = _venv_ok()
     pw_ok = playwright_available()
     rookie_ok = rookiepy_available()
@@ -101,10 +102,23 @@ def get_dependencies_status() -> dict[str, Any]:
             "label": "知乎 Cookie",
             "ok": bool(zhihu.get("ok")),
             "required": False,
-            "required_for": ["知乎搜罗", "知乎导入"],
+            "required_for": ["知乎导入", "知乎评论深采"],
             "detail": str(zhihu.get("detail") or ""),
-            "hint": "Cookie 失效时搜罗会尝试 Playwright；两者都缺则知乎来源失败",
+            "hint": "Cookie 失效时搜罗会尝试 Playwright；配置开放平台 Key 可免 Cookie 搜索",
             "action": "sync_cookies",
+        },
+        {
+            "id": "zhihu_openapi",
+            "label": "知乎开放平台 Access Secret",
+            "ok": bool(zhihu_openapi.get("ok")),
+            "required": False,
+            "required_for": ["知乎官方站内搜索", "热榜"],
+            "detail": str(zhihu_openapi.get("detail") or ""),
+            "hint": (
+                "PowerShell: [Environment]::SetEnvironmentVariable("
+                "\"ZHIHU_ACCESS_SECRET\", \"你的Key\", \"User\")；详见 developer.zhihu.com"
+            ),
+            "action": None,
         },
     ]
 
@@ -115,10 +129,12 @@ def get_dependencies_status() -> dict[str, Any]:
         blockers.append("DeepSeek API 未配置：AI 摘要 / digest / 追问不可用")
     if not pw_ok:
         blockers.append("Playwright 未安装：知乎 API 被风控时无法回退，微信搜罗可能失败")
-    if not bilibili.get("ok") and not zhihu.get("ok"):
-        blockers.append("B站与知乎 Cookie 均未就绪")
+    if not bilibili.get("ok") and not zhihu.get("ok") and not zhihu_openapi.get("ok"):
+        blockers.append("B站 Cookie、知乎 Cookie 与开放平台 Key 均未就绪")
 
-    search_ready = rookie_ok and (pw_ok or bilibili.get("ok") or zhihu.get("ok") or deepseek.get("ok"))
+    search_ready = rookie_ok and (
+        pw_ok or bilibili.get("ok") or zhihu.get("ok") or zhihu_openapi.get("ok") or deepseek.get("ok")
+    )
 
     return {
         "items": items,

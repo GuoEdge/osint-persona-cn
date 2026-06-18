@@ -82,6 +82,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "user_agent": "OSINT-Toolkit/0.1.0",
         "proxy": None,
     },
+    "zhihu": {
+        "openapi": {
+            "enabled": True,
+            "base_url": "https://developer.zhihu.com",
+            "access_secret": "${ZHIHU_ACCESS_SECRET}",
+            "prefer_search": True,
+            "merge_search_v3": True,
+            "search_count": 10,
+            "hot_list_count": 30,
+            "features": {
+                "search": True,
+                "hot_list": True,
+                "global_search": False,
+            },
+        },
+    },
     "bilibili": {
         "use_sdk": True,
         "sdk_client": "httpx",

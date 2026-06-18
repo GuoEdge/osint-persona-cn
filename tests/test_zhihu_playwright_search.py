@@ -44,6 +44,7 @@ async def test_zhihu_search_playwright_fallback(monkeypatch):
     monkeypatch.setattr(col, "_search_v3", fail_search)
     monkeypatch.setattr(col, "expand_questions", noop_expand)
     monkeypatch.setattr(col, "_playwright_search", ok_pw)
+    monkeypatch.setattr("osint_toolkit.ingest.zhihu_openapi.openapi_enabled", lambda _f: False)
 
     items = await col.search("测试", limit=5)
     assert len(items) == 1

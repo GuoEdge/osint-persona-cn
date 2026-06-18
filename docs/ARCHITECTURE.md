@@ -120,6 +120,7 @@ profiles:
 - 默认对 top N 条结果按信源分配配额拉取热评（`search.comment_mine_top`）
 - 支持 **B站**（视频 type=1、专栏 type=12、opus type=17）与 **知乎**（回答/文章 comment_v5）
 - **知乎深度搜罗**（`zhihu_aggressive` 默认开启）：`search_v3` 多类型分页 → 从提问/命中回答展开高赞回答 → 独立 `zhihu_comment_mine_top` 配额；根评 + 子回复深挖
+- **知乎开放平台**（可选）：配置 `ZHIHU_ACCESS_SECRET` 后优先走官方 `zhihu_search`（免 Cookie/WAF），失败再回退 `search_v3` → Playwright → SERP；搜索命中可附带 `CommentInfoList` 热评
 - `services/save.py` 的 `with_comments` 同样支持双平台
 
 ## 配置 (`~/.osint/config.yaml` 或 `config/config.yaml`)

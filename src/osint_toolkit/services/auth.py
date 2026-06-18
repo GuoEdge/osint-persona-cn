@@ -36,6 +36,18 @@ def get_auth_status(target: str = "all") -> list[dict[str, Any]]:
     if target in {"all", "zhihu"}:
         r = validate_domain_cookie("zhihu.com")
         results.append({"name": "zhihu.com", "key": "zhihu", "ok": r["ok"], "detail": r["reason"]})
+    if target in {"all", "zhihu_openapi"}:
+        from osint_toolkit.ingest.zhihu_openapi import test_connection_sync
+
+        openapi = test_connection_sync()
+        results.append(
+            {
+                "name": "知乎开放平台",
+                "key": "zhihu_openapi",
+                "ok": bool(openapi.get("ok")),
+                "detail": str(openapi.get("detail") or ""),
+            }
+        )
     return results
 
 
