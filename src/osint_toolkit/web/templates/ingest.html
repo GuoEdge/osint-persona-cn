@@ -12,7 +12,7 @@
 </div>
 
 <nav class="pipeline-steps card" aria-label="推荐流程">
-  <span class="pipeline-step">1. Cookie</span>
+  <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
   <span class="pipeline-arrow">→</span>
   <span class="pipeline-step active">2. 完整同步</span>
   <span class="pipeline-arrow">→</span>
@@ -25,15 +25,24 @@
 
 <div id="auth-banner" class="alert alert-warn hidden"></div>
 
+<div id="ingest-preflight" class="card mb-1 ingest-preflight-card">
+  <h2>同步前检查</h2>
+  <div id="ingest-preflight-content" class="muted">正在检查 Cookie 与登录态…</div>
+</div>
+
 <div id="ingest-health-panel" class="card mb-1">
-  <h2>系统健康</h2>
+  <h2>数据概况</h2>
   <div id="ingest-health-content" class="muted">加载中…</div>
 </div>
 
 <div class="card mb-1" id="extension">
   <h2>推荐：一键完整同步</h2>
-  <p class="muted">一条路径完成行为导入：<strong>Cookie 预检 → B站/知乎 API → Edge 浏览历史 → Playwright 补洞 → 提示上传扩展队列</strong>（等价 CLI <code>osint sync</code>）。</p>
-  <p class="muted">日常上网轨迹：扩展自动记录；完整同步会合并 Edge 历史与扩展队列，共同写入画像。</p>
+  <p class="muted">一条路径导入你的 B站/知乎行为与 Edge 浏览记录，并尝试用本机浏览器补全缺失项（约 2–5 分钟）。</p>
+  <ul class="muted ingest-steps-hint">
+    <li>需先在 <a href="/settings">设置</a> 或扩展弹窗同步 <strong>B站 / 知乎 Cookie</strong></li>
+    <li>日常上网：安装浏览器扩展后自动记录浏览与停留</li>
+    <li>完整同步结束后：扩展弹窗点一次 <strong>上传浏览采集队列</strong></li>
+  </ul>
   <div class="form-row mt-1">
     <button id="btn-ingest-full-sync" class="btn btn-primary" type="button">开始完整同步</button>
     <button id="btn-extension-refresh" class="btn btn-secondary" type="button">刷新状态</button>
@@ -43,20 +52,23 @@
 </div>
 
 <details class="card mb-1">
-  <summary><strong>分步同步</strong>（仅在某一步失败时使用）</summary>
+  <summary><strong>分步同步</strong>（某一步失败时再用）</summary>
+  <p class="muted mt-1">仅 API 拉取较快；浏览器补洞需安装 Playwright（设置页可一键安装）。</p>
   <div class="form-row mt-1">
-    <button id="btn-ingest-accounts-sync" class="btn btn-secondary" type="button">仅 API 拉取（B站+知乎）</button>
-    <button id="btn-ingest-browser-sync" class="btn btn-secondary" type="button">仅浏览器补洞（Playwright）</button>
+    <button id="btn-ingest-accounts-sync" class="btn btn-secondary" type="button">仅拉取 B站+知乎</button>
+    <button id="btn-ingest-browser-sync" class="btn btn-secondary" type="button">仅用浏览器补洞</button>
   </div>
+  <div id="ingest-accounts-sync-progress" class="mt-1 hidden"></div>
   <div id="ingest-accounts-sync-result" class="mt-1"></div>
+  <div id="ingest-browser-sync-progress" class="mt-1 hidden"></div>
   <div id="ingest-browser-sync-result" class="mt-1"></div>
-  <p class="muted install-steps mt-1">Playwright Persistent 模式需<strong>完全关闭 Edge</strong>；或见 <a href="/settings">设置</a> 配置 CDP。</p>
+  <p class="muted install-steps mt-1">补洞模式若用本机 Edge：需<strong>完全关闭 Edge</strong>；或见 <a href="/settings">设置</a> 配置 CDP 附着。</p>
 </details>
 
 <details class="card mb-1">
   <summary><strong>浏览器扩展</strong>（日常被动采集 + Cookie 同步）</summary>
-  <p class="muted mt-1">安装后日常上网即记录浏览/停留；每 4h 自动同步；右键可收录知识库。</p>
-  <div id="extension-status" class="muted">检测中…</div>
+  <p class="muted mt-1">安装后日常上网即记录浏览/停留；约每 4 小时自动同步账号行为；右键可收录知识库。</p>
+  <div id="extension-status" class="extension-status-card muted">检测中…</div>
   <ol class="muted install-steps">
     <li>双击 <code>start-osint-web.bat</code> 启动本机 Web（8787）</li>
     <li>Edge/Chrome → 扩展 → 加载已解压 → 选仓库内 <code>extension/</code> 目录</li>
@@ -110,7 +122,13 @@
 
 <div id="ingest-capabilities" class="card mt-1">
   <h2>能力说明</h2>
-  <p class="muted">加载中…</p>
+  <p class="muted">各平台行为采集方式一览；「需扩展」表示单靠 API 不完整，需扩展或浏览器补洞。</p>
+  <div class="table-scroll">
+    <p class="muted">加载中…</p>
+  </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script>initIngest();</script>
 {% endblock %}

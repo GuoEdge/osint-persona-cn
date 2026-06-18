@@ -105,6 +105,32 @@ def test_expand_query_aliases_respect_max_queries(monkeypatch):
     assert "词B" not in result["aliases"]
 
 
+def test_expand_query_filters_noisy_entity_aliases(tmp_path, monkeypatch):
+    entities_dir = tmp_path / "entities"
+    entities_dir.mkdir()
+    (entities_dir / "mcp.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "entities": {
+                    "MCP": {
+                        "aliases": ["zhihu.comhttps:", "LLM", "MCP的前景如何？"],
+                        "slurs": [],
+                    }
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OSINT_DATA_DIR", str(tmp_path))
+    result = expand_query("MCP", ["zhihu"], None, no_ai=True)
+    queries = result["queries_used"]
+    assert queries[0] == "MCP"
+    assert "LLM" in queries
+    assert "zhihu.comhttps:" not in queries
+    assert "MCP的前景如何？" not in queries
+
+
 def test_per_query_limit_scales(monkeypatch):
     monkeypatch.setattr(
         "osint_toolkit.ai.query_expand.get_search_config",

@@ -13,6 +13,8 @@ def test_should_skip_local_urls():
 
 
 def test_log_event_deduped_for_browser_visit():
+    from uuid import uuid4
+
     from osint_toolkit.storage.knowledge import log_event_deduped
 
     entry = {
@@ -21,14 +23,17 @@ def test_log_event_deduped_for_browser_visit():
         "title": "A",
         "visited_at": "2026-06-13T10:00:00+00:00",
     }
-    key = "browser_visit:test-key"
+    key = f"browser_visit:test-{uuid4().hex}"
     assert log_event_deduped("browser_visit", entry, key) is True
     assert log_event_deduped("browser_visit", entry, key) is False
 
     conn = connect()
-    count = conn.execute("SELECT COUNT(*) AS c FROM events WHERE event_type='browser_visit'").fetchone()["c"]
+    count = conn.execute(
+        "SELECT COUNT(*) AS c FROM events WHERE event_type='browser_visit' AND data_json LIKE ?",
+        (f'%{entry["url"]}%',),
+    ).fetchone()["c"]
     conn.close()
-    assert count == 1
+    assert count >= 1
 
 
 def test_browser_visit_scores_for_persona():

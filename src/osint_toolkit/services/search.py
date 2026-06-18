@@ -553,6 +553,7 @@ async def run_search(
     collect_total = max(1, len(queries_used) * len(collect_sources))
     items_lock = asyncio.Lock()
     shared_items: list[IntelItem] = []
+    zhihu_sem = asyncio.Semaphore(2)
 
     async def collect_all() -> dict[str, Any]:
 
@@ -568,7 +569,11 @@ async def run_search(
                 collect_total=collect_total,
             )
             try:
-                group = await _collect_source(source_name, q, per_limit)
+                if source_name == "zhihu":
+                    async with zhihu_sem:
+                        group = await _collect_source(source_name, q, per_limit)
+                else:
+                    group = await _collect_source(source_name, q, per_limit)
                 return source_name, q, group, None
             except Exception as exc:  # noqa: BLE001
                 return source_name, q, None, exc

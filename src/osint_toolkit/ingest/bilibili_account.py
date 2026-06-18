@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from osint_toolkit.http.client import HttpClient
+from osint_toolkit.ingest import account_sync_state as sync_state
 from osint_toolkit.ingest.bilibili_wbi import wbi_get
 from osint_toolkit.storage.knowledge import log_event
 
@@ -21,21 +23,28 @@ async def _nav_mid(client: HttpClient) -> int | None:
         return None
 
 
-async def ingest_history(limit: int = 500) -> list[dict]:
+def _bilibili_section() -> dict[str, Any]:
+    return sync_state.load_account_sync_state().get("bilibili") or {}
+
+
+def _persist_bilibili(**kwargs: Any) -> None:
+    state = sync_state.load_account_sync_state()
+    sync_state.update_bilibili_section(state, **kwargs)
+    sync_state.save_account_sync_state(state)
+
+
+async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
     from osint_toolkit.ingest import bilibili_sdk
 
     if bilibili_sdk.sdk_enabled("ingest_history"):
         try:
-            rows = await bilibili_sdk.ingest_history(limit)
-            for entry in rows:
-                log_event("bilibili_watch", entry)
-            return rows
+            return await bilibili_sdk.ingest_history(limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili sdk history failed, fallback to httpx: %s", exc)
 
     client = HttpClient()
     url = "https://api.bilibili.com/x/web-interface/history/cursor?max=0&view_at=0&ps=20"
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
         while len(results) < limit:
@@ -45,20 +54,23 @@ async def ingest_history(limit: int = 500) -> list[dict]:
             if not batch:
                 break
             for item in batch:
-                link = item.get("uri", "") or item.get("short_link_v2", "") or item.get("bvid", "")
+                view_at, bvid, link = sync_state.history_fields_from_api_item(item)
                 if not link or link in seen:
                     continue
                 seen.add(link)
-                entry = {
-                    "source": "bilibili",
-                    "title": item.get("title", ""),
-                    "url": link,
-                    "progress": item.get("progress", 0),
-                    "duration": item.get("duration", 0),
-                    "event_kind": "watch_history",
-                }
-                log_event("bilibili_watch", entry)
-                results.append(entry)
+                history_meta = item.get("history") if isinstance(item.get("history"), dict) else item
+                results.append(
+                    {
+                        "source": "bilibili",
+                        "title": item.get("title", "") or history_meta.get("title", ""),
+                        "url": link,
+                        "progress": history_meta.get("progress", 0),
+                        "duration": history_meta.get("duration", 0),
+                        "event_kind": "watch_history",
+                        "view_at": view_at,
+                        "bvid": bvid,
+                    }
+                )
                 if len(results) >= limit:
                     break
             cursor = data.get("cursor") or {}
@@ -73,20 +85,30 @@ async def ingest_history(limit: int = 500) -> list[dict]:
     return results
 
 
-async def ingest_favorites(limit: int = 500) -> list[dict]:
+async def ingest_history(limit: int = 500) -> list[dict]:
+    section = _bilibili_section()
+    cursor = section.get("history") or {}
+    fetched = await _fetch_history_entries(limit)
+    if not fetched:
+        return []
+    fresh, updated_cursor = sync_state.filter_new_history_entries(fetched, cursor)
+    for entry in fresh:
+        log_event("bilibili_watch", entry)
+    _persist_bilibili(history=updated_cursor)
+    return fresh
+
+
+async def _fetch_favorite_entries(limit: int) -> list[dict[str, Any]]:
     from osint_toolkit.ingest import bilibili_sdk
 
     if bilibili_sdk.sdk_enabled("ingest_favorites"):
         try:
-            rows = await bilibili_sdk.ingest_favorites(limit)
-            for entry in rows:
-                log_event("bilibili_fav", entry)
-            return rows
+            return await bilibili_sdk.ingest_favorites(limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili sdk favorites failed, fallback to httpx: %s", exc)
 
     client = HttpClient()
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
         mid = await _nav_mid(client)
@@ -117,15 +139,17 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                     if not url or url in seen:
                         continue
                     seen.add(url)
-                    entry = {
-                        "source": "bilibili",
-                        "title": media.get("title", ""),
-                        "url": url,
-                        "folder": folder.get("title", ""),
-                        "event_kind": "favorite",
-                    }
-                    log_event("bilibili_fav", entry)
-                    results.append(entry)
+                    results.append(
+                        {
+                            "source": "bilibili",
+                            "title": media.get("title", ""),
+                            "url": url,
+                            "folder": folder.get("title", ""),
+                            "folder_id": str(media_id),
+                            "bvid": str(bvid),
+                            "event_kind": "favorite",
+                        }
+                    )
                     if len(results) >= limit:
                         break
                 if len(medias) < 20:
@@ -137,6 +161,18 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
         pass
     return results
 
+
+async def ingest_favorites(limit: int = 500) -> list[dict]:
+    section = _bilibili_section()
+    seen_bvids = sync_state._string_set(section.get("favorite_bvids", []))
+    fetched = await _fetch_favorite_entries(limit)
+    if not fetched:
+        return []
+    fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
+    for entry in fresh:
+        log_event("bilibili_fav", entry)
+    _persist_bilibili(favorites=fetched)
+    return fresh
 
 
 def _video_url(item: dict) -> str:
@@ -152,52 +188,34 @@ def _video_url(item: dict) -> str:
     return item.get("link") or item.get("uri") or ""
 
 
-def _append_like_entries(
-    items: list[dict],
-    *,
-    results: list[dict],
-    seen: set[str],
-    limit: int,
-) -> None:
+def _like_entries_from_items(items: list[dict], *, seen: set[str], limit: int) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
     for item in items:
         url = _video_url(item)
         if not url or url in seen:
             continue
         seen.add(url)
-        entry = {
-            "source": "bilibili",
-            "title": item.get("title", ""),
-            "url": url,
-            "event_kind": "like",
-        }
-        log_event("bilibili_like", entry)
-        results.append(entry)
+        bvid = str(item.get("bvid") or item.get("bv_id") or sync_state._bvid_from_url(url))
+        results.append(
+            {
+                "source": "bilibili",
+                "title": item.get("title", ""),
+                "url": url,
+                "bvid": bvid,
+                "event_kind": "like",
+            }
+        )
         if len(results) >= limit:
             break
-
-
-async def _ingest_likes_legacy(client: HttpClient, mid: int, limit: int) -> list[dict]:
-    results: list[dict] = []
-    seen: set[str] = set()
-    resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
-    payload = resp.json()
-    if payload.get("code") not in (0, None):
-        return results
-    data = payload.get("data")
-    if not data:
-        return results
-    items = data if isinstance(data, list) else (data.get("list") or [])
-    _append_like_entries(items, results=results, seen=seen, limit=limit)
     return results
 
 
-async def ingest_likes(limit: int = 500) -> list[dict]:
-    """B站最近点赞视频（WBI like/archive/list，回退 x/space/like/video）。"""
+async def _fetch_like_entries(limit: int) -> list[dict[str, Any]]:
     client = HttpClient()
     mid = await _nav_mid(client)
     if not mid:
         return []
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     seen: set[str] = set()
     pn = 1
     try:
@@ -212,10 +230,15 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
             items = (payload.get("data") or {}).get("list") or []
             if not items:
                 if pn == 1:
-                    return await _ingest_likes_legacy(client, mid, limit)
+                    resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
+                    legacy = resp.json()
+                    if legacy.get("code") in (0, None):
+                        data = legacy.get("data")
+                        legacy_items = data if isinstance(data, list) else (data or {}).get("list") or []
+                        return _like_entries_from_items(legacy_items, seen=seen, limit=limit)
                 break
             before = len(results)
-            _append_like_entries(items, results=results, seen=seen, limit=limit)
+            results.extend(_like_entries_from_items(items, seen=seen, limit=limit))
             if len(results) >= limit or len(results) == before:
                 break
             if len(items) < 20:
@@ -224,22 +247,37 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
     except Exception:  # noqa: BLE001
         if not results:
             try:
-                return await _ingest_likes_legacy(client, mid, limit)
+                resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
+                legacy = resp.json()
+                if legacy.get("code") in (0, None):
+                    data = legacy.get("data")
+                    legacy_items = data if isinstance(data, list) else (data or {}).get("list") or []
+                    return _like_entries_from_items(legacy_items, seen=seen, limit=limit)
             except Exception:  # noqa: BLE001
                 pass
     return results
 
 
-async def ingest_followings(limit: int = 500) -> list[dict]:
-    """B站关注列表（SDK user.get_followings，回退 x/relation/followings）。"""
+async def ingest_likes(limit: int = 500) -> list[dict]:
+    """B站最近点赞视频（WBI like/archive/list，回退 x/space/like/video）。"""
+    section = _bilibili_section()
+    seen_bvids = sync_state._string_set(section.get("like_bvids", []))
+    fetched = await _fetch_like_entries(limit)
+    if not fetched:
+        return []
+    fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
+    for entry in fresh:
+        log_event("bilibili_like", entry)
+    _persist_bilibili(likes=fetched)
+    return fresh
+
+
+async def _fetch_following_entries(limit: int) -> list[dict[str, Any]]:
     from osint_toolkit.ingest import bilibili_sdk
 
     if bilibili_sdk.sdk_enabled("ingest_followings"):
         try:
-            rows = await bilibili_sdk.ingest_followings(limit)
-            for entry in rows:
-                log_event("bilibili_follow", entry)
-            return rows
+            return await bilibili_sdk.ingest_followings(limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili sdk followings failed, fallback to httpx: %s", exc)
 
@@ -247,7 +285,7 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     mid = await _nav_mid(client)
     if not mid:
         return []
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     seen: set[str] = set()
     pn = 1
     try:
@@ -270,15 +308,15 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
                 if url in seen:
                     continue
                 seen.add(url)
-                entry = {
-                    "source": "bilibili",
-                    "title": user.get("uname", ""),
-                    "url": url,
-                    "event_kind": "following",
-                    "uid": uid,
-                }
-                log_event("bilibili_follow", entry)
-                results.append(entry)
+                results.append(
+                    {
+                        "source": "bilibili",
+                        "title": user.get("uname", ""),
+                        "url": url,
+                        "event_kind": "following",
+                        "uid": uid,
+                    }
+                )
                 if len(results) >= limit:
                     break
             if len(batch) < 50:
@@ -287,3 +325,17 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     except Exception:  # noqa: BLE001
         pass
     return results
+
+
+async def ingest_followings(limit: int = 500) -> list[dict]:
+    """B站关注列表（SDK user.get_followings，回退 x/relation/followings）。"""
+    section = _bilibili_section()
+    seen_mids = sync_state._string_set(section.get("following_mids", []))
+    fetched = await _fetch_following_entries(limit)
+    if not fetched:
+        return []
+    fresh = sync_state.filter_new_following(fetched, seen_mids)
+    for entry in fresh:
+        log_event("bilibili_follow", entry)
+    _persist_bilibili(following=fetched)
+    return fresh

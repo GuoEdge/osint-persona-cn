@@ -24,6 +24,10 @@ class SearchRequest(BaseModel):
     comment_mine_top: int | None = None
     include_slurs: bool | None = None
     mine_comments: bool = True
+    tree_id: str | None = None
+    parent_node_id: str | None = None
+    fork_from_run_id: str | None = None
+    create_tree: bool = False
 
 
 class SearchExpandRequest(BaseModel):
@@ -52,6 +56,40 @@ class FeedbackRequest(BaseModel):
 class AskRequest(BaseModel):
     question: str
     run_id: str | None = None
+    tree_id: str | None = None
+    parent_node_id: str | None = None
+
+
+class ResearchTreeCreate(BaseModel):
+    title: str
+    query: str = ""
+
+
+class ResearchNodeCreate(BaseModel):
+    parent_id: str | None = None
+    kind: str = "note"
+    title: str = ""
+    payload: str = ""
+    run_id: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchNodePatch(BaseModel):
+    title: str | None = None
+    payload: str | None = None
+    meta: dict[str, Any] | None = None
+
+
+class ResearchSuggestRequest(BaseModel):
+    tree_id: str | None = None
+    run_id: str | None = None
+    node_id: str | None = None
+
+
+class ResearchInsightRequest(BaseModel):
+    tree_id: str
+    run_id: str
+    parent_node_id: str | None = None
 
 
 class PersonaRollbackRequest(BaseModel):

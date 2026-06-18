@@ -16,7 +16,11 @@
 <div id="ops-runbook" class="card muted">加载中…</div>
 
 <h2>连接状态</h2>
-<div id="auth-status" class="card">加载中…</div>
+<p class="muted">搜罗与行为拉取依赖下方登录态；失败时请按说明修复后点「刷新」。</p>
+<div class="page-actions mb-1">
+  <button type="button" class="btn btn-sm btn-secondary" id="btn-refresh-auth">刷新状态</button>
+</div>
+<div id="auth-status" class="card table-scroll">加载中…</div>
 
 <h2>同步 Cookie</h2>
 <div class="card">

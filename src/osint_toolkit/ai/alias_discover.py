@@ -11,6 +11,7 @@ from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.json_util import parse_json_object
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
+from osint_toolkit.ai.alias_filter import is_valid_search_term
 from osint_toolkit.ai.entity_store import classify_slurs, merge_discovered_aliases
 from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.v2ex import V2exCollector
@@ -122,7 +123,7 @@ def heuristic_aliases(query: str, items: list[IntelItem]) -> list[str]:
             if q in seg and seg != q and len(seg) <= len(q) + 6:
                 candidates.append(seg.replace(q, "").strip() or seg)
 
-    filtered = [c for c in candidates if not _is_noise(c, q)]
+    filtered = [c for c in candidates if not _is_noise(c, q) and is_valid_search_term(c, query=q)]
     return _dedupe(filtered)
 
 

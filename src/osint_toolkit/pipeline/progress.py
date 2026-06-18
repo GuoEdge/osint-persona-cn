@@ -1,12 +1,18 @@
-"""搜罗/后台任务进度（内存态，供 Web SSE / 轮询）。"""
+"""搜罗/后台任务进度（内存态 + 磁盘快照，供 Web SSE / 轮询）。"""
 
 from __future__ import annotations
 
+import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 
+from osint_toolkit.auth.paths import get_data_dir
+
 _store: dict[str, dict[str, Any]] = {}
 _cancelled: set[str] = set()
+_last_disk_flush: dict[str, float] = {}
+_DISK_FLUSH_SEC = 1.0
 
 
 class JobCancelled(Exception):
@@ -31,15 +37,20 @@ def init_progress(run_id: str, *, step_total: int = 0, phases: list[str] | None 
         "phases": phases or [],
         "percent": 0,
     }
+    _flush_progress_disk(run_id, force=True)
 
 
 def clear_progress(run_id: str) -> None:
     _store.pop(run_id, None)
     _cancelled.discard(run_id)
+    _last_disk_flush.pop(run_id, None)
 
 
 def get_progress(run_id: str) -> dict[str, Any] | None:
-    return _store.get(run_id)
+    mem = _store.get(run_id)
+    if mem:
+        return mem
+    return _read_progress_disk(run_id)
 
 
 def request_cancel(run_id: str) -> None:
@@ -53,6 +64,33 @@ def is_cancelled(run_id: str) -> bool:
 def check_cancelled(run_id: str | None) -> None:
     if run_id and run_id in _cancelled:
         raise JobCancelled("任务已取消")
+
+
+def _read_progress_disk(run_id: str) -> dict[str, Any] | None:
+    path = get_data_dir() / "runs" / run_id / "progress.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _flush_progress_disk(run_id: str, state: dict[str, Any] | None = None, *, force: bool = False) -> None:
+    now = time.monotonic()
+    last = _last_disk_flush.get(run_id, 0.0)
+    if not force and now - last < _DISK_FLUSH_SEC:
+        return
+    payload = state if state is not None else _store.get(run_id)
+    if not payload:
+        return
+    run_path = get_data_dir() / "runs" / run_id
+    run_path.mkdir(parents=True, exist_ok=True)
+    (run_path / "progress.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    _last_disk_flush[run_id] = now
 
 
 def update_progress(
@@ -76,6 +114,7 @@ def update_progress(
             "partial_items": [],
         },
     )
+    prev_phase = state.get("phase")
     state["phase"] = phase
     if detail:
         state["detail"] = detail
@@ -106,3 +145,6 @@ def update_progress(
         done = int(state.get("collect_done") or 0)
         if total > 0:
             state["percent"] = min(100, int(round(done / total * 100)))
+    force = extra.pop("force_disk", False)
+    phase_changed = prev_phase != phase
+    _flush_progress_disk(run_id, state, force=force or phase_changed or mark_completed is not None)

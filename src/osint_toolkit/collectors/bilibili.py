@@ -70,14 +70,25 @@ class BilibiliCollector(BaseCollector):
         await self._hydrate_video_descriptions(out)
         return out
 
-    @staticmethod
-    def _needs_subtitle_fallback(content: str) -> bool:
+    _WEAK_DESC_MAX_LEN = 120
+
+    @classmethod
+    def _is_weak_video_desc(cls, content: str) -> bool:
+        """搜索 API / UP 主简介常只有一句；仍应尝试 view 详情与字幕。"""
         text = (content or "").strip()
+        if not text:
+            return True
         if text.startswith("标签:"):
             return True
         if len(text) <= 2 or text in {"-", "—", ".", "无", "暂无简介", "暂无"}:
             return True
-        return not text
+        if len(text) <= cls._WEAK_DESC_MAX_LEN and "\n\n" not in text:
+            return True
+        return False
+
+    @classmethod
+    def _needs_subtitle_fallback(cls, content: str) -> bool:
+        return cls._is_weak_video_desc(content)
 
     async def _apply_subtitle_from_url(self, item: IntelItem) -> None:
         from osint_toolkit.ingest import bilibili_sdk
@@ -112,10 +123,13 @@ class BilibiliCollector(BaseCollector):
             if item.type != "video":
                 return
             item.content = bilibili_sdk._normalize_video_desc(item.content or "")
-            if not (item.content or "").strip():
+            current = (item.content or "").strip()
+            if self._is_weak_video_desc(current):
                 meta = await bilibili_sdk.fetch_video_meta(item.url, client=self.client)
                 desc = str(meta.get("desc") or "").strip()
-                if desc:
+                if desc and len(desc) > len(current):
+                    item.content = desc[:12000]
+                elif desc and not current:
                     item.content = desc[:12000]
                 if meta.get("author") and not item.author:
                     item.author = str(meta["author"])

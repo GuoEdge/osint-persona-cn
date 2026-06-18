@@ -47,6 +47,11 @@ from osint_toolkit.web.schemas import (
     SearchRequest,
     ImportCookiesRequest,
     SyncCookiesRequest,
+    ResearchTreeCreate,
+    ResearchNodeCreate,
+    ResearchNodePatch,
+    ResearchSuggestRequest,
+    ResearchInsightRequest,
 )
 from osint_toolkit.utils.config import load_sync_config
 from osint_toolkit.web.tasks import (
@@ -54,10 +59,26 @@ from osint_toolkit.web.tasks import (
     get_job,
     get_job_result,
     job_public_view,
+    list_active_jobs,
+    list_active_searches,
     start_browser_sync_job,
     start_full_sync_job,
     start_playwright_install_job,
     start_search_job,
+)
+from osint_toolkit.services.search_fork import build_fork_search_params
+from osint_toolkit.services.run_session import read_manifest, read_progress_disk
+from osint_toolkit.services import research_ai
+from osint_toolkit.research.tree import (
+    add_node,
+    attach_search_node,
+    create_tree,
+    find_search_node_id_for_run,
+    list_trees,
+    load_tree,
+    patch_node,
+    tree_to_markmap,
+    update_search_node_status,
 )
 
 router = APIRouter(prefix="/api")
@@ -88,25 +109,85 @@ async def api_search_expand(body: SearchExpandRequest) -> dict[str, Any]:
 
 @router.post("/search")
 async def api_search(body: SearchRequest) -> dict[str, Any]:
-    comment_mine_top = body.comment_mine_top
-    if comment_mine_top is None:
-        comment_mine_top = 12 if body.mine_comments else 0
-    run_id = start_search_job(
-        query=body.query,
-        sources=body.sources,
-        limit=body.limit,
-        digest=body.digest,
-        trace=body.trace,
-        profile=body.profile,
-        ai_instruct=body.ai_instruct,
-        no_ai=body.no_ai,
-        no_simulate=body.no_simulate,
-        disabled_ai_steps=body.disabled_ai_steps,
-        deep_top=body.deep_top,
-        comment_mine_top=comment_mine_top,
-        include_slurs=body.include_slurs,
-    )
-    return {"run_id": run_id, "status": "running"}
+    if not body.mine_comments:
+        comment_mine_top = 0
+    elif body.comment_mine_top is None or body.comment_mine_top <= 0:
+        comment_mine_top = 12
+    else:
+        comment_mine_top = body.comment_mine_top
+
+    tree_id = body.tree_id
+    parent_node_id = body.parent_node_id
+    if body.create_tree and not tree_id:
+        created = create_tree(body.query, query=body.query)
+        tree_id = created["id"]
+        parent_node_id = created["nodes"][0]["id"]
+
+    search_kwargs: dict[str, Any] = {
+        "query": body.query,
+        "sources": body.sources,
+        "limit": body.limit,
+        "digest": body.digest,
+        "trace": body.trace,
+        "profile": body.profile,
+        "ai_instruct": body.ai_instruct,
+        "no_ai": body.no_ai,
+        "no_simulate": body.no_simulate,
+        "disabled_ai_steps": body.disabled_ai_steps,
+        "deep_top": body.deep_top,
+        "comment_mine_top": comment_mine_top,
+        "include_slurs": body.include_slurs,
+        "tree_id": tree_id,
+        "parent_node_id": parent_node_id,
+    }
+    if body.fork_from_run_id:
+        search_kwargs = build_fork_search_params(
+            body.fork_from_run_id,
+            {**search_kwargs, "query": body.query or search_kwargs.get("query", "")},
+        )
+
+    tree_id = search_kwargs.get("tree_id") or tree_id
+    parent_node_id = search_kwargs.get("parent_node_id") or parent_node_id
+    if body.fork_from_run_id and tree_id:
+        fork_parent = find_search_node_id_for_run(tree_id, body.fork_from_run_id)
+        if fork_parent:
+            parent_node_id = fork_parent
+    if tree_id:
+        search_kwargs["tree_id"] = tree_id
+        search_kwargs["parent_node_id"] = parent_node_id
+
+    run_id = start_search_job(**search_kwargs)
+    if tree_id:
+        attach_search_node(
+            tree_id,
+            parent_node_id=parent_node_id,
+            run_id=run_id,
+            query=str(search_kwargs.get("query") or body.query),
+            meta={"fork_from_run_id": body.fork_from_run_id},
+        )
+    return {"run_id": run_id, "status": "running", "tree_id": tree_id}
+
+
+@router.get("/search/active")
+async def api_search_active() -> dict[str, Any]:
+    return {"searches": list_active_searches()}
+
+
+@router.get("/jobs/active")
+async def api_jobs_active() -> dict[str, Any]:
+    return {"jobs": list_active_jobs()}
+
+
+@router.get("/search/{run_id}/progress")
+async def api_search_progress(run_id: str) -> dict[str, Any]:
+    from osint_toolkit.pipeline.progress import get_progress
+
+    progress = get_progress(run_id)
+    if not progress:
+        progress = read_progress_disk(run_id)
+    if not progress:
+        raise HTTPException(404, detail="progress not found")
+    return {"run_id": run_id, "progress": progress}
 
 
 @router.get("/search/{run_id}")
@@ -126,10 +207,32 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
         return {"run_id": run_id, "status": "done", **_serialize_search_result(job["result"])}
     disk = get_job_result(run_id)
     if disk:
+        manifest = disk.get("manifest") or {}
+        status = manifest.get("status") or "done"
         payload = _serialize_search_result(disk)
-        if disk.get("manifest"):
-            payload["manifest"] = disk["manifest"]
+        payload["manifest"] = manifest
+        if status in ("interrupted", "cancelled", "error"):
+            return {
+                "run_id": run_id,
+                "status": status,
+                "error": manifest.get("error"),
+                **payload,
+            }
         return {"run_id": run_id, "status": "done", **payload}
+    manifest_only = read_manifest(run_id)
+    if manifest_only:
+        status = manifest_only.get("status") or "unknown"
+        if status == "running":
+            payload = {"run_id": run_id, "status": "running"}
+            progress = read_progress_disk(run_id)
+            if progress:
+                payload["progress"] = progress
+            return payload
+        return {
+            "run_id": run_id,
+            "status": status,
+            "error": manifest_only.get("error"),
+        }
     raise HTTPException(404, detail="run not found")
 
 
@@ -230,6 +333,21 @@ async def api_ask(body: AskRequest) -> dict[str, Any]:
     result = ask_question(body.question, run_id=body.run_id)
     if result.get("ok") is False:
         return result
+    if body.tree_id and result.get("answer"):
+        parent = body.parent_node_id
+        if not parent and body.run_id:
+            for node in (load_tree(body.tree_id).get("nodes") or []):
+                if node.get("run_id") == body.run_id:
+                    parent = node.get("id")
+                    break
+        add_node(
+            body.tree_id,
+            parent_id=parent,
+            kind="ask",
+            title=body.question[:80],
+            payload=f"Q: {body.question}\n\nA: {result.get('answer', '')}",
+            meta={"run_id": body.run_id},
+        )
     return result
 
 
@@ -621,6 +739,87 @@ async def api_import_cookies(body: ImportCookiesRequest) -> dict[str, Any]:
 @router.get("/auth/paths")
 async def api_auth_paths() -> dict[str, Any]:
     return auth.get_paths()
+
+
+@router.post("/research/trees")
+async def api_research_create(body: ResearchTreeCreate) -> dict[str, Any]:
+    tree = create_tree(body.title, query=body.query)
+    return {"tree": tree}
+
+
+@router.get("/research/trees")
+async def api_research_list(limit: int = 30) -> dict[str, Any]:
+    return {"trees": list_trees(limit=limit)}
+
+
+@router.get("/research/trees/{tree_id}")
+async def api_research_get(tree_id: str) -> dict[str, Any]:
+    try:
+        return {"tree": load_tree(tree_id)}
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+
+
+@router.get("/research/trees/{tree_id}/markmap")
+async def api_research_markmap(tree_id: str) -> dict[str, Any]:
+    try:
+        tree = load_tree(tree_id)
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+    return {"markdown": tree_to_markmap(tree)}
+
+
+@router.post("/research/trees/{tree_id}/nodes")
+async def api_research_add_node(tree_id: str, body: ResearchNodeCreate) -> dict[str, Any]:
+    try:
+        node = add_node(
+            tree_id,
+            parent_id=body.parent_id,
+            kind=body.kind,
+            title=body.title or body.kind,
+            run_id=body.run_id,
+            payload=body.payload,
+            meta=body.meta,
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    return {"node": node}
+
+
+@router.patch("/research/trees/{tree_id}/nodes/{node_id}")
+async def api_research_patch_node(tree_id: str, node_id: str, body: ResearchNodePatch) -> dict[str, Any]:
+    try:
+        node = patch_node(
+            tree_id,
+            node_id,
+            title=body.title,
+            payload=body.payload,
+            meta=body.meta,
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    return {"node": node}
+
+
+@router.post("/research/suggest-queries")
+async def api_research_suggest(body: ResearchSuggestRequest) -> dict[str, Any]:
+    return research_ai.suggest_queries(run_id=body.run_id, tree_id=body.tree_id)
+
+
+@router.post("/research/insight")
+async def api_research_insight(body: ResearchInsightRequest) -> dict[str, Any]:
+    result = research_ai.generate_insight(
+        tree_id=body.tree_id,
+        run_id=body.run_id,
+        parent_node_id=body.parent_node_id,
+    )
+    if not result.get("ok"):
+        raise HTTPException(500, detail=result.get("error") or "insight failed")
+    return result
 
 
 @router.get("/auth/domains")
