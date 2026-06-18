@@ -35,46 +35,51 @@ def _url_in_knowledge(conn, url: str) -> bool:
     return row is not None
 
 
-async def _save_to_knowledge(urls: list[str], *, conn=None) -> tuple[list[str], list[str]]:
+def _log_ext_auto_save(url: str) -> None:
+    conn = connect()
+    try:
+        conn.execute(
+            "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
+            (
+                "ext_auto_save",
+                json.dumps(
+                    {"source": "extension", "url": url, "event_kind": "auto_save", "via": "extension"},
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _save_to_knowledge(urls: list[str]) -> tuple[list[str], list[str]]:
     from osint_toolkit.services.save import save_url
 
     saved: list[str] = []
     errors: list[str] = []
-    own_conn = conn is None
-    if own_conn:
+    dwell_no_ai = bool(load_config().get("ai", {}).get("dwell_save_no_ai", True))
+    for url in urls:
+        if not url.startswith("http"):
+            continue
         conn = connect()
-    try:
-        for url in urls:
-            if not url.startswith("http"):
-                continue
+        try:
             if _url_in_knowledge(conn, url):
                 continue
             dedup_key = knowledge_auto_dedup_key(url)
             if not _try_mark_dedup(conn, dedup_key, "knowledge_auto"):
                 continue
-            try:
-                dwell_no_ai = bool(load_config().get("ai", {}).get("dwell_save_no_ai", True))
-                await save_url(url, no_ai=dwell_no_ai)
-                saved.append(url)
-                conn.execute(
-                    "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
-                    (
-                        "ext_auto_save",
-                        json.dumps(
-                            {"source": "extension", "url": url, "event_kind": "auto_save", "via": "extension"},
-                            ensure_ascii=False,
-                        ),
-                    ),
-                )
-            except Exception as exc:  # noqa: BLE001
-                msg = f"{url}: {exc}"
-                logger.warning("extension auto-save failed: %s", msg)
-                errors.append(msg)
-        if own_conn:
             conn.commit()
-    finally:
-        if own_conn:
+        finally:
             conn.close()
+        try:
+            await save_url(url, no_ai=dwell_no_ai)
+            saved.append(url)
+            _log_ext_auto_save(url)
+        except Exception as exc:  # noqa: BLE001
+            msg = f"{url}: {exc}"
+            logger.warning("extension auto-save failed: %s", msg)
+            errors.append(msg)
     return saved, errors
 
 
@@ -129,10 +134,18 @@ async def ingest_extension_batch(payloads: list[dict[str, Any]]) -> dict[str, An
         "last_by_type": by_type,
         "last_saved_knowledge": len(saved_knowledge),
     }
-    from osint_toolkit.persona.auto_rebuild import maybe_auto_rebuild_persona
+    rebuild_info: dict[str, Any] = {"action": "none"}
+    try:
+        from osint_toolkit.persona.auto_rebuild import maybe_auto_rebuild_persona
 
-    rebuild_info = await maybe_auto_rebuild_persona()
-    stale = refresh_persona_stale_flag()
+        rebuild_info = await maybe_auto_rebuild_persona()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("extension persona rebuild skipped: %s", exc)
+    try:
+        stale = refresh_persona_stale_flag()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("extension persona stale refresh skipped: %s", exc)
+        stale = False
     status["persona_stale"] = stale
     _write_status(status)
     return {
