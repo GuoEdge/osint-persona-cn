@@ -1166,6 +1166,18 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
 .pipeline-step.active { color: var(--accent); }
 .pipeline-arrow { color: var(--muted); font-size: 0.8rem; }
 
+.health-list { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+.health-list li { margin: 0.25rem 0; }
+.health-missing {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--bg-subtle);
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+  margin-right: 0.25rem;
+}
+
 .sidebar-chip {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;

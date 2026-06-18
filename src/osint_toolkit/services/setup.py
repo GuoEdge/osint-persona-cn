@@ -136,20 +136,20 @@ def get_setup_status() -> dict[str, Any]:
             "href": "/ingest#extension",
         },
         {
-            "id": "search",
-            "label": "试一次搜罗",
-            "done": _has_search_run(),
-            "required": False,
-            "detail": "验证多源采集与 AI 报告",
-            "href": "/",
-        },
-        {
             "id": "persona",
             "label": "构建心智画像",
             "done": persona_ready,
             "required": True,
             "detail": f"画像 v{persona_version}，brief {'已生成' if brief else '未生成'}",
             "href": "/persona",
+        },
+        {
+            "id": "search",
+            "label": "试一次搜罗",
+            "done": _has_search_run(),
+            "required": False,
+            "detail": "验证多源采集与 AI 报告",
+            "href": "/",
         },
     ]
     ready = all(s["done"] for s in steps if s.get("required", True))
@@ -166,7 +166,7 @@ def get_setup_status() -> dict[str, Any]:
         "auth": {"deepseek": deepseek_ok, "bilibili": bilibili_ok, "zhihu": zhihu_ok},
         "playwright_installed": playwright_ok,
         "dependencies": deps,
-        "tagline": "日常上网 → 一键同步 → 搜罗情报 → 构建画像",
+        "tagline": "日常上网 → 一键同步 → 构建画像 → 搜罗情报",
     }
 
 

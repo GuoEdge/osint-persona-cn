@@ -1439,6 +1439,8 @@ function initWorkspace(profiles, sources) {
     void resumeSearchRun(workspaceSession.activeRunId);
   } else if (q) {
     runSearch();
+  } else {
+    void recoverActiveSearches();
   }
 }
 
@@ -1941,7 +1943,7 @@ async function loadSuggestedQueries() {
     const data = await api("GET", "/api/persona/suggested-queries");
     const queries = data.queries || [];
     if (!queries.length) {
-      el.innerHTML = "";
+      el.innerHTML = `<span class="muted">完成 <a href="/ingest">行为同步</a> 并 <a href="/persona">构建画像</a> 后，这里会显示推荐搜罗话题。</span>`;
       return;
     }
     el.innerHTML = `<span class="toolbar-label">推荐搜罗</span>${queries
@@ -1951,10 +1953,11 @@ async function loadSuggestedQueries() {
       btn.addEventListener("click", () => {
         const input = document.getElementById("search-query");
         if (input) input.value = btn.dataset.suggestQuery;
+        void runSearch();
       });
     });
   } catch (_) {
-    el.innerHTML = "";
+    el.innerHTML = `<span class="muted">推荐话题暂不可用 · <a href="/persona">先构建画像</a></span>`;
   }
 }
 
@@ -2343,6 +2346,82 @@ async function rollbackPersona(version) {
 }
 
 /* 导入 */
+function formatPersonaRebuildHint(rebuild) {
+  if (!rebuild || rebuild.action === "none") {
+    return '<a href="/persona">去构建画像</a>';
+  }
+  if (rebuild.action === "rebuilt") {
+    const v = rebuild.version != null ? ` v${rebuild.version}` : "";
+    return `画像已自动重建${v} · <a href="/persona">查看画像</a> · <a href="/">开始搜罗</a>`;
+  }
+  if (rebuild.action === "failed") {
+    return `<span class="muted">画像自动重建失败</span> · <a href="/persona">手动构建</a>`;
+  }
+  return '<a href="/persona">建议更新画像</a>';
+}
+
+function extractPersonaRebuild(steps) {
+  const acct = (steps || []).find((s) => s.step === "accounts-sync");
+  return acct?.persona_rebuild || null;
+}
+
+function buildFullSyncResultHtml(job) {
+  const count = job.count || 0;
+  const steps = job.steps || [];
+  const preflight = steps.find((s) => s.step === "preflight");
+  if (!job.ok && count === 0 && preflight && preflight.ok === false) {
+    const hints = (preflight.data?.hints || job.warnings || [])
+      .map(escapeHtml)
+      .join("<br>");
+    return {
+      className: "alert alert-error mt-1",
+      html: `<strong>同步未开始</strong>：Cookie 或登录态未就绪。<br>${hints}<br><a href="/settings">去设置页同步 Cookie</a>`,
+    };
+  }
+  const rebuild = extractPersonaRebuild(steps);
+  if (count === 0) {
+    return {
+      className: "alert alert-warn mt-1",
+      html: `同步完成但未导入新数据。请检查 Cookie / 隐私设置，或尝试 <a href="#extension">浏览器补洞</a> · ${formatPersonaRebuildHint(rebuild)}`,
+    };
+  }
+  let html = `完整同步完成：共 ${count} 条 · ${formatPersonaRebuildHint(rebuild)}`;
+  if (job.warnings?.length) {
+    html += `<br><span class="muted">${job.warnings.map(escapeHtml).join("；")}</span>`;
+  }
+  const hint = job.extension_flush_hint;
+  if (hint?.message) {
+    html += `<br><div class="alert alert-warn mt-1" style="margin-top:0.5rem">${escapeHtml(hint.message)}</div>`;
+  }
+  return { className: "alert alert-success mt-1", html };
+}
+
+async function recoverActiveSearches() {
+  if (new URLSearchParams(window.location.search).get("run")) return;
+  if (workspaceSession.activeRunId) return;
+  try {
+    const data = await api("GET", "/api/search/active");
+    const searches = data.searches || [];
+    if (searches.length === 1) {
+      void resumeSearchRun(searches[0].job_id);
+      return;
+    }
+    if (searches.length > 1) {
+      const links = searches
+        .map((s) => {
+          const label = (s.query || s.job_id || "").slice(0, 24);
+          return `<a href="/?run=${encodeURIComponent(s.job_id)}">${escapeHtml(label)}</a>`;
+        })
+        .join(" · ");
+      showWorkspaceAlert(
+        "active-search-banner",
+        `检测到 ${searches.length} 个进行中的搜罗：${links}`,
+        "warn",
+      );
+    }
+  } catch (_) {}
+}
+
 async function loadIngestPreflight() {
   const el = document.getElementById("ingest-preflight-content");
   const btn = document.getElementById("btn-ingest-full-sync");
@@ -2368,11 +2447,11 @@ async function loadIngestPreflight() {
     if (!pre.ready) {
       hints = `<div class="alert alert-warn mt-1">${(pre.hints || ["请先在设置或扩展弹窗同步 Cookie"]).map(escapeHtml).join("<br>")}<br><a href="/settings">去设置页同步 Cookie</a> · <a href="/ingest#extension">查看扩展安装</a></div>`;
       if (btn) {
-        btn.disabled = false;
-        btn.title = "Cookie 未完全就绪，同步可能部分失败";
+        btn.disabled = true;
+        btn.title = "Cookie 未就绪，请先同步后再完整同步";
       }
     } else {
-      hints = `<div class="alert alert-success mt-1">可以开始完整同步（约 2–5 分钟）。</div>`;
+      hints = `<div class="alert alert-success mt-1">可以开始完整同步（约 2–5 分钟）。${!biliOk || !zhOk ? "<br><span class=\"muted\">提示：单平台就绪即可同步，未登录的平台将跳过。</span>" : ""}</div>`;
       if (btn) {
         btn.disabled = false;
         btn.title = "";
@@ -2389,6 +2468,7 @@ async function loadIngestPreflight() {
 function initIngest() {
   checkAuthBanner();
   loadSetupWizard();
+  loadPersonaStaleBanner();
   void loadIngestPreflight();
   loadIngestHealth();
   document.getElementById("btn-ingest-browser")?.addEventListener("click", async () => {
@@ -2454,8 +2534,10 @@ function initIngest() {
     try {
       const pre = await api("GET", "/api/ingest/preflight");
       if (!pre.ready) {
-        el.className = "alert alert-warn mt-1";
-        el.innerHTML = `${(pre.hints || ["Cookie 未就绪，仍可尝试但可能失败"]).map(escapeHtml).join("<br>")}<br><a href="/settings">去设置页</a>`;
+        progressUi?.stop();
+        el.className = "alert alert-error mt-1";
+        el.innerHTML = `${(pre.hints || ["Cookie 未就绪，请先同步"]).map(escapeHtml).join("<br>")}<br><a href="/settings">去设置页同步 Cookie</a>`;
+        return;
       }
       const start = await api("POST", "/api/ingest/full-sync");
       const jobId = start.job_id;
@@ -2479,19 +2561,11 @@ function initIngest() {
           return;
         }
         if (job.status === "done") {
-          const ok = job.ok || (job.count || 0) > 0;
-          el.className = ok ? "alert alert-success mt-1" : "alert alert-warn mt-1";
-          let msg = `完整同步完成：共 ${job.count || 0} 条`;
-          if (ok) msg += ' <a href="/persona">去构建画像</a>';
-          if (job.warnings?.length) {
-            msg += `<br><span class="muted">${job.warnings.map(escapeHtml).join("；")}</span>`;
-          }
-          const hint = job.extension_flush_hint;
-          if (hint?.message) {
-            msg += `<br><span class="muted">${escapeHtml(hint.message)}</span>`;
-          }
-          el.innerHTML = msg;
+          const rendered = buildFullSyncResultHtml(job);
+          el.className = rendered.className;
+          el.innerHTML = rendered.html;
           loadIngestHealth();
+          loadPersonaStaleBanner();
           void loadIngestPreflight();
           loadSetupWizard();
           initGlobalSidebar();
@@ -2551,10 +2625,10 @@ function initIngest() {
       const b = data.bilibili || {};
       const z = data.zhihu || {};
       const ok = (data.count || 0) > 0;
-      el.className = ok ? "alert alert-success mt-1" : "alert alert-error mt-1";
+      el.className = ok ? "alert alert-success mt-1" : "alert alert-warn mt-1";
       let msg = `共 ${data.count || 0} 条：B站 ${b.count || 0}（观看 ${b.watch_count || 0} / 收藏 ${b.favorite_count || 0} / 点赞 ${b.like_count || 0} / 关注 ${b.following_count || 0}），知乎 ${z.count || 0}（收藏 ${z.favorite_count || 0} / 动态 ${z.activity_count || 0} / 赞同 ${z.vote_count || 0} / 浏览 ${z.browse_count || 0}）`;
       if (data.python) msg += ` · Python ${escapeHtml(data.python)}`;
-      if (ok) msg += ' <a href="/persona">去构建画像</a>';
+      msg += ` · ${formatPersonaRebuildHint(data.persona_rebuild)}`;
       if (data.warnings?.length) {
         msg += `<br><span class="muted">${data.warnings.map(escapeHtml).join("；")}</span>`;
       }
@@ -2568,6 +2642,7 @@ function initIngest() {
       el.innerHTML = msg;
       progressUi?.stop();
       loadIngestHealth();
+      loadPersonaStaleBanner();
       void loadIngestPreflight();
     } catch (err) {
       progressUi?.stop();
@@ -2617,11 +2692,12 @@ function initIngest() {
           if (job.pages_visited?.length) {
             msg += ` · 访问 ${job.pages_visited.length} 页`;
           }
-          if (ok) msg += ' <a href="/persona">去构建画像</a>';
+          if (ok) msg += ` · ${formatPersonaRebuildHint(null)}`;
           if (job.warnings?.length) {
             msg += `<br><span class="muted">${job.warnings.map(escapeHtml).join("；")}</span>`;
           }
           el.innerHTML = msg;
+          loadIngestHealth();
           return;
         }
         throw new Error(job.detail || "同步失败");
@@ -2682,18 +2758,29 @@ async function loadIngestHealth() {
       .map((p) => {
         const platformLabel =
           { bilibili: "B站", zhihu: "知乎", browser: "浏览器", extension: "扩展" }[p.platform] || p.platform;
-        const behaviors = (p.behaviors || [])
+        const withData = (p.behaviors || [])
           .filter((b) => b.count > 0)
           .map((b) => `${escapeHtml(b.behavior)} ${b.count}`)
           .join("，");
-        return `<div class="preflight-row"><strong>${escapeHtml(platformLabel)}</strong><span>${p.total} 条${behaviors ? ` — ${behaviors}` : ""}</span></div>`;
+        const missing = (p.behaviors || [])
+          .filter((b) => b.count === 0)
+          .slice(0, 4)
+          .map((b) => `<span class="health-missing">${escapeHtml(b.behavior)} 0</span>`)
+          .join(" ");
+        const detail = [withData, missing].filter(Boolean).join(" · ");
+        return `<div class="preflight-row"><strong>${escapeHtml(platformLabel)}</strong><span>${p.total} 条${detail ? ` — ${detail}` : ""}</span></div>`;
       })
       .join("");
+    const partialHint =
+      (data.partial_capabilities || 0) > 0
+        ? `<div class="alert alert-warn mt-1">${data.partial_capabilities} 项能力需扩展或浏览器补洞配合 · <a href="#extension">查看扩展</a> · <a href="#ingest-capabilities">能力表</a></div>`
+        : "";
     const statusClass = data.ok ? "alert-success" : "alert-warn";
     el.innerHTML = `
       <div class="alert ${statusClass}">${data.ok ? "数据就绪，可构建画像" : "尚有阻塞项"} · 行为事件共 ${events} 条 · ${auth}</div>
       ${blockers ? `<ul class="health-list">${blockers}</ul>` : ""}
       ${warnings ? `<ul class="health-list muted">${warnings}</ul>` : ""}
+      ${partialHint}
       <div class="mt-1">${coverage || "<span class='muted'>暂无平台数据，请先完整同步</span>"}</div>
       <div class="muted mt-1">浏览器补洞：${data.playwright_installed ? "已安装" : '<a href="/settings#deps">未安装（去设置）</a>'} · 需扩展配合的能力 ${data.partial_capabilities || 0} 项</div>`;
   } catch (err) {
@@ -2708,6 +2795,7 @@ async function loadIngestCapabilities() {
   try {
     const data = await api("GET", "/api/ingest/capabilities");
     const platformLabels = { bilibili: "B站", zhihu: "知乎", browser: "浏览器", extension: "扩展", weixin: "微信" };
+    const partialCount = (data.items || []).filter((i) => i.status === "partial").length;
     const rows = (data.items || [])
       .map((i) => {
         const st = i.status || "";
@@ -2720,9 +2808,13 @@ async function loadIngestCapabilities() {
         </tr>`;
       })
       .join("");
-    scroll.innerHTML = `<table class="data-table"><thead><tr><th>平台</th><th>行为</th><th>状态</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
-  } catch (_) {
-    scroll.innerHTML = "<p class='muted'>无法加载能力说明</p>";
+    const summary =
+      partialCount > 0
+        ? `<p class="alert alert-warn mt-1">${partialCount} 项需扩展/浏览器补洞 · <a href="#extension">安装扩展</a></p>`
+        : "";
+    scroll.innerHTML = `${summary}<table class="data-table"><thead><tr><th>平台</th><th>行为</th><th>状态</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (err) {
+    scroll.innerHTML = `<p class="alert alert-error">无法加载能力说明：${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -2732,8 +2824,9 @@ async function runIngest(type, body, resultId) {
   try {
     const url = type === "browser" ? "/api/ingest/browser" : `/api/ingest/${type}`;
     const data = await api("POST", url, body);
-    el.className = "alert alert-success";
-    let detail = `共 ${data.count} 条`;
+    const ok = (data.count || 0) > 0 && data.ok !== false;
+    el.className = ok ? "alert alert-success" : "alert alert-warn";
+    let detail = `共 ${data.count || 0} 条`;
     if (data.watch_count != null) {
       detail += `（观看 ${data.watch_count}，收藏 ${data.favorite_count || 0}，点赞 ${data.like_count || 0}，关注 ${data.following_count || 0}）`;
     } else if (data.favorite_count != null || data.vote_count != null) {
@@ -2756,11 +2849,15 @@ async function runIngest(type, body, resultId) {
       el.textContent = errMap[data.error] || data.error;
       return;
     }
-    let msg = `${detail}。<a href="/persona">去构建画像</a>`;
+    let msg = `${detail} · ${formatPersonaRebuildHint(data.persona_rebuild)}`;
     if (data.warnings?.length) {
       msg += `<br><span class="muted">警告: ${data.warnings.map(escapeHtml).join("；")}</span>`;
     }
+    if (!ok && !data.warnings?.length) {
+      msg += `<br><span class="muted">未导入数据：请检查 Cookie 或尝试浏览器补洞。</span>`;
+    }
     el.innerHTML = msg;
+    loadIngestHealth();
     return;
   } catch (err) {
     el.className = "alert alert-error";
@@ -2773,8 +2870,20 @@ async function loadLikes() {
   if (!el) return;
   try {
     const data = await api("GET", "/api/ingest/likes");
-    el.textContent = `认可记录: ${data.count} 条`;
-  } catch (_) {}
+    const rows = data.rows || [];
+    if (!rows.length && !(data.count > 0)) {
+      el.innerHTML = "<p class='muted'>暂无认可记录。知乎赞同/收藏同步后会写入此处，并参与画像权重。</p>";
+      return;
+    }
+    const list = rows.slice(0, 20).map((r) => {
+      const title = escapeHtml((r.content || r.url || "").slice(0, 80));
+      const url = escapeHtml(r.url || "");
+      return `<li><span class="muted">[${escapeHtml(r.platform || "")}]</span> ${title} ${url ? `<a href="${url}" target="_blank">链接</a>` : ""}</li>`;
+    }).join("");
+    el.innerHTML = `<p>认可记录: <strong>${data.count || rows.length}</strong> 条</p>${list ? `<ul class="likes-list">${list}</ul>` : ""}`;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">无法加载认可记录：${escapeHtml(err.message)}</div>`;
+  }
 }
 
 /* 运行记录 */

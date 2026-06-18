@@ -14,11 +14,22 @@
   </div>
 </div>
 
+<nav class="pipeline-steps card" aria-label="推荐流程">
+  <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
+  <span class="pipeline-arrow">→</span>
+  <a href="/ingest" class="pipeline-step">2. 完整同步</a>
+  <span class="pipeline-arrow">→</span>
+  <a href="/persona" class="pipeline-step">3. 构建画像</a>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step active">4. 搜罗</span>
+</nav>
+
 <div id="setup-wizard" class="setup-wizard card hidden"></div>
 
 <div id="auth-banner" class="alert alert-warn hidden"></div>
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
 <div id="fork-banner" class="alert alert-info hidden"></div>
+<div id="active-search-banner" class="alert alert-warn hidden"></div>
 
 <form id="search-form" class="search-hero">
   <div class="query-row">
