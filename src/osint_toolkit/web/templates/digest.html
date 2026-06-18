@@ -8,18 +8,28 @@
   </div>
 </div>
 
+<nav class="pipeline-steps card" aria-label="数据流">
+  <a href="/ingest" class="pipeline-step">行为同步</a>
+  <span class="pipeline-arrow">→</span>
+  <a href="/knowledge" class="pipeline-step">知识库</a>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step active">简报</span>
+  <span class="pipeline-arrow">→</span>
+  <a href="/runs" class="pipeline-step">搜罗报告</a>
+</nav>
+
 <div class="card">
   <label class="toggle-row"><input type="checkbox" id="opt-digest-ai"> AI 叙事模式（基于今日行为与收录）</label>
   <label class="toggle-row"><input type="checkbox" id="opt-digest-hotlist" checked> 附加知乎热榜（需配置开放平台密钥）</label>
   <button id="btn-daily" class="btn">生成今日简报</button>
-  <div id="daily-content" class="markdown-body mt-1"></div>
+  <div id="daily-content" class="markdown-body mt-1 muted">点击「生成今日简报」汇总知识库与行为数据；也可在 <a href="/knowledge">知识库</a> 检索已收录条目。</div>
 </div>
 
 <h2>每日简报存档</h2>
 <div id="digest-history" class="muted mb-1">加载中…</div>
 
 <h2>搜罗情报报告 <a href="/runs" class="btn btn-sm btn-ghost">查看全部 →</a></h2>
-<div id="report-list"></div>
+<div id="report-list" class="muted">加载中…</div>
 {% endblock %}
 {% block scripts %}
 <script>initDigest();</script>

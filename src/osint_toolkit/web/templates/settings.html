@@ -8,6 +8,12 @@
   </div>
 </div>
 
+<div id="setup-wizard" class="setup-wizard card hidden"></div>
+
+<div class="card onboarding-callout mb-1">
+  <strong>首次使用顺序</strong>：填写 <a href="#api-keys">API 密钥</a> → <a href="#deps">环境检查</a> → 下方 <strong>连接状态 / Cookie</strong> → <a href="/ingest">完整同步</a> → <a href="/persona">构建画像</a> → <a href="/">搜罗</a>
+</div>
+
 <h2 id="api-keys">API 密钥</h2>
 <div id="api-keys-panel" class="card">加载中…</div>
 <p class="muted mb-1">密钥保存在本机 <code>~/.osint/config.yaml</code>，不会上传到 GitHub。也可改用系统环境变量（优先级更高）。</p>
@@ -60,8 +66,7 @@
     <ul>
       <li><code>persona_inject: true</code> — 搜罗/追问/简报注入画像</li>
       <li><code>dwell_save_no_ai: true</code> — 高停留自动收录跳过 AI（省 API）</li>
-      <li><code>auto_persona_rebuild: prompt</code> — off / prompt（横幅提示）/ auto（静默重建）</li>
-      <li><code>auto_persona_rebuild: auto</code> — 达阈值后自动重建，仅提示「已自动重建」（<code>prompt</code>=手动提醒，<code>off</code>=关闭）</li>
+      <li><code>auto_persona_rebuild: prompt</code> — 达阈值后横幅提醒（<code>auto</code> 静默重建，<code>off</code> 关闭）</li>
       <li><code>auto_persona_rebuild_threshold: 50</code> — 自上次构建后新增行为条数达阈值触发</li>
     </ul>
     <p>在 <code>search</code> 段可配置：</p>

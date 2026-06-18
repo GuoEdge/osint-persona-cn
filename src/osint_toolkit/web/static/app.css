@@ -1108,6 +1108,14 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
 
 /* Setup wizard */
 .setup-wizard { border: 1px solid var(--accent-soft); background: linear-gradient(135deg, #f0fdfa 0%, #fff 100%); }
+
+.onboarding-callout {
+  padding: 0.85rem 1rem;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-subtle);
+}
 .setup-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
 .setup-steps { margin: 0.75rem 0 0 1.25rem; padding: 0; }
 .setup-steps li { margin-bottom: 0.5rem; }
@@ -1205,6 +1213,7 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
 }
 
 .sidebar-chip.warn { color: var(--warn); }
+.sidebar-chip.ok { color: var(--success); }
 .sidebar-footnote { font-size: 0.7rem; color: var(--muted); }
 
 .mobile-status-bar {
