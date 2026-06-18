@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}搜罗 — 个人情报工具{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.17.2"></script>
+{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -15,6 +18,7 @@
 
 <div id="auth-banner" class="alert alert-warn hidden"></div>
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
+<div id="fork-banner" class="alert alert-info hidden"></div>
 
 <form id="search-form" class="search-hero">
   <div class="query-row">
@@ -55,6 +59,9 @@
   </div>
 
   <div class="toggle-row">
+    <label><input type="checkbox" id="opt-create-research-tree" checked> 纳入研究树（可分叉、导图）</label>
+  </div>
+  <div class="toggle-row">
     <label><input type="checkbox" id="opt-digest"> 生成情报报告</label>
     <label><input type="checkbox" id="opt-trace"> 记录运行轨迹</label>
     <label><input type="checkbox" id="opt-mine-comments" checked> 挖掘 B 站热评</label>
@@ -85,7 +92,13 @@
   <div id="steps-bar" class="steps-bar"></div>
 </div>
 
-<div class="results-layout">
+<div class="workspace-panel-tabs" role="tablist" aria-label="搜罗内容分区">
+  <button type="button" class="workspace-panel-tab active" role="tab" aria-selected="true" data-panel="results">结果</button>
+  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="report">报告</button>
+  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="research">研究</button>
+</div>
+
+<div class="results-layout panel-results">
   <section class="results-panel">
     <div class="section-title">
       <h2>搜索结果</h2>
@@ -111,6 +124,29 @@
         </div>
       </form>
     </div>
+  </section>
+  <section class="research-panel-wrap">
+    <div class="section-title">
+      <h2>研究树</h2>
+      <div class="research-view-toggle">
+        <button type="button" class="btn btn-sm btn-ghost active" data-research-view="outline">大纲</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-research-view="markmap">导图</button>
+      </div>
+    </div>
+    <div id="research-panel" class="card card-flat">
+      <p class="muted">搜罗将自动纳入研究树；可在此跟踪多轮探索、笔记与分叉。</p>
+    </div>
+    <div id="research-node-detail" class="research-node-detail hidden"></div>
+    <div id="research-note-form" class="research-note-form hidden">
+      <textarea id="research-note-input" rows="3" placeholder="记录关注点、假设或待验证方向…"></textarea>
+      <div class="research-note-form-actions">
+        <button type="button" class="btn btn-sm" id="btn-research-note-save">保存笔记</button>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-research-note-cancel">取消</button>
+      </div>
+    </div>
+    <div id="research-feedback" class="alert hidden"></div>
+    <div id="research-actions" class="research-actions mt-1"></div>
+    <div id="research-markmap" class="research-markmap hidden"></div>
   </section>
 </div>
 {% endblock %}

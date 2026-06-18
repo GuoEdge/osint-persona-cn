@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from osint_toolkit.ai.alias_filter import is_valid_search_term
 from osint_toolkit.ai.query_analyze import analyze_query
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.context import PersonaContext
@@ -110,7 +111,9 @@ def _entity_aliases_for_query(query: str, *, include_slurs: bool) -> list[str]:
             if any(_name_matches_query(n, q) for n in names if n):
                 found.extend(names)
     ql = q.lower()
-    return _dedupe_preserve_order([a for a in found if a.lower() != ql])
+    return _dedupe_preserve_order(
+        [a for a in found if a.lower() != ql and is_valid_search_term(a, query=q)]
+    )
 
 
 def _rule_expand(query: str, *, existing_aliases: list[str] | None = None) -> list[str]:
@@ -171,7 +174,9 @@ def expand_query(
     if include_slurs is None:
         include_slurs = bool(cfg.get("include_slurs", True))
 
-    network_aliases = _dedupe_preserve_order(discovered_aliases or [])
+    network_aliases = _dedupe_preserve_order(
+        [a for a in (discovered_aliases or []) if is_valid_search_term(a, query=query)]
+    )
     entity_aliases = _entity_aliases_for_query(query, include_slurs=include_slurs)
     rule_aliases = _rule_expand(query, existing_aliases=network_aliases + entity_aliases)
 
@@ -195,8 +200,8 @@ def expand_query(
         + network_aliases
         + entity_aliases
         + rule_aliases
-        + [str(q) for q in ai_queries if str(q).strip() != query]
-        + [str(a) for a in ai_aliases]
+        + [str(q) for q in ai_queries if str(q).strip() != query and is_valid_search_term(str(q), query=query)]
+        + [str(a) for a in ai_aliases if is_valid_search_term(str(a), query=query)]
     )
     max_q = int(cfg.get("max_expanded_queries", 8))
     queries_used = merged[:max_q]

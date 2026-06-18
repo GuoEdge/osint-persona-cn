@@ -46,16 +46,30 @@ class PipelineRunner:
         self._write_manifest()
 
     def _write_manifest(self) -> None:
+        manifest_path = self.run_dir / "manifest.json"
+        existing: dict[str, Any] = {}
+        if manifest_path.exists():
+            try:
+                existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                existing = {}
         manifest = {
             "run_id": self.ctx.run_id,
             "command": self.ctx.command,
             "query": self.ctx.query,
             "profile": self.ctx.profile,
             "sources": self.ctx.sources,
-            "started_at": self.ctx.started_at,
-            "steps": [],
+            "started_at": existing.get("started_at") or self.ctx.started_at,
+            "status": existing.get("status") or "running",
+            "steps": existing.get("steps") or [],
         }
-        (self.run_dir / "manifest.json").write_text(
+        if existing.get("request"):
+            manifest["request"] = existing["request"]
+        if existing.get("finished_at"):
+            manifest["finished_at"] = existing["finished_at"]
+        if existing.get("error"):
+            manifest["error"] = existing["error"]
+        manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 

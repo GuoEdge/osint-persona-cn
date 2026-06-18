@@ -328,7 +328,42 @@ async def test_fetch_video_meta_ignores_placeholder_desc():
 def test_needs_subtitle_fallback_for_weak_desc():
     assert BilibiliCollector._needs_subtitle_fallback("-") is True
     assert BilibiliCollector._needs_subtitle_fallback("标签: Qwen") is True
-    assert BilibiliCollector._needs_subtitle_fallback("完整简介") is False
+    assert BilibiliCollector._needs_subtitle_fallback("完整简介") is True
+    long_desc = "x" * 200 + "\n\n第二段说明"
+    assert BilibiliCollector._needs_subtitle_fallback(long_desc) is False
+
+
+@pytest.mark.asyncio
+async def test_hydrate_video_descriptions_upgrades_short_desc(monkeypatch):
+    from osint_toolkit.models.intel_item import IntelItem
+
+    col = BilibiliCollector()
+    short = "这一集简单测评了三个混合专家模型，仅供参考！"
+    item = IntelItem(
+        source="bilibili",
+        type="video",
+        url="https://www.bilibili.com/video/BVshort",
+        title="混合专家小模型",
+        content=short,
+    )
+
+    async def fake_meta(url, *, client=None):
+        assert "BVshort" in url
+        return {"desc": short, "author": "测评UP"}
+
+    subtitle_called: list[str] = []
+
+    async def fake_subtitle(self, target):
+        subtitle_called.append(target.url)
+        target.layers["subtitle"] = {"text": "口播字幕正文", "kind": "ai", "source": "view_api"}
+        target.content = f"{short}\n\n[字幕:ai]\n口播字幕正文"
+
+    monkeypatch.setattr(bilibili_sdk, "fetch_video_meta", fake_meta)
+    monkeypatch.setattr(BilibiliCollector, "_apply_subtitle_from_url", fake_subtitle)
+    await col._hydrate_video_descriptions([item])
+    assert item.author == "测评UP"
+    assert subtitle_called == [item.url]
+    assert "口播字幕正文" in item.content
 
 
 @pytest.mark.asyncio

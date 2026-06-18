@@ -21,10 +21,17 @@ from osint_toolkit.pipeline.progress import (
     request_cancel,
     update_progress,
 )
+from osint_toolkit.services.run_session import set_run_status
+from osint_toolkit.services.search_params import strip_session_keys
+from osint_toolkit.research.tree import update_search_node_status
 
 _MAX_JOBS = 50
 _jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _async_tasks: dict[str, asyncio.Task[Any]] = {}
+
+
+def _search_run_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    return strip_session_keys(kwargs)
 
 
 def new_run_id() -> str:
@@ -115,7 +122,16 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
 
 def start_search_job(**kwargs: Any) -> str:
     run_id = new_run_id()
-    _jobs[run_id] = {"status": "running", "kind": "search", "result": None, "error": None}
+    request_snapshot = {k: v for k, v in kwargs.items() if v is not None}
+    set_run_status(run_id, "running", request=request_snapshot)
+    _jobs[run_id] = {
+        "status": "running",
+        "kind": "search",
+        "result": None,
+        "error": None,
+        "query": kwargs.get("query", ""),
+        "started_at": datetime.now(UTC).isoformat(),
+    }
     init_progress(run_id)
     _trim_jobs()
     task = asyncio.create_task(_execute_search(run_id, **kwargs))
@@ -126,23 +142,39 @@ def start_search_job(**kwargs: Any) -> str:
 async def _execute_search(run_id: str, **kwargs: Any) -> None:
     from osint_toolkit.services import search as search_service
 
+    final_status = "error"
+    error_msg: str | None = None
     try:
-        result = await search_service.run_search(**kwargs, run_id=run_id)
+        result = await search_service.run_search(**_search_run_kwargs(kwargs), run_id=run_id)
         if is_cancelled(run_id):
-            _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": "已取消"}
+            final_status = "cancelled"
+            error_msg = "已取消"
+            _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": error_msg}
         else:
+            final_status = "done"
             _jobs[run_id] = {"status": "done", "kind": "search", "result": result, "error": None}
         _jobs.move_to_end(run_id)
         _trim_jobs()
     except (JobCancelled, asyncio.CancelledError):
-        _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": "已取消"}
+        final_status = "cancelled"
+        error_msg = "已取消"
+        _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": error_msg}
         _jobs.move_to_end(run_id)
         _trim_jobs()
     except Exception as exc:  # noqa: BLE001
-        _jobs[run_id] = {"status": "error", "kind": "search", "result": None, "error": str(exc)}
+        final_status = "error"
+        error_msg = str(exc)
+        _jobs[run_id] = {"status": "error", "kind": "search", "result": None, "error": error_msg}
         _jobs.move_to_end(run_id)
         _trim_jobs()
     finally:
+        from osint_toolkit.services.run_session import read_request
+
+        req = read_request(run_id) or {}
+        tree_id = req.get("tree_id")
+        if tree_id:
+            update_search_node_status(tree_id, run_id, status=final_status)
+        set_run_status(run_id, final_status, error=error_msg)
         clear_progress(run_id)
         _async_tasks.pop(run_id, None)
 
@@ -337,3 +369,30 @@ async def _execute_playwright_install(job_id: str) -> None:
 
 def job_public_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     return _job_payload(job_id, job)
+
+
+def list_active_jobs() -> list[dict[str, Any]]:
+    active: list[dict[str, Any]] = []
+    for job_id, job in list(_jobs.items()):
+        if job.get("status") != "running":
+            continue
+        entry = {
+            "job_id": job_id,
+            "kind": job.get("kind"),
+            "status": "running",
+            "query": job.get("query", ""),
+            "started_at": job.get("started_at"),
+        }
+        progress = get_progress(job_id)
+        if progress:
+            entry["progress"] = {
+                "phase": progress.get("phase"),
+                "detail": progress.get("detail"),
+                "percent": progress.get("percent"),
+            }
+        active.append(entry)
+    return active
+
+
+def list_active_searches() -> list[dict[str, Any]]:
+    return [j for j in list_active_jobs() if j.get("kind") == "search"]

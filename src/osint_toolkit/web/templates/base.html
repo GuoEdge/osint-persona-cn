@@ -27,11 +27,13 @@
       </nav>
       <div class="sidebar-footer">
         <div id="sidebar-extension-chip" class="sidebar-chip">扩展检测中…</div>
+        <div id="sidebar-active-jobs" class="sidebar-chip hidden"></div>
         <div id="sidebar-setup-chip" class="sidebar-chip hidden"></div>
         <div class="sidebar-footnote">数据仅存于本机 ~/.osint</div>
       </div>
     </aside>
     <main class="main">
+      <div id="mobile-status-bar" class="mobile-status-bar hidden" aria-live="polite"></div>
       <div class="content">
         {% block content %}{% endblock %}
       </div>

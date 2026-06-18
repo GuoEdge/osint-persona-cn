@@ -14,8 +14,13 @@ def list_runs(limit: int = 20) -> list[dict]:
     manifests = sorted(runs_dir.glob("*/manifest.json"), reverse=True)[:limit]
     results = []
     for m in manifests:
-        data = json.loads(m.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(m.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
         data["path"] = str(m.parent)
+        if not data.get("status"):
+            data["status"] = "done" if data.get("finished_at") else "unknown"
         results.append(data)
     return results
 

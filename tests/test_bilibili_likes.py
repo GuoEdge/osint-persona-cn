@@ -31,6 +31,12 @@ async def test_ingest_likes_sdk_first(monkeypatch):
         fake_sdk_likes,
     )
     monkeypatch.setattr(bilibili_account, "log_event", lambda et, entry: logged.append((et, entry)))
+    monkeypatch.setattr(bilibili_account, "_bilibili_section", lambda: {})
+    monkeypatch.setattr(bilibili_account, "_persist_bilibili", lambda **_k: None)
+    monkeypatch.setattr(
+        "osint_toolkit.ingest.account_sync_state.filter_new_by_bvids",
+        lambda entries, _seen: entries,
+    )
 
     rows = await bilibili_account.ingest_likes(limit=5)
     assert rows == sdk_rows

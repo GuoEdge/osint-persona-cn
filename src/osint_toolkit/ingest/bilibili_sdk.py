@@ -321,6 +321,8 @@ async def ingest_history(limit: int = 500) -> list[dict]:
                     "progress": hist.get("progress", 0),
                     "duration": hist.get("duration", 0),
                     "event_kind": "watch_history",
+                    "view_at": int(hist.get("view_at") or item.get("view_at") or 0),
+                    "bvid": str(hist.get("bvid", "") or item.get("bvid", "")).strip(),
                 }
             )
             if len(results) >= limit:
