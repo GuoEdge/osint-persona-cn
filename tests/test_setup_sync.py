@@ -32,7 +32,7 @@ def test_setup_status_has_sync_step(tmp_path, monkeypatch):
 
     status = get_setup_status()
     ids = [s["id"] for s in status["steps"]]
-    assert ids == ["deepseek", "playwright", "cookies", "sync", "extension", "search", "persona"]
+    assert ids == ["deepseek", "zhihu_openapi", "playwright", "cookies", "sync", "extension", "search", "persona"]
     sync_step = next(s for s in status["steps"] if s["id"] == "sync")
     assert sync_step["done"] is False
 

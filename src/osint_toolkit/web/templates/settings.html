@@ -4,9 +4,13 @@
 <div class="page-header">
   <div>
     <h1>设置</h1>
-    <p class="page-desc">新设备请先完成下方「环境检查」，再同步 Cookie 与搜罗测试。</p>
+    <p class="page-desc">初配置时先在下方填写 API 密钥，再完成环境检查、Cookie 同步与搜罗测试。</p>
   </div>
 </div>
+
+<h2 id="api-keys">API 密钥</h2>
+<div id="api-keys-panel" class="card">加载中…</div>
+<p class="muted mb-1">密钥保存在本机 <code>~/.osint/config.yaml</code>，不会上传到 GitHub。也可改用系统环境变量（优先级更高）。</p>
 
 <h2 id="deps">新设备环境检查</h2>
 <div id="deps-checklist" class="card">加载中…</div>
@@ -47,7 +51,7 @@
 <details class="mt-1">
   <summary>AI 配置说明</summary>
   <div class="card mt-1 muted">
-    <p>DeepSeek Key 推荐设用户环境变量 <code>DEEPSEEK_API_KEY</code>（设置页环境检查有命令示例）。</p>
+    <p>DeepSeek Key 可在上方「API 密钥」填写，或设用户环境变量 <code>DEEPSEEK_API_KEY</code>。</p>
     <p>在 <code>~/.osint/config.yaml</code> 的 <code>ai</code> 段可配置：</p>
     <ul>
       <li><code>persona_inject: true</code> — 搜罗/追问/简报注入画像</li>

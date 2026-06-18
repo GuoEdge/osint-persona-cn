@@ -51,7 +51,9 @@ def _openapi_cfg() -> dict[str, Any]:
 
 
 def access_secret() -> str:
-    return str(_openapi_cfg().get("access_secret") or "").strip()
+    from osint_toolkit.utils.secrets import resolve_secret_optional
+
+    return resolve_secret_optional("zhihu_openapi")
 
 
 def openapi_configured() -> bool:

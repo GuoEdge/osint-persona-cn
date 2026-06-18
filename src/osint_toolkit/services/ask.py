@@ -58,6 +58,6 @@ def ask_question(question: str, *, run_id: str | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
         if "api" in msg.lower() and "key" in msg.lower():
-            msg = "未配置 DeepSeek API Key，请在设置中配置或设置 DEEPSEEK_API_KEY"
+            msg = "未配置 DeepSeek API Key，请在设置页「API 密钥」填写或设置 DEEPSEEK_API_KEY"
         return {"ok": False, "question": question, "answer": "", "error": msg, "run_id": run_id}
     return {"ok": True, "question": question, "answer": answer, "run_id": run_id}

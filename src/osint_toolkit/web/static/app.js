@@ -1899,6 +1899,7 @@ async function resetPrompt() {
 
 /* 设置 */
 function initSettings() {
+  loadApiKeysPanel();
   loadDependenciesChecklist();
   loadOperationsRunbook();
   loadAuthStatus();
@@ -1911,6 +1912,88 @@ function initSettings() {
     const text = pre.textContent.replace(/&amp;/g, "&");
     navigator.clipboard.writeText(text).then(() => alert("已复制 Edge CDP 启动命令"));
   });
+}
+
+async function loadApiKeysPanel() {
+  const el = document.getElementById("api-keys-panel");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/config/secrets");
+    const rows = (data.items || []).map((item) => {
+      const status = item.configured
+        ? `<span class="status-ok">已配置</span> · 来源 ${escapeHtml(item.source)}${item.last4 ? ` · …${escapeHtml(item.last4)}` : ""}`
+        : `<span class="status-fail">未配置</span>`;
+      return `<div class="api-key-row" data-secret-id="${escapeHtml(item.id)}">
+        <div class="api-key-head">
+          <strong>${escapeHtml(item.label)}</strong>
+          <span class="muted">${status}</span>
+        </div>
+        <p class="muted api-key-desc">${escapeHtml(item.description || "")}</p>
+        <div class="api-key-form">
+          <input type="password" class="api-key-input" autocomplete="off" placeholder="粘贴 ${escapeHtml(item.env_var)}（留空不修改）" data-env="${escapeHtml(item.env_var)}">
+          <button type="button" class="btn btn-sm btn-save-secret">保存</button>
+          <button type="button" class="btn btn-sm btn-test-secret">测试连接</button>
+        </div>
+        <div class="api-key-result muted"></div>
+      </div>`;
+    }).join("");
+    el.innerHTML = rows || "<p class=\"muted\">暂无需要配置的 API 密钥。</p>";
+    el.querySelectorAll(".btn-save-secret").forEach((btn) => {
+      btn.addEventListener("click", () => saveApiSecret(btn.closest(".api-key-row")));
+    });
+    el.querySelectorAll(".btn-test-secret").forEach((btn) => {
+      btn.addEventListener("click", () => testApiSecret(btn.closest(".api-key-row")));
+    });
+  } catch (err) {
+    el.textContent = err.message;
+  }
+}
+
+async function saveApiSecret(row) {
+  if (!row) return;
+  const id = row.dataset.secretId;
+  const input = row.querySelector(".api-key-input");
+  const resultEl = row.querySelector(".api-key-result");
+  const value = (input?.value || "").trim();
+  if (!value) {
+    resultEl.innerHTML = `<span class="status-fail">请输入密钥后再保存</span>`;
+    return;
+  }
+  resultEl.textContent = "保存中…";
+  try {
+    const data = await api("POST", `/api/config/secrets/${encodeURIComponent(id)}`, { value });
+    input.value = "";
+    const probe = data.probe || {};
+    const probeText = probe.detail ? ` · 探针：${probe.detail}` : "";
+    resultEl.innerHTML = `<span class="${probe.ok !== false ? "status-ok" : "status-fail"}">已保存到本机配置${escapeHtml(probeText)}</span>`;
+    loadApiKeysPanel();
+    loadDependenciesChecklist();
+    loadAuthStatus();
+  } catch (err) {
+    resultEl.innerHTML = `<span class="status-fail">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+async function testApiSecret(row) {
+  if (!row) return;
+  const id = row.dataset.secretId;
+  const resultEl = row.querySelector(".api-key-result");
+  resultEl.textContent = "测试中…";
+  try {
+    const input = row.querySelector(".api-key-input");
+    const pending = (input?.value || "").trim();
+    if (pending) {
+      await api("POST", `/api/config/secrets/${encodeURIComponent(id)}`, { value: pending });
+      input.value = "";
+      loadApiKeysPanel();
+    }
+    const data = await api("POST", `/api/config/secrets/${encodeURIComponent(id)}/test`, {});
+    resultEl.innerHTML = `<span class="${data.ok ? "status-ok" : "status-fail"}">${escapeHtml(data.detail || (data.ok ? "连接正常" : "连接失败"))}</span>`;
+    loadAuthStatus();
+    loadDependenciesChecklist();
+  } catch (err) {
+    resultEl.innerHTML = `<span class="status-fail">${escapeHtml(err.message)}</span>`;
+  }
 }
 
 function renderDepItem(item) {

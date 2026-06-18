@@ -92,8 +92,16 @@ def get_setup_status() -> dict[str, Any]:
             "label": "配置 DeepSeek API",
             "done": deepseek_ok,
             "required": False,
-            "detail": "环境变量 DEEPSEEK_API_KEY；设置页有说明",
-            "href": "/settings#deps",
+            "detail": "设置页「API 密钥」填写 DeepSeek Key",
+            "href": "/settings#api-keys",
+        },
+        {
+            "id": "zhihu_openapi",
+            "label": "配置知乎开放平台",
+            "done": any(i.get("key") == "zhihu_openapi" and i.get("ok") for i in auth_items),
+            "required": False,
+            "detail": "官方站内搜索，免 Cookie；设置页填写 Access Secret",
+            "href": "/settings#api-keys",
         },
         {
             "id": "playwright",

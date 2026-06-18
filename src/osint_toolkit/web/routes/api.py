@@ -25,6 +25,7 @@ from osint_toolkit.services import (
     persona,
     runs,
     save,
+    secrets,
     setup,
     tools,
 )
@@ -46,6 +47,7 @@ from osint_toolkit.web.schemas import (
     SearchExpandRequest,
     SearchRequest,
     ImportCookiesRequest,
+    SecretSaveRequest,
     SyncCookiesRequest,
 )
 from osint_toolkit.utils.config import load_sync_config
@@ -585,6 +587,24 @@ async def api_prompt_reset(name: str) -> dict[str, Any]:
 @router.get("/auth/status")
 async def api_auth_status(target: str = "all") -> dict[str, Any]:
     return {"items": auth.get_auth_status(target)}
+
+
+@router.get("/config/secrets")
+async def api_config_secrets_list() -> dict[str, Any]:
+    return secrets.list_api_secrets()
+
+
+@router.post("/config/secrets/{secret_id}")
+async def api_config_secrets_save(secret_id: str, body: SecretSaveRequest) -> dict[str, Any]:
+    try:
+        return secrets.save_api_secret(secret_id, body.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/config/secrets/{secret_id}/test")
+async def api_config_secrets_test(secret_id: str) -> dict[str, Any]:
+    return secrets.test_api_secret(secret_id)
 
 
 @router.post("/auth/sync-cookies")

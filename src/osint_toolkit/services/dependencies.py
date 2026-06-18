@@ -71,10 +71,7 @@ def get_dependencies_status() -> dict[str, Any]:
             "ok": bool(deepseek.get("ok")),
             "required": False,
             "detail": str(deepseek.get("detail") or ""),
-            "hint": (
-                "PowerShell: [Environment]::SetEnvironmentVariable("
-                "\"DEEPSEEK_API_KEY\", \"sk-你的Key\", \"User\")，然后新开终端并重启情报台"
-            ),
+            "hint": "在设置页「API 密钥」填写，或设置 DEEPSEEK_API_KEY 环境变量",
             "action": None,
         },
         {
@@ -114,10 +111,7 @@ def get_dependencies_status() -> dict[str, Any]:
             "required": False,
             "required_for": ["知乎官方站内搜索", "热榜"],
             "detail": str(zhihu_openapi.get("detail") or ""),
-            "hint": (
-                "PowerShell: [Environment]::SetEnvironmentVariable("
-                "\"ZHIHU_ACCESS_SECRET\", \"你的Key\", \"User\")；详见 developer.zhihu.com"
-            ),
+            "hint": "在设置页「API 密钥」填写 ZHIHU_ACCESS_SECRET，或设环境变量",
             "action": None,
         },
     ]

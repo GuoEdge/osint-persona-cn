@@ -73,7 +73,7 @@ def get_paths() -> dict[str, Any]:
         "cookies_dir": str(get_cookies_dir()),
         "data_dir": str(get_data_dir()),
         "directives_path": str(directives_path()),
-        "api_key_hint": "DEEPSEEK_API_KEY 环境变量或 config ai.api_key",
+        "api_key_hint": "设置页「API 密钥」或 DEEPSEEK_API_KEY / ZHIHU_ACCESS_SECRET 环境变量",
     }
 
 
