@@ -11,6 +11,8 @@
   </div>
 </div>
 
+<div id="setup-wizard" class="setup-wizard card hidden"></div>
+
 <nav class="pipeline-steps card" aria-label="推荐流程">
   <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
   <span class="pipeline-arrow">→</span>
@@ -23,7 +25,7 @@
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
 <div id="persona-notice" class="alert hidden"></div>
 <div id="persona-review-panel" class="card hidden"></div>
-<div id="persona-content" class="mt-1"></div>
+<div id="persona-content" class="mt-1 muted">加载画像中…</div>
 {% endblock %}
 {% block scripts %}
 <script>initPersona();</script>

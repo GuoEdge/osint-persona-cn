@@ -71,19 +71,23 @@
 
   <div class="toggle-row">
     <label><input type="checkbox" id="opt-create-research-tree" checked> 纳入研究树（可分叉、导图）</label>
-  </div>
-  <div class="toggle-row">
     <label><input type="checkbox" id="opt-digest"> 生成情报报告</label>
-    <label><input type="checkbox" id="opt-trace"> 记录运行轨迹</label>
     <label><input type="checkbox" id="opt-mine-comments" checked> 挖掘 B 站热评</label>
-    <label><input type="checkbox" id="opt-include-slurs" checked> 含贬义/黑称关联词</label>
-    <label><input type="checkbox" id="opt-no-ai"> 跳过 AI</label>
-    <label><input type="checkbox" id="opt-no-simulate" checked> 跳过画像模拟</label>
   </div>
-  <div class="inline-field mt-1">
-    <label for="comment-mine-top">热评挖掘条数（B站视频）</label>
-    <input type="number" id="comment-mine-top" value="12" min="0" max="30">
-  </div>
+  <details class="mt-1">
+    <summary>更多选项</summary>
+    <div class="toggle-row mt-1">
+      <label><input type="checkbox" id="opt-trace"> 记录运行轨迹</label>
+      <label><input type="checkbox" id="opt-include-slurs" checked> 含贬义/黑称关联词</label>
+      <label><input type="checkbox" id="opt-no-ai"> 跳过 AI</label>
+      <label><input type="checkbox" id="opt-no-simulate" checked> 跳过画像模拟</label>
+      <span class="muted" style="font-size:0.85rem">（画像模拟需先 <a href="/persona">构建画像</a>）</span>
+    </div>
+    <div class="inline-field mt-1">
+      <label for="comment-mine-top">热评挖掘条数（B站视频）</label>
+      <input type="number" id="comment-mine-top" value="12" min="0" max="30">
+    </div>
+  </details>
 
   <details class="mt-1">
     <summary>高级选项</summary>

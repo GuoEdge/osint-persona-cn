@@ -223,6 +223,28 @@ async function api(method, url, body) {
   return data;
 }
 
+let _shellCache = null;
+let _shellCacheAt = 0;
+const SHELL_CACHE_TTL_MS = 4000;
+
+async function getShellStatus(force = false) {
+  if (!force && _shellCache && Date.now() - _shellCacheAt < SHELL_CACHE_TTL_MS) {
+    return _shellCache;
+  }
+  const [extension, setup, jobs] = await Promise.all([
+    api("GET", "/api/extension/status").catch(() => ({ connected: false })),
+    api("GET", "/api/setup/status").catch(() => null),
+    api("GET", "/api/jobs/active").catch(() => ({ jobs: [] })),
+  ]);
+  _shellCache = { extension, setup, jobs };
+  _shellCacheAt = Date.now();
+  return _shellCache;
+}
+
+function invalidateShellCache() {
+  _shellCache = null;
+}
+
 function showAlert(container, message, type = "warn") {
   const el = document.createElement("div");
   el.className = `alert alert-${type}`;
@@ -289,20 +311,15 @@ async function refreshMobileStatusBar() {
   }
   const parts = [];
   try {
-    const ext = await api("GET", "/api/extension/status");
+    const { extension, setup, jobs } = await getShellStatus();
     parts.push(
-      ext.connected
-        ? (ext.pending_queue > 0
-            ? `扩展待上传 ${ext.pending_queue} 条`
+      extension?.connected
+        ? (extension.pending_queue > 0
+            ? `扩展待上传 ${extension.pending_queue} 条`
             : "扩展已连接")
         : '<a href="/ingest#extension">扩展未连接</a>',
     );
-  } catch (_) {
-    parts.push("Web 未就绪");
-  }
-  try {
-    const jobs = await api("GET", "/api/jobs/active");
-    const running = jobs.jobs || [];
+    const running = jobs?.jobs || [];
     if (running.length) {
       const j = running[0];
       const label =
@@ -313,15 +330,13 @@ async function refreshMobileStatusBar() {
             : "后台任务中";
       parts.push(`<a href="${j.kind === "search" ? `/?run=${encodeURIComponent(j.job_id)}` : "/ingest"}">${escapeHtml(label)}</a>`);
     }
-  } catch (_) {}
-  try {
-    const setup = await api("GET", "/api/setup/status");
-    const steps = setup.steps || [];
-    const done = steps.filter((s) => s.done).length;
-    if (!setup.ready && !setup.dismissed) {
-      parts.push(`<a href="/settings">入门 ${done}/${steps.length}</a>`);
+    if (setup && !setup.ready && !setup.dismissed) {
+      const done = (setup.steps || []).filter((s) => s.done).length;
+      parts.push(`<a href="/settings">入门 ${done}/${(setup.steps || []).length}</a>`);
     }
-  } catch (_) {}
+  } catch (_) {
+    parts.push("Web 未就绪");
+  }
   if (!parts.length) {
     bar.classList.add("hidden");
     return;
@@ -334,7 +349,8 @@ async function initGlobalSidebar() {
   const extChip = document.getElementById("sidebar-extension-chip");
   if (extChip) {
     try {
-      const data = await api("GET", "/api/extension/status");
+      const { extension } = await getShellStatus();
+      const data = extension || { connected: false };
       if (data.connected) {
         const pending = data.pending_queue || 0;
         extChip.textContent = pending > 0 ? `扩展 ● 待上传 ${pending}` : "扩展 ● 已连接";
@@ -351,19 +367,21 @@ async function initGlobalSidebar() {
   const setupChip = document.getElementById("sidebar-setup-chip");
   if (setupChip) {
     try {
-      const data = await api("GET", "/api/setup/status");
-      if (data.ready || data.dismissed) {
+      const { setup } = await getShellStatus();
+      const data = setup;
+      if (!data || data.ready || data.dismissed) {
         setupChip.classList.add("hidden");
       } else {
         const done = (data.steps || []).filter((s) => s.done).length;
         const total = (data.steps || []).length;
         setupChip.classList.remove("hidden");
-        setupChip.innerHTML = `入门 <a href="/ingest">${done}/${total}</a>`;
+        setupChip.innerHTML = `入门 <a href="/settings">${done}/${total}</a>`;
       }
     } catch (_) {}
   }
   pollActiveJobs();
   setInterval(() => {
+    invalidateShellCache();
     pollActiveJobs();
     void refreshMobileStatusBar();
   }, 5000);
@@ -547,8 +565,8 @@ async function pollActiveJobs() {
   const chip = document.getElementById("sidebar-active-jobs");
   if (!chip) return;
   try {
-    const data = await api("GET", "/api/jobs/active");
-    const jobs = data.jobs || [];
+    const { jobs: data } = await getShellStatus();
+    const jobs = data?.jobs || [];
     if (!jobs.length) {
       chip.classList.add("hidden");
       chip.innerHTML = "";
@@ -1084,9 +1102,9 @@ async function loadPersonaStaleBanner() {
         try {
           await api("POST", "/api/persona/build?review=true");
           el.classList.add("hidden");
-          alert("画像已重建");
+          showToast("画像已重建", "success");
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, "error");
         }
       });
       return;
@@ -1429,7 +1447,8 @@ async function loadSetupWizard() {
       .map(
         (s) => {
           const badge = s.required === false ? ' <span class="muted">(可选)</span>' : "";
-          return `<li class="${s.done ? "done" : "pending"}"><a href="${s.href}">${escapeHtml(s.label)}</a>${badge}<span class="muted">${escapeHtml(s.detail)}</span></li>`;
+          const label = s.required === false ? escapeHtml(s.label) : `<strong>${escapeHtml(s.label)}</strong>`;
+          return `<li class="${s.done ? "done" : "pending"}"><a href="${s.href}">${label}</a>${badge}<span class="muted">${escapeHtml(s.detail)}</span></li>`;
         }
       )
       .join("");
@@ -1446,7 +1465,7 @@ async function loadSetupWizard() {
     document.getElementById("setup-dismiss")?.addEventListener("click", async () => {
       await api("POST", "/api/setup/dismiss", {});
       el.classList.add("hidden");
-    });
+    }, { once: true });
   } catch (_) {}
 }
 
@@ -1462,11 +1481,9 @@ function initWorkspace(profiles, sources) {
 
   checkAuthBanner();
   loadSetupWizard();
-  loadPersonaStaleBanner();
-  loadSuggestedQueries();
-  applyWorkspaceDefaults();
-  initResearchViewToggle();
+  void initWorkspaceContext();
   initResearchNoteForm();
+  initResearchViewToggle();
   initResearchTreeToolbar();
   initWorkspacePanelTabs();
   void syncResearchTreeSelect();
@@ -1503,7 +1520,7 @@ async function refreshExpandedQueries() {
   const chips = document.getElementById("expanded-queries");
   const countEl = document.getElementById("expanded-queries-count");
   const query = document.getElementById("search-query")?.value.trim();
-  if (!wrap || !chips || !query) {
+  if (!wrap || !chips || !query || query.length < 2) {
     wrap?.classList.add("hidden");
     return;
   }
@@ -1569,6 +1586,10 @@ async function applyWorkspaceDefaults() {
   document.getElementById("opt-no-simulate")?.addEventListener("change", (e) => {
     e.target.dataset.userTouched = "1";
   });
+}
+
+async function initWorkspaceContext() {
+  await Promise.all([loadPersonaStaleBanner(), applyWorkspaceDefaults()]);
 }
 
 async function runSearch() {
@@ -2078,7 +2099,7 @@ function initAskPanel(runId) {
       input.value = "";
       void refreshResearchTree(workspaceSession.parentNodeId);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "error");
     }
   };
 }
@@ -2156,23 +2177,35 @@ function switchKnowledgeTab(name) {
 
 async function searchKnowledge() {
   const el = document.getElementById("knowledge-results");
-  const q = document.getElementById("knowledge-query").value.trim();
+  const q = document.getElementById("knowledge-query")?.value.trim() || "";
+  if (!q) {
+    el.innerHTML = "<p class='muted'>请输入关键词后再检索</p>";
+    return;
+  }
+  if (q.length < 2) {
+    el.innerHTML = "<p class='muted'>关键词至少 2 个字符</p>";
+    return;
+  }
   const source = document.getElementById("knowledge-source").value;
   const mode = document.querySelector("input[name='knowledge-mode']:checked")?.value || "keyword";
   let url = mode === "semantic"
     ? `/api/knowledge/recall?q=${encodeURIComponent(q)}&limit=50`
     : `/api/knowledge/items?q=${encodeURIComponent(q)}&limit=50`;
   if (source && mode === "keyword") url += `&source=${encodeURIComponent(source)}`;
+  el.innerHTML = "<p class='muted'>检索中…</p>";
   try {
     const data = await api("GET", url);
-    el.innerHTML = data.items.map((i) =>
-      `<div class="card item-card">
+    const items = data.items || [];
+    el.innerHTML = items.length
+      ? items.map((i) =>
+        `<div class="card item-card">
         <div class="meta">[${escapeHtml(i.source)}]</div>
         <div class="title">${escapeHtml(i.title)}</div>
         <p class="summary">${escapeHtml(i.summary || i.content?.slice(0, 200) || "")}</p>
         <a class="btn btn-sm" href="${escapeHtml(i.url)}" target="_blank">原文</a>
       </div>`
-    ).join("") || "<p class='muted'>未找到匹配条目</p>";
+      ).join("")
+      : "<p class='muted'>未找到匹配条目</p>";
   } catch (err) {
     el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
   }
@@ -2220,13 +2253,20 @@ async function loadReportList() {
   if (!el) return;
   try {
     const data = await api("GET", "/api/digest/reports");
+    const reports = data.reports || [];
+    if (!reports.length) {
+      el.innerHTML = "<p class='muted'>暂无历史报告。在搜罗页勾选「生成情报报告」后会出现。</p>";
+      return;
+    }
     el.innerHTML = `<table class="table"><thead><tr><th>Run ID</th><th>话题</th><th>操作</th></tr></thead><tbody>${
-      data.reports.map((r) =>
+      reports.map((r) =>
         `<tr><td>${escapeHtml(r.run_id)}</td><td>${escapeHtml(r.query || "")}</td>
         <td><a href="/runs/${r.run_id}">详情</a></td></tr>`
       ).join("")
-    }</tbody></table>` || "<p class='muted'>暂无历史报告</p>";
-  } catch (_) {}
+    }</tbody></table>`;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
 }
 
 /* 行为时间线 */
@@ -2327,6 +2367,7 @@ function renderPersonaModel(model) {
 
 /* 画像 */
 function initPersona() {
+  loadSetupWizard();
   loadPersona();
   loadPersonaStaleBanner();
   document.getElementById("btn-build-persona")?.addEventListener("click", async () => {
@@ -2372,14 +2413,29 @@ async function loadPersona() {
   if (!el) return;
   try {
     const data = await api("GET", "/api/persona");
-    const versions = (data.versions || []).map((v) => {
+    const versions = data.versions || [];
+    const hasModel = data.mental_model && typeof data.mental_model === "object" && data.mental_model.version != null;
+    if (!hasModel && !versions.length) {
+      el.innerHTML = `<div class="empty-state">
+        <p>尚未构建心智画像。</p>
+        <p class="muted">建议顺序：<a href="/ingest">完整同步</a> 行为数据 → 点击下方「构建画像」→ 回到 <a href="/">搜罗</a> 开启画像模拟。</p>
+      </div>`;
+      return;
+    }
+    const versionBtns = versions.map((v) => {
       const ver = v.replace("v", "");
-      return `<button class="btn btn-sm btn-secondary" onclick="rollbackPersona(${ver})">回滚 ${v}</button>`;
+      return `<button type="button" class="btn btn-sm btn-secondary btn-persona-rollback" data-version="${escapeHtml(ver)}">回滚 ${escapeHtml(v)}</button>`;
     }).join(" ");
     el.innerHTML = `
       <div class="card"><h2>心智模型</h2>${renderPersonaModel(data.mental_model)}</div>
       <div class="card"><h2>可读摘要（Brief）</h2><div class="markdown-body" id="persona-brief"></div></div>
-      <div class="mt-1">${versions || "<span class='muted'>暂无历史版本</span>"}</div>`;
+      <div class="mt-1">${versionBtns || "<span class='muted'>暂无历史版本</span>"}</div>`;
+    el.querySelectorAll(".btn-persona-rollback").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ver = parseInt(btn.dataset.version, 10);
+        if (ver) void rollbackPersona(ver);
+      });
+    });
     renderMarkdown(document.getElementById("persona-brief"), data.brief || "（暂无）");
   } catch (err) {
     el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
@@ -2439,7 +2495,7 @@ function buildFullSyncResultHtml(job) {
   if (count === 0) {
     return {
       className: "alert alert-warn mt-1",
-      html: `同步完成但未导入新数据。请检查 Cookie / 隐私设置，或尝试 <a href="#extension">浏览器补洞</a> · ${formatPersonaRebuildHint(rebuild)}`,
+      html: `同步完成但未导入新数据。请检查 Cookie / 隐私设置，或尝试 <a href="/ingest#extension">浏览器补洞</a> · <a href="/settings">Cookie 设置</a> · ${formatPersonaRebuildHint(rebuild)}`,
     };
   }
   let html = `完整同步完成：共 ${count} 条 · ${formatPersonaRebuildHint(rebuild)}`;
@@ -3003,8 +3059,13 @@ async function loadRunsList() {
   if (!el) return;
   try {
     const data = await api("GET", "/api/runs?limit=50");
+    const runs = data.runs || [];
+    if (!runs.length) {
+      el.innerHTML = "<p class='muted'>暂无运行记录。完成一次搜罗或完整同步后会出现。</p>";
+      return;
+    }
     el.innerHTML = `<table class="table"><thead><tr><th>Run ID</th><th>命令</th><th>话题</th><th>状态</th><th>操作</th></tr></thead><tbody>${
-      data.runs.map((r) => {
+      runs.map((r) => {
         const st = r.status || "done";
         const stClass = `run-status-${st}`;
         const track =
@@ -3054,7 +3115,7 @@ async function loadRunDetail(runId) {
       html += `<div class="card"><h2>报告</h2><div class="markdown-body" id="run-report"></div></div>`;
     }
     if (data.artifacts?.length) {
-      html += `<div class="card"><h2>Artifacts</h2><ul>${data.artifacts.map((a) =>
+      html += `<div class="card"><h2>产出文件</h2><ul>${data.artifacts.map((a) =>
         `<li><a href="/api/runs/${runId}/artifacts/${a}" target="_blank">${escapeHtml(a)}</a></li>`
       ).join("")}</ul></div>`;
     }
@@ -3090,29 +3151,39 @@ async function loadDirectives() {
   try {
     const data = await api("GET", "/api/ai/directives");
     el.value = JSON.stringify(data, null, 2);
-    const hc = data.hard_constraints || data.get?.hard_constraints;
-    if (summary && data.hard_constraints) {
-      summary.textContent = `硬约束: ${JSON.stringify(data.hard_constraints)}`;
+    if (summary) {
+      const hc = data.hard_constraints;
+      summary.textContent = hc
+        ? `硬约束: ${JSON.stringify(hc)}`
+        : "硬约束: （未设置）";
     }
-  } catch (err) { el.value = err.message; }
+  } catch (err) {
+    el.value = err.message;
+    if (summary) summary.textContent = "加载失败";
+  }
 }
 
 async function saveDirectives() {
   try {
     const data = JSON.parse(document.getElementById("directives-editor").value);
     await api("PUT", "/api/ai/directives", { data });
-    alert("已保存");
-  } catch (err) { alert(err.message); }
+    showToast("指令已保存", "success");
+  } catch (err) { showToast(err.message, "error"); }
 }
 
 async function loadPromptList() {
   const sel = document.getElementById("prompt-select");
   if (!sel) return;
-  const data = await api("GET", "/api/ai/prompts");
-  sel.innerHTML = data.prompts.map((p) =>
-    `<option value="${p.name}">${p.name} (${p.source})</option>`
-  ).join("");
-  loadPrompt();
+  try {
+    const data = await api("GET", "/api/ai/prompts");
+    sel.innerHTML = (data.prompts || []).map((p) =>
+      `<option value="${p.name}">${p.name} (${p.source})</option>`
+    ).join("");
+    loadPrompt();
+  } catch (err) {
+    sel.innerHTML = `<option value="">加载失败</option>`;
+    showToast(err.message, "error");
+  }
 }
 
 async function loadPrompt() {
@@ -3126,19 +3197,20 @@ async function savePrompt() {
   const name = document.getElementById("prompt-select").value;
   const text = document.getElementById("prompt-editor").value;
   await api("PUT", `/api/ai/prompts/${name}`, { text });
-  alert("已保存");
+  showToast("Prompt 已保存", "success");
   loadPromptList();
 }
 
 async function resetPrompt() {
   const name = document.getElementById("prompt-select").value;
   await api("POST", `/api/ai/prompts/${name}/reset`);
-  alert("已恢复内置");
+  showToast("已恢复内置 Prompt", "success");
   loadPromptList();
 }
 
 /* 设置 */
 function initSettings() {
+  loadSetupWizard();
   loadApiKeysPanel();
   loadDependenciesChecklist();
   loadOperationsRunbook();
@@ -3385,13 +3457,17 @@ async function loadAuthStatus() {
 async function loadPaths() {
   const el = document.getElementById("paths-info");
   if (!el) return;
-  const data = await api("GET", "/api/auth/paths");
-  el.innerHTML = `<ul>
+  try {
+    const data = await api("GET", "/api/auth/paths");
+    el.innerHTML = `<ul>
     <li>${escapeHtml(data.api_key_hint)}</li>
     <li>Cookie: ${escapeHtml(data.cookies_dir)}</li>
     <li>Data: ${escapeHtml(data.data_dir)}</li>
     <li>Directives: ${escapeHtml(data.directives_path)}</li>
   </ul>`;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function syncCookies() {
