@@ -15,6 +15,25 @@ function renderMarkdown(el, text) {
   }
 }
 
+function showToast(message, kind = "info") {
+  let host = document.getElementById("toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "toast-host";
+    host.className = "toast-host";
+    document.body.appendChild(host);
+  }
+  const el = document.createElement("div");
+  el.className = `toast toast-${kind}`;
+  el.textContent = message;
+  host.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 320);
+  }, 3200);
+}
+
 function feedbackLabel(base, active) {
   return active ? `${base} ✓` : base;
 }
@@ -458,6 +477,68 @@ function setResearchTreeId(treeId) {
   else sessionStorage.removeItem("researchTreeId");
 }
 
+async function syncResearchTreeSelect() {
+  const select = document.getElementById("research-tree-select");
+  if (!select) return;
+  try {
+    const data = await api("GET", "/api/research/trees?limit=30");
+    const trees = data.trees || [];
+    const options = [`<option value="">— 选择研究树 —</option>`];
+    trees.forEach((tree) => {
+      const id = tree.id || "";
+      const title = (tree.title || id).slice(0, 48);
+      const selected = id === workspaceSession.treeId ? " selected" : "";
+      options.push(`<option value="${escapeHtml(id)}"${selected}>${escapeHtml(title)}</option>`);
+    });
+    if (workspaceSession.treeId && !trees.some((t) => t.id === workspaceSession.treeId)) {
+      options.push(
+        `<option value="${escapeHtml(workspaceSession.treeId)}" selected>当前研究</option>`
+      );
+    }
+    select.innerHTML = options.join("");
+  } catch (_) {
+    select.innerHTML = `<option value="">研究树列表不可用</option>`;
+  }
+}
+
+async function createNewResearchTree() {
+  const query = document.getElementById("search-query")?.value.trim();
+  const title = query || window.prompt("新研究主题名称", "")?.trim();
+  if (!title) return;
+  try {
+    const data = await api("POST", "/api/research/trees", { title, query: query || title });
+    const treeId = data.tree?.id;
+    if (!treeId) throw new Error("创建研究树失败");
+    setResearchTreeId(treeId);
+    workspaceSession.parentNodeId = null;
+    const chk = document.getElementById("opt-create-research-tree");
+    if (chk) chk.checked = true;
+    await syncResearchTreeSelect();
+    await refreshResearchTree();
+    showToast(`已创建研究树「${title}」`, "success");
+  } catch (err) {
+    showResearchFeedback(err.message);
+  }
+}
+
+function initResearchTreeToolbar() {
+  document.getElementById("btn-research-new")?.addEventListener("click", () => void createNewResearchTree());
+  document.getElementById("btn-research-clear")?.addEventListener("click", () => {
+    setResearchTreeId(null);
+    workspaceSession.parentNodeId = null;
+    void syncResearchTreeSelect();
+    void refreshResearchTree();
+    showToast("已脱离当前研究树", "info");
+  });
+  document.getElementById("research-tree-select")?.addEventListener("change", (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    setResearchTreeId(id);
+    workspaceSession.parentNodeId = null;
+    void refreshResearchTree();
+  });
+}
+
 async function pollActiveJobs() {
   const chip = document.getElementById("sidebar-active-jobs");
   if (!chip) return;
@@ -510,11 +591,9 @@ async function pollUntilSearchDone(runId, resultsEl, stepsEl, reportEl, progress
       }
       if (data.status === "interrupted") {
         finishSearchRun(progressUi, async () => {
-          if (data.items?.length) {
-            await renderSearchResults(data, resultsEl, reportEl, runId);
+          await renderSearchResults(data, resultsEl, reportEl, runId);
+          if (data.items?.length || data.report) {
             prependResultsBanner(resultsEl, "warn", data.error || "任务已中断，以下为已落盘部分结果");
-          } else {
-            resultsEl.innerHTML = `<div class="alert alert-warn">${escapeHtml(data.error || "任务已中断")}</div>`;
           }
           void refreshResearchTree();
         });
@@ -562,13 +641,9 @@ async function resumeSearchRun(runId) {
     const data = await api("GET", `/api/search/${runId}`);
     if (data.status === "done" || data.status === "interrupted") {
       finishSearchRun(progressUi, async () => {
-        if (data.items?.length) {
-          await renderSearchResults(data, resultsEl, reportEl, runId);
-          if (data.status === "interrupted") {
-            prependResultsBanner(resultsEl, "warn", data.error || "任务已中断，以下为已落盘部分结果");
-          }
-        } else if (data.status === "interrupted") {
-          resultsEl.innerHTML = `<div class="alert alert-warn">${escapeHtml(data.error || "任务已中断，以下为已落盘部分结果")}</div>`;
+        await renderSearchResults(data, resultsEl, reportEl, runId);
+        if (data.status === "interrupted" && (data.items?.length || data.report)) {
+          prependResultsBanner(resultsEl, "warn", data.error || "任务已中断，以下为已落盘部分结果");
         }
       });
       setActiveSearchRunId(null);
@@ -629,8 +704,9 @@ function showResearchNodeDetail(node) {
   const kindLabel = RESEARCH_KIND_LABELS[node.kind] || node.kind;
   el.innerHTML = `<div class="research-node-detail-inner">
     <strong>${escapeHtml(node.title || kindLabel)}</strong>
-    <p class="research-node-payload">${escapeHtml(node.payload)}</p>
+    <div class="research-node-payload markdown-body"></div>
   </div>`;
+  renderMarkdown(el.querySelector(".research-node-payload"), node.payload);
 }
 
 function buildResearchTreeHtml(tree, selectedNodeId) {
@@ -669,7 +745,13 @@ function buildResearchTreeHtml(tree, selectedNodeId) {
 async function refreshResearchTree(selectedNodeId) {
   const panel = document.getElementById("research-panel");
   const actions = document.getElementById("research-actions");
-  if (!panel || !workspaceSession.treeId) return;
+  if (!panel) return;
+  await syncResearchTreeSelect();
+  if (!workspaceSession.treeId) {
+    panel.innerHTML = "<p class=\"muted\">勾选「纳入研究树」并开始搜罗，或点击「新建研究」创建主题。</p>";
+    if (actions) actions.innerHTML = "";
+    return;
+  }
   clearResearchFeedback();
   try {
     const data = await api("GET", `/api/research/trees/${workspaceSession.treeId}`);
@@ -761,13 +843,9 @@ async function loadRunIntoWorkspace(runId) {
       return;
     }
     if (data.status === "done" || data.status === "interrupted") {
-      if (data.status === "interrupted" && data.items?.length) {
-        await renderSearchResults(data, resultsEl, reportEl, runId);
+      await renderSearchResults(data, resultsEl, reportEl, runId);
+      if (data.status === "interrupted") {
         prependResultsBanner(resultsEl, "warn", data.error || "任务已中断");
-      } else if (data.status === "interrupted") {
-        resultsEl.innerHTML = `<div class="alert alert-warn">${escapeHtml(data.error || "任务已中断")}</div>`;
-      } else {
-        await renderSearchResults(data, resultsEl, reportEl, runId);
       }
     }
   } catch (err) {
@@ -1335,7 +1413,9 @@ function initWorkspace(profiles, sources) {
   applyWorkspaceDefaults();
   initResearchViewToggle();
   initResearchNoteForm();
+  initResearchTreeToolbar();
   initWorkspacePanelTabs();
+  void syncResearchTreeSelect();
   if (workspaceSession.treeId) void refreshResearchTree();
 
   form.addEventListener("submit", async (e) => {
@@ -1396,13 +1476,20 @@ async function refreshExpandedQueries() {
     const network = new Set(data.network_aliases || data.discover_meta?.discovered_aliases || []);
     chips.innerHTML = terms
       .map((t) => {
-        const tag = network.has(t) ? "chip chip-network" : "chip chip-static";
+        const tag = network.has(t) ? "chip chip-network chip-btn" : "chip chip-static chip-btn";
         const label = network.has(t) ? `${escapeHtml(t)} · 联网` : escapeHtml(t);
-        return `<span class="${tag}">${label}</span>`;
+        return `<button type="button" class="${tag}" data-expand-term="${escapeHtml(t)}" title="点击填入搜索框">${label}</button>`;
       })
       .join("");
+    chips.querySelectorAll("[data-expand-term]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const input = document.getElementById("search-query");
+        if (input) input.value = btn.dataset.expandTerm || "";
+      });
+    });
   } catch (_) {
     wrap.classList.add("hidden");
+    if (countEl) countEl.textContent = "（关联词暂不可用）";
   }
 }
 
@@ -1587,18 +1674,42 @@ function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) 
   };
 
   es.onerror = () => {
-    fetch(`/api/search/${runId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status === "done" && data.items) {
-          finishSearchRun(progressUi, () => {
-            es.close();
-            void renderSearchResults(data, resultsEl, reportEl, runId);
-          });
-        }
-      })
-      .catch(() => {});
+    es.close();
+    void handleSearchStreamDrop(runId, resultsEl, stepsEl, reportEl, progressUi);
   };
+}
+
+async function handleSearchStreamDrop(runId, resultsEl, stepsEl, reportEl, progressUi) {
+  try {
+    const data = await api("GET", `/api/search/${runId}`);
+    if (data.status === "done" || data.status === "interrupted") {
+      finishSearchRun(progressUi, () => {
+        void renderSearchResults(data, resultsEl, reportEl, runId);
+        if (data.status === "interrupted") {
+          prependResultsBanner(resultsEl, "warn", data.error || "连接中断，以下为已落盘部分结果");
+        }
+      });
+      setActiveSearchRunId(null);
+      return;
+    }
+    if (data.status === "cancelled" || data.status === "error") {
+      finishSearchRun(progressUi, () => {
+        const kind = data.status === "cancelled" ? "warn" : "error";
+        resultsEl.innerHTML = `<div class="alert alert-${kind}">${escapeHtml(data.error || data.detail || "搜罗失败")}</div>`;
+      });
+      setActiveSearchRunId(null);
+      return;
+    }
+    if (data.status === "running") {
+      prependResultsBanner(resultsEl, "warn", "实时进度连接中断，正在轮询结果…");
+      void pollUntilSearchDone(runId, resultsEl, stepsEl, reportEl, progressUi);
+      return;
+    }
+  } catch (err) {
+    finishSearchRun(progressUi, () => {
+      resultsEl.innerHTML = `<div class="alert alert-warn">无法获取搜罗状态：${escapeHtml(err.message)}。<a href="/?run=${encodeURIComponent(runId)}">点此重试</a></div>`;
+    });
+  }
 }
 
 function showSourceErrors(errors, resultsEl) {
@@ -1620,6 +1731,22 @@ function showSourceErrors(errors, resultsEl) {
   banner.innerHTML = `部分来源采集失败：${errors.map((e) => `${escapeHtml(e.source)}: ${escapeHtml(e.error)}`).join("；")}。${extra}`;
 }
 
+function renderReportPanel(result, reportEl, askSection, runId) {
+  if (reportEl && result.report) {
+    renderMarkdown(reportEl, result.report);
+    if (askSection) {
+      askSection.classList.remove("hidden");
+      initAskPanel(runId);
+    }
+    return true;
+  }
+  if (reportEl) {
+    reportEl.innerHTML = "<p class='muted'>未生成报告。勾选「生成情报报告」或在高级选项中关闭「跳过 AI」。</p>";
+  }
+  if (askSection) askSection.classList.add("hidden");
+  return false;
+}
+
 async function renderSearchResults(result, resultsEl, reportEl, runId) {
   if (result.source_errors?.length) showSourceErrors(result.source_errors, resultsEl);
   const items = result.items || [];
@@ -1635,8 +1762,9 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
 
   if (!items.length) {
     resultsEl.innerHTML = "<div class='empty-state'>未找到结果，可尝试换关键词、增加来源或检查 Cookie 设置</div>";
-    if (reportEl && !result.report) {
-      reportEl.innerHTML = "<p class='muted'>无报告内容</p>";
+    const hasReport = renderReportPanel(result, reportEl, askSection, runId);
+    if (hasReport && window.matchMedia("(max-width: 960px)").matches) {
+      switchWorkspacePanel("report");
     }
     return;
   }
@@ -1661,13 +1789,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
     btn.addEventListener("click", () => saveFromCard(btn.dataset.save));
   });
 
-  if (reportEl && result.report) {
-    renderMarkdown(reportEl, result.report);
-    if (askSection) askSection.classList.remove("hidden");
-    initAskPanel(runId);
-  } else if (reportEl) {
-    reportEl.innerHTML = "<p class='muted'>未生成报告。勾选「生成情报报告」或在高级选项中关闭「跳过 AI」。</p>";
-  }
+  renderReportPanel(result, reportEl, askSection, runId);
 }
 
 function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = false) {
@@ -1839,9 +1961,9 @@ async function loadSuggestedQueries() {
 async function saveFromCard(url) {
   try {
     const data = await api("POST", "/api/save", { url });
-    alert(`已收录: ${data.item.title}`);
+    showToast(`已收录：${data.item.title || url}`, "success");
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, "error");
   }
 }
 
@@ -2001,9 +2123,14 @@ function initDigest() {
   document.getElementById("btn-daily")?.addEventListener("click", async () => {
     const el = document.getElementById("daily-content");
     const useAi = document.getElementById("opt-digest-ai")?.checked;
+    const useHot = document.getElementById("opt-digest-hotlist")?.checked !== false;
     el.innerHTML = "<p class='muted'>生成中…</p>";
     try {
-      const url = useAi ? "/api/digest/daily?ai=1" : "/api/digest/daily";
+      const params = new URLSearchParams();
+      if (useAi) params.set("ai", "1");
+      if (!useHot) params.set("hot_list", "0");
+      const qs = params.toString();
+      const url = qs ? `/api/digest/daily?${qs}` : "/api/digest/daily";
       const data = await api("GET", url);
       renderMarkdown(el, data.content);
     } catch (err) {

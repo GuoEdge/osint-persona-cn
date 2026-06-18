@@ -373,8 +373,8 @@ async def api_feedback_recent(target_ids: str = "") -> dict[str, Any]:
 
 
 @router.get("/digest/daily")
-async def api_digest_daily(ai: bool = False, no_ai: bool = False) -> dict[str, str]:
-    return {"content": digest.get_daily_digest(use_ai=ai, no_ai=no_ai)}
+async def api_digest_daily(ai: bool = False, no_ai: bool = False, hot_list: bool = True) -> dict[str, str]:
+    return {"content": digest.get_daily_digest(use_ai=ai, no_ai=no_ai, include_hot_list=hot_list)}
 
 
 @router.get("/digest/history")
