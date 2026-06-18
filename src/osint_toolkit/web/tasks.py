@@ -108,6 +108,26 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
             break
         except json.JSONDecodeError:
             continue
+    query_analysis: dict[str, Any] = {}
+    for path in sorted(run_dir.glob("*query_analysis.json")):
+        try:
+            query_analysis = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(query_analysis, dict) and "data" in query_analysis:
+                query_analysis = query_analysis.get("data") or query_analysis
+            break
+        except json.JSONDecodeError:
+            continue
+    discover_meta: dict[str, Any] = {}
+    for path in sorted(run_dir.glob("*alias_discover.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            discover_meta = raw.get("data") if isinstance(raw, dict) and "data" in raw else raw
+            if not isinstance(discover_meta, dict):
+                discover_meta = {}
+            break
+        except json.JSONDecodeError:
+            continue
+    queries_used = query_analysis.get("queries_used") if isinstance(query_analysis, dict) else []
     return {
         "run_id": run_id,
         "items": items,
@@ -117,6 +137,9 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         "run_dir": str(run_dir),
         "manifest": manifest,
         "source_errors": source_errors,
+        "query_analysis": query_analysis if isinstance(query_analysis, dict) else {},
+        "discover_meta": discover_meta,
+        "queries_used": queries_used or [],
     }
 
 

@@ -302,3 +302,46 @@ async def ingest_aicu_comments(
         "uid": mid,
         "rows": results[:20],
     }
+
+
+async def probe_aicu() -> dict[str, Any]:
+    """探测 AICU API 是否可用（与 scripts/probe_aicu.py 逻辑一致）。"""
+    from osint_toolkit.utils.config import get_aicu_enabled
+
+    if not get_aicu_enabled():
+        return {"status": "DISABLE", "reason": "sync.aicu_enabled / ingest.aicu_enabled 未开启"}
+
+    mid = await get_bilibili_mid()
+    if not mid:
+        return {"status": "DISABLE", "reason": "B站未登录，无法探测 AICU"}
+
+    headers = _aicu_request_headers()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.get(
+                AICU_GETREPLY,
+                params={"uid": str(mid), "pn": "1", "ps": "5", "mode": "0", "keyword": ""},
+                headers=headers,
+            )
+            text = resp.text[:500]
+            if _is_waf_block(resp.status_code, text):
+                return {
+                    "status": "WAF_BLOCKED",
+                    "reason": "AICU 被 WAF 拦截，请用扩展或粘贴 JSON",
+                    "http_status": resp.status_code,
+                    "mid": mid,
+                }
+            data = resp.json()
+            replies = (data.get("data") or {}).get("replies") or []
+            if data.get("code") not in (0, None):
+                return {
+                    "status": "FAIL",
+                    "reason": data.get("message", "unknown"),
+                    "code": data.get("code"),
+                    "mid": mid,
+                }
+            return {"status": "PASS", "mid": mid, "sample_count": len(replies)}
+        except json.JSONDecodeError:
+            return {"status": "WAF_BLOCKED", "reason": "响应非 JSON，可能被 WAF 拦截", "mid": mid}
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "FAIL", "reason": str(exc), "mid": mid}

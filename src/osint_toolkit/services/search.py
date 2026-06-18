@@ -732,17 +732,19 @@ async def run_search(
 
 
     update_progress(run_id, "ai_summarize", detail="生成条目摘要…")
+    summarize_top = int(search_cfg.get("ai_summarize_top", 15))
+    summarize_extended = int(search_cfg.get("ai_summarize_extended", 35))
+    primary_items = items[: min(len(items), summarize_top)]
     summaries = summarize_batch(
-
-        items[: min(len(items), 15)],
-
+        primary_items,
         runtime_instruct=ai_instruct,
-
         no_ai=no_ai,
-
         persona_ctx=persona_ctx,
-
     )
+    for item in items[summarize_top : min(len(items), summarize_extended)]:
+        if not item.summary:
+            text = (item.content or item.title or "").strip()
+            item.summary = text[:320] + ("…" if len(text) > 320 else "")
 
     runner.run_step(
 
@@ -758,11 +760,12 @@ async def run_search(
 
 
 
+    sim_top = int(search_cfg.get("persona_sim_top", 20))
     simulations: list[dict] = []
 
     if not no_simulate:
         update_progress(run_id, "persona_simulate", detail="画像兴趣模拟…")
-        simulations = simulate_items(items, no_ai=no_ai, no_simulate=no_simulate)
+        simulations = simulate_items(items[: min(len(items), sim_top)], no_ai=no_ai, no_simulate=no_simulate)
 
         runner.run_step(
 
@@ -861,6 +864,10 @@ async def run_search(
         "source_errors": source_errors,
 
         "query_analysis": query_analysis,
+
+        "discover_meta": discover_meta,
+
+        "queries_used": queries_used,
 
     }
 

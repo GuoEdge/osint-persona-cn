@@ -698,15 +698,65 @@ function showResearchNodeDetail(node) {
   if (!node || !kindsWithPayload.includes(node.kind) || !node.payload) {
     el.classList.add("hidden");
     el.innerHTML = "";
+    workspaceSession.editingNodeId = null;
     return;
   }
   el.classList.remove("hidden");
   const kindLabel = RESEARCH_KIND_LABELS[node.kind] || node.kind;
+  const editable = node.kind === "note" || node.kind === "insight";
   el.innerHTML = `<div class="research-node-detail-inner">
-    <strong>${escapeHtml(node.title || kindLabel)}</strong>
+    <div class="research-node-detail-header">
+      <strong>${escapeHtml(node.title || kindLabel)}</strong>
+      ${editable ? `<button type="button" class="btn btn-sm btn-ghost" id="btn-research-edit">编辑</button>` : ""}
+    </div>
     <div class="research-node-payload markdown-body"></div>
+    <form id="research-edit-form" class="research-edit-form hidden">
+      <input type="text" id="research-edit-title" class="input-sm" placeholder="标题">
+      <textarea id="research-edit-payload" rows="6" placeholder="内容（Markdown）"></textarea>
+      <div class="research-note-form-actions">
+        <button type="button" class="btn btn-sm" id="btn-research-edit-save">保存</button>
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-research-edit-cancel">取消</button>
+      </div>
+    </form>
   </div>`;
   renderMarkdown(el.querySelector(".research-node-payload"), node.payload);
+  if (editable) {
+    document.getElementById("btn-research-edit")?.addEventListener("click", () => {
+      const form = document.getElementById("research-edit-form");
+      const payloadEl = el.querySelector(".research-node-payload");
+      form?.classList.remove("hidden");
+      payloadEl?.classList.add("hidden");
+      document.getElementById("research-edit-title").value = node.title || "";
+      document.getElementById("research-edit-payload").value = node.payload || "";
+      workspaceSession.editingNodeId = node.id;
+    });
+    document.getElementById("btn-research-edit-cancel")?.addEventListener("click", () => {
+      document.getElementById("research-edit-form")?.classList.add("hidden");
+      el.querySelector(".research-node-payload")?.classList.remove("hidden");
+      workspaceSession.editingNodeId = null;
+    });
+    document.getElementById("btn-research-edit-save")?.addEventListener("click", () => void saveResearchNodeEdit(node.id));
+  }
+}
+
+async function saveResearchNodeEdit(nodeId) {
+  if (!workspaceSession.treeId || !nodeId) return;
+  const title = document.getElementById("research-edit-title")?.value.trim();
+  const payload = document.getElementById("research-edit-payload")?.value.trim();
+  if (!payload) {
+    showResearchFeedback("内容不能为空", "warn");
+    return;
+  }
+  try {
+    await api("PATCH", `/api/research/trees/${workspaceSession.treeId}/nodes/${nodeId}`, {
+      title: title || payload.slice(0, 40),
+      payload,
+    });
+    clearResearchFeedback();
+    await refreshResearchTree(nodeId);
+  } catch (err) {
+    showResearchFeedback(err.message);
+  }
 }
 
 function buildResearchTreeHtml(tree, selectedNodeId) {
@@ -1751,6 +1801,7 @@ function renderReportPanel(result, reportEl, askSection, runId) {
 
 async function renderSearchResults(result, resultsEl, reportEl, runId) {
   if (result.source_errors?.length) showSourceErrors(result.source_errors, resultsEl);
+  const metaHtml = renderSearchMetaBanner(result);
   const items = result.items || [];
   const sims = result.simulations || [];
   const simMap = {};
@@ -1763,7 +1814,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   }
 
   if (!items.length) {
-    resultsEl.innerHTML = "<div class='empty-state'>未找到结果，可尝试换关键词、增加来源或检查 Cookie 设置</div>";
+    resultsEl.innerHTML = `${metaHtml}<div class='empty-state'>未找到结果，可尝试换关键词、增加来源或检查 Cookie 设置</div>`;
     const hasReport = renderReportPanel(result, reportEl, askSection, runId);
     if (hasReport && window.matchMedia("(max-width: 960px)").matches) {
       switchWorkspacePanel("report");
@@ -1772,7 +1823,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   }
 
   const feedbackMap = await loadFeedbackMap(items.map((i) => i.id));
-  resultsEl.innerHTML = `${renderResultsToolbar(items.length)}<div class="item-card-list">${items
+  resultsEl.innerHTML = `${metaHtml}${renderResultsToolbar(items.length)}<div class="item-card-list">${items
     .map((item, idx) => renderItemCard(item, simMap[item.id], runId, feedbackMap, idx === 0))
     .join("")}</div>`;
 
@@ -1792,6 +1843,29 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   });
 
   renderReportPanel(result, reportEl, askSection, runId);
+}
+
+function renderSearchMetaBanner(result) {
+  const queries = result.queries_used || result.query_analysis?.queries_used || [];
+  const discovered = result.discover_meta?.discovered_aliases || [];
+  const parts = [];
+  if (queries.length > 1) {
+    parts.push(`扩展查询 ${queries.length} 个：${queries.slice(0, 6).map(escapeHtml).join(" · ")}`);
+  }
+  if (discovered.length) {
+    parts.push(`联网发现关联词：${discovered.slice(0, 8).map(escapeHtml).join(" · ")}`);
+  }
+  const bySource = {};
+  (result.items || []).forEach((item) => {
+    const src = item.source || "web";
+    bySource[src] = (bySource[src] || 0) + 1;
+  });
+  const sourceBits = Object.entries(bySource)
+    .map(([k, v]) => `${escapeHtml(k)} ${v}`)
+    .join(" · ");
+  if (sourceBits) parts.push(`来源分布：${sourceBits}`);
+  if (!parts.length) return "";
+  return `<div class="alert alert-info search-meta-banner">${parts.join("<br>")}</div>`;
 }
 
 function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = false) {
@@ -2055,28 +2129,7 @@ function initKnowledge() {
     btn.addEventListener("click", () => switchKnowledgeTab(btn.dataset.knowledgeTab));
   });
   if (tab === "save") switchKnowledgeTab("save");
-  const saveForm = document.getElementById("save-form");
-  if (saveForm) {
-    if (url) document.getElementById("save-url").value = url;
-    saveForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const msg = document.getElementById("save-message");
-      try {
-        const data = await api("POST", "/api/save", {
-          url: document.getElementById("save-url").value.trim(),
-          with_comments: document.getElementById("save-comments").checked,
-          no_ai: document.getElementById("save-no-ai").checked,
-        });
-        msg.className = "alert alert-success";
-        msg.textContent = `已收录: ${data.item.title}`;
-        loadRecentItems();
-      } catch (err) {
-        msg.className = "alert alert-error";
-        msg.textContent = err.message;
-      }
-    });
-    loadRecentItems();
-  }
+  initSave(url);
   const form = document.getElementById("knowledge-form");
   if (form) {
     form.addEventListener("submit", async (e) => {
@@ -2713,6 +2766,38 @@ function initIngest() {
   loadExtensionStatus();
   loadLikes();
   loadIngestCapabilities();
+  void loadAicuStatus();
+}
+
+async function loadAicuStatus() {
+  const el = document.getElementById("aicu-status-badge");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/ingest/aicu-status?probe=true");
+    if (!data.enabled) {
+      el.className = "aicu-status-badge preflight-badge warn";
+      el.textContent = "AICU 未开启（config: sync.aicu_enabled）";
+      return;
+    }
+    const status = data.status || "UNKNOWN";
+    const labels = {
+      PASS: "AICU 可用",
+      WAF_BLOCKED: "AICU 被 WAF 拦截",
+      DISABLE: "AICU 未就绪",
+      FAIL: "AICU 探测失败",
+      READY: "AICU 已配置",
+    };
+    const cls = status === "PASS" ? "ok" : status === "WAF_BLOCKED" ? "warn" : status === "DISABLE" ? "warn" : "fail";
+    el.className = `aicu-status-badge preflight-badge ${cls}`;
+    let text = labels[status] || status;
+    if (data.mid) text += ` · UID ${data.mid}`;
+    if (data.sample_count != null && status === "PASS") text += ` · 样本 ${data.sample_count} 条`;
+    if (data.reason && status !== "PASS") text += ` · ${data.reason}`;
+    el.textContent = text;
+  } catch (err) {
+    el.className = "aicu-status-badge preflight-badge fail";
+    el.textContent = `AICU 状态未知：${err.message}`;
+  }
 }
 
 async function loadExtensionStatus() {
@@ -2775,12 +2860,19 @@ async function loadIngestHealth() {
       (data.partial_capabilities || 0) > 0
         ? `<div class="alert alert-warn mt-1">${data.partial_capabilities} 项能力需扩展或浏览器补洞配合 · <a href="#extension">查看扩展</a> · <a href="#ingest-capabilities">能力表</a></div>`
         : "";
+    const aicu = data.aicu || {};
+    let aicuHint = "";
+    if (aicu.enabled) {
+      const mid = aicu.mid ? ` · UID ${escapeHtml(String(aicu.mid))}` : "";
+      aicuHint = `<div class="alert alert-info mt-1">AICU 发评导入已开启${mid} · <a href="#aicu-section">查看 AICU 状态</a></div>`;
+    }
     const statusClass = data.ok ? "alert-success" : "alert-warn";
     el.innerHTML = `
       <div class="alert ${statusClass}">${data.ok ? "数据就绪，可构建画像" : "尚有阻塞项"} · 行为事件共 ${events} 条 · ${auth}</div>
       ${blockers ? `<ul class="health-list">${blockers}</ul>` : ""}
       ${warnings ? `<ul class="health-list muted">${warnings}</ul>` : ""}
       ${partialHint}
+      ${aicuHint}
       <div class="mt-1">${coverage || "<span class='muted'>暂无平台数据，请先完整同步</span>"}</div>
       <div class="muted mt-1">浏览器补洞：${data.playwright_installed ? "已安装" : '<a href="/settings#deps">未安装（去设置）</a>'} · 需扩展配合的能力 ${data.partial_capabilities || 0} 项</div>`;
   } catch (err) {

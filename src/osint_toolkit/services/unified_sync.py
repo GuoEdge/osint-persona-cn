@@ -174,42 +174,6 @@ def _extension_flush_hint() -> dict[str, Any]:
 
 
 async def _probe_aicu() -> dict[str, Any]:
-    """Same logic as scripts/probe_aicu.py."""
-    import json
+    from osint_toolkit.ingest.aicu import probe_aicu
 
-    import httpx
-
-    from osint_toolkit.ingest.aicu import AICU_GETREPLY, _aicu_request_headers, _is_waf_block, get_bilibili_mid
-    from osint_toolkit.utils.config import get_aicu_enabled
-
-    if not get_aicu_enabled():
-        return {"status": "DISABLE", "reason": "sync.aicu_enabled / ingest.aicu_enabled 未开启"}
-
-    mid = await get_bilibili_mid()
-    if not mid:
-        return {"status": "DISABLE", "reason": "B站未登录，无法探测 AICU"}
-
-    headers = _aicu_request_headers()
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            resp = await client.get(
-                AICU_GETREPLY,
-                params={"uid": str(mid), "pn": "1", "ps": "5", "mode": "0", "keyword": ""},
-                headers=headers,
-            )
-            text = resp.text[:500]
-            if _is_waf_block(resp.status_code, text):
-                return {
-                    "status": "WAF_BLOCKED",
-                    "reason": "AICU 被 WAF 拦截，建议使用 browser-sync 补洞",
-                    "http_status": resp.status_code,
-                }
-            data = resp.json()
-            replies = (data.get("data") or {}).get("replies") or []
-            if data.get("code") not in (0, None):
-                return {"status": "FAIL", "reason": data.get("message", "unknown"), "code": data.get("code")}
-            return {"status": "PASS", "mid": mid, "sample_count": len(replies)}
-        except json.JSONDecodeError:
-            return {"status": "WAF_BLOCKED", "reason": "响应非 JSON，可能被 WAF 拦截"}
-        except Exception as exc:  # noqa: BLE001
-            return {"status": "FAIL", "reason": str(exc)}
+    return await probe_aicu()

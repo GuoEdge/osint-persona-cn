@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
+from osint_toolkit.collectors.serp.cache import get_cached, set_cached
+from osint_toolkit.collectors.serp.cache import clear_cache
 from osint_toolkit.collectors.serp.models import SerpHit
 from osint_toolkit.collectors.serp.providers import (
     API_PROVIDERS,
@@ -16,6 +19,17 @@ from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.utils.config import get_serp_config
 
 
+def _has_api_keys(cfg: dict) -> bool:
+    return bool(
+        cfg.get("bing_api_key")
+        or cfg.get("serpapi_key")
+        or cfg.get("searxng_base_url")
+        or os.environ.get("BING_SEARCH_API_KEY")
+        or os.environ.get("SERPAPI_KEY")
+        or os.environ.get("SEARXNG_BASE_URL")
+    )
+
+
 def _auto_provider_order(cfg: dict) -> list[str]:
     order: list[str] = []
     if cfg.get("bing_api_key") or os.environ.get("BING_SEARCH_API_KEY"):
@@ -24,8 +38,15 @@ def _auto_provider_order(cfg: dict) -> list[str]:
         order.extend(["serpapi", "serpapi_baidu"])
     if cfg.get("searxng_base_url") or os.environ.get("SEARXNG_BASE_URL"):
         order.append("searxng")
-    order.extend(["bing_html", "duckduckgo_html", "baidu_html", "sogou_html"])
+    order.extend(["duckduckgo_html", "baidu_html", "sogou_html", "bing_html"])
     return order
+
+
+def _effective_strategy(cfg: dict) -> str:
+    strategy = str(cfg.get("strategy") or "fallback").lower()
+    if strategy == "auto":
+        return "merge_html" if not _has_api_keys(cfg) else "fallback"
+    return strategy
 
 
 def _provider_chain(cfg: dict) -> list[str]:
@@ -72,12 +93,33 @@ class SerpEngine:
     async def search(self, query: str, limit: int = 10) -> tuple[list[SerpHit], list[str]]:
         """按配置链尝试各 SERP 提供方，返回 hits 与尝试日志。"""
         chain = _provider_chain(self.cfg)
-        strategy = str(self.cfg.get("strategy") or "fallback").lower()
+        strategy = _effective_strategy(self.cfg)
         attempts: list[str] = []
+        ttl = int(self.cfg.get("cache_ttl_sec") or 0)
+        cache_key = f"{strategy}|{query.strip().lower()}|{limit}"
+        if ttl > 0:
+            cached = get_cached(cache_key, ttl)
+            if cached:
+                hits, cache_attempts = cached
+                if hits:
+                    return hits[:limit], [f"cache: ok ({len(hits)})"] + cache_attempts
 
         if strategy == "merge_html":
-            return await self._search_merge_html(query, limit, chain, attempts)
+            hits, attempts = await self._search_merge_html(query, limit, chain, attempts)
+        else:
+            hits, attempts = await self._search_fallback(query, limit, chain, attempts)
 
+        if hits and ttl > 0:
+            set_cached(cache_key, hits[:limit], attempts)
+        return hits, attempts
+
+    async def _search_fallback(
+        self,
+        query: str,
+        limit: int,
+        chain: list[str],
+        attempts: list[str],
+    ) -> tuple[list[SerpHit], list[str]]:
         for name in chain:
             await _provider_delay(self.cfg)
             hits, err = await self._invoke(name, query, limit)
@@ -117,7 +159,7 @@ class SerpEngine:
                 attempts.append(f"{name}: ok ({len(hits)})")
             else:
                 attempts.append(err or f"{name}: empty")
-            if len(_dedupe_hits(merged, limit * 2)) >= merge_min:
+            if len(_dedupe_hits(merged, limit * 2)) >= merge_min and len(html_chain) > 1:
                 break
 
         deduped = _dedupe_hits(merged, limit)
@@ -154,6 +196,8 @@ def hits_to_items(hits: list[SerpHit], *, source: str = "web") -> list[IntelItem
         )
         item.personal["serp_engine"] = hit.engine
         item.personal["serp_query"] = hit.query
+        if hit.meta.get("date"):
+            item.personal["date"] = hit.meta["date"]
         if hit.meta.get("site"):
             item.personal["site_search"] = hit.meta["site"]
         if hit.meta.get("source_engine"):

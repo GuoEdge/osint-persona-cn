@@ -117,6 +117,52 @@ async def test_serp_merge_html_strategy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_serp_auto_strategy_uses_merge_without_api_keys(monkeypatch):
+    from osint_toolkit.collectors.serp import engine as serp_engine
+
+    assert serp_engine._effective_strategy({"strategy": "auto"}) == "merge_html"
+    assert serp_engine._effective_strategy({"strategy": "auto", "bing_api_key": "x"}) == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_serp_cache_hit(monkeypatch):
+    from osint_toolkit.collectors.serp import engine as serp_engine
+    from osint_toolkit.collectors.serp import providers
+
+    calls = {"n": 0}
+
+    async def fake_html(client, query, limit, cfg=None):
+        calls["n"] += 1
+        return [SerpHit(title="T", url="https://example.com", snippet="s", engine="bing_html", query=query)], None
+
+    monkeypatch.setitem(providers.PROVIDERS, "bing_html", fake_html)
+    monkeypatch.setitem(providers.PROVIDERS, "duckduckgo_html", fake_html)
+    monkeypatch.setitem(providers.PROVIDERS, "baidu_html", fake_html)
+    monkeypatch.setitem(providers.PROVIDERS, "sogou_html", fake_html)
+    monkeypatch.setattr(
+        serp_engine,
+        "get_serp_config",
+        lambda: {
+            "primary": "auto",
+            "strategy": "merge_html",
+            "fallbacks": ["bing_html"],
+            "merge_min_hits": 1,
+            "provider_delay_ms": 0,
+            "cache_ttl_sec": 300,
+        },
+    )
+    from osint_toolkit.collectors.serp.cache import clear_cache
+
+    clear_cache()
+    engine = SerpEngine()
+    hits1, _ = await engine.search("cache-test", limit=3)
+    hits2, attempts2 = await engine.search("cache-test", limit=3)
+    assert len(hits1) >= 1
+    assert any("cache:" in a for a in attempts2)
+    assert calls["n"] >= 1
+
+
+@pytest.mark.asyncio
 async def test_search_searxng_parses_json(monkeypatch):
     from osint_toolkit.collectors.serp.providers import search_searxng
 

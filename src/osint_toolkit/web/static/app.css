@@ -1178,6 +1178,21 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
   margin-right: 0.25rem;
 }
 
+.search-meta-banner { font-size: 0.85rem; margin-bottom: 0.75rem; }
+.aicu-status-badge { display: inline-block; margin-bottom: 0.5rem; }
+.research-node-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.research-edit-form textarea,
+.research-edit-form .input-sm {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
 .sidebar-chip {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;

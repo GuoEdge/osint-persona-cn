@@ -248,6 +248,30 @@ def aicu_status() -> dict[str, Any]:
     return {"enabled": get_aicu_enabled()}
 
 
+async def aicu_status_detail(*, probe: bool = False) -> dict[str, Any]:
+    from osint_toolkit.ingest.aicu import get_bilibili_mid, probe_aicu
+    from osint_toolkit.utils.config import get_aicu_enabled
+
+    enabled = get_aicu_enabled()
+    result: dict[str, Any] = {"enabled": enabled}
+    if not enabled:
+        result["status"] = "DISABLE"
+        result["reason"] = "请在 config 中设置 sync.aicu_enabled: true"
+        return result
+    mid = await get_bilibili_mid()
+    result["mid"] = mid
+    if not mid:
+        result["status"] = "DISABLE"
+        result["reason"] = "B站未登录，无法使用 AICU"
+        return result
+    if probe:
+        probe_result = await probe_aicu()
+        result.update(probe_result)
+    else:
+        result["status"] = "READY"
+    return result
+
+
 async def ingest_accounts_sync() -> dict[str, Any]:
     """One-shot B站 + 知乎 Cookie API pull (same as extension server ingest)."""
     import sys

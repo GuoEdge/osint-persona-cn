@@ -57,8 +57,17 @@ def _hit(
 
 
 async def _get_html(client: HttpClient, url: str, cfg: dict) -> tuple[str, int]:
-    resp = await client.get(url, headers=serp_headers(url, user_agent=_html_ua(cfg)))
-    return resp.text or "", resp.status_code
+    retries = int(cfg.get("html_retry_count") or 1)
+    last_status = 0
+    last_text = ""
+    for attempt in range(retries + 1):
+        resp = await client.get(url, headers=serp_headers(url, user_agent=_html_ua(cfg)))
+        last_text = resp.text or ""
+        last_status = resp.status_code
+        if last_status not in {429, 502, 503, 504} or attempt >= retries:
+            break
+        await asyncio.sleep(0.8 * (attempt + 1))
+    return last_text, last_status
 
 
 async def search_bing_html(client: HttpClient, query: str, limit: int, cfg: dict | None = None) -> tuple[list[SerpHit], str | None]:

@@ -88,6 +88,7 @@ router = APIRouter(prefix="/api")
 
 def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
     items = result.get("items") or []
+    qa = result.get("query_analysis") or {}
     return {
         "run_id": result["run_id"],
         "items": [i.to_dict() if hasattr(i, "to_dict") else i for i in items],
@@ -96,6 +97,9 @@ def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
         "simulations": result.get("simulations", []),
         "run_dir": result.get("run_dir"),
         "source_errors": result.get("source_errors") or [],
+        "query_analysis": qa,
+        "queries_used": result.get("queries_used") or qa.get("queries_used") or [],
+        "discover_meta": result.get("discover_meta") or {},
     }
 
 
@@ -403,8 +407,8 @@ async def api_bilibili_mid() -> dict[str, Any]:
 
 
 @router.get("/ingest/aicu-status")
-async def api_aicu_status() -> dict[str, Any]:
-    return ingest.aicu_status()
+async def api_aicu_status(probe: bool = False) -> dict[str, Any]:
+    return await ingest.aicu_status_detail(probe=probe)
 
 
 @router.post("/ingest/aicu-comments")

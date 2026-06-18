@@ -21,10 +21,12 @@ class WebCollector(BaseCollector):
         cfg = get_serp_config()
         engine = SerpEngine(client=self.client)
         hits, attempts = await engine.search(query, limit=limit)
-        for domain in cfg.get("site_searches") or []:
-            site_hits, site_attempts = await engine.site_search(str(domain), query, limit=max(3, limit // 2))
-            hits.extend(site_hits)
-            attempts.extend(site_attempts)
+        merge_min = int(cfg.get("merge_min_hits") or max(3, limit // 2))
+        if len(hits) < merge_min:
+            for domain in cfg.get("site_searches") or []:
+                site_hits, site_attempts = await engine.site_search(str(domain), query, limit=max(3, limit // 2))
+                hits.extend(site_hits)
+                attempts.extend(site_attempts)
         items = hits_to_items(hits, source="web")
         if not items:
             return [

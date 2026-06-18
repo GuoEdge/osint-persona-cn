@@ -118,6 +118,15 @@ async def get_health_status() -> dict[str, Any]:
         c for c in ingest_capabilities.CAPABILITIES if c.get("status") == "partial"
     ]
 
+    from osint_toolkit.utils.config import get_aicu_enabled
+
+    aicu_enabled = get_aicu_enabled()
+    aicu: dict[str, Any] = {"enabled": aicu_enabled}
+    if aicu_enabled:
+        from osint_toolkit.ingest.aicu import get_bilibili_mid
+
+        aicu["mid"] = await get_bilibili_mid()
+
     return {
         "ok": len(blockers) == 0,
         "blockers": blockers,
@@ -129,4 +138,5 @@ async def get_health_status() -> dict[str, Any]:
         "events": event_type_counts(),
         "coverage": platform_coverage(),
         "partial_capabilities": len(partial),
+        "aicu": aicu,
     }

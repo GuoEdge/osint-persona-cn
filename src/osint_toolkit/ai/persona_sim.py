@@ -44,7 +44,7 @@ def simulate_items(
             "source": i.source,
             "summary": i.summary or i.content[:200],
         }
-        for i in items[:15]
+        for i in items[:20]
     ]
     raw = client.chat(
         messages=[

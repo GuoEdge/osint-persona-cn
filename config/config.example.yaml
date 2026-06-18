@@ -93,7 +93,7 @@ zhihu:
     features:
       search: true
       hot_list: true
-      global_search: false    # 全网搜索（含站外），默认关闭
+      global_search: true     # 全网搜索（含站外），需开放平台密钥
 
 output:
   default_format: markdown
@@ -141,9 +141,11 @@ search:
   zhihu_comment_mine_top: 12
   serp:
     primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
-    strategy: fallback     # fallback | merge_html（API 仍优先，HTML 多引擎合并）
-    fallbacks: [duckduckgo_html, bing_html, baidu_html, sogou_html]
+    strategy: auto          # auto | fallback | merge_html（无 API Key 时 auto=多 HTML 合并）
+    fallbacks: [duckduckgo_html, baidu_html, sogou_html, bing_html]
     merge_min_hits: 5
+    cache_ttl_sec: 600     # SERP 结果内存缓存（秒），0=关闭
+    html_retry_count: 1    # HTML 引擎遇 429/502 时重试次数
     bing_api_key: ${BING_SEARCH_API_KEY}
     serpapi_key: ${SERPAPI_KEY}
     searxng_base_url: ${SEARXNG_BASE_URL}   # 自建或私有 SearXNG，如 http://127.0.0.1:8080
