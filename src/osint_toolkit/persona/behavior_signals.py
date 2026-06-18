@@ -15,6 +15,7 @@ _HIGH_VALUE_TYPES = frozenset(
         "bilibili_watch",
         "bilibili_comment_post",
         "bilibili_comment_like",
+        "bilibili_follow",
         "zhihu_vote",
         "zhihu_fav",
         "github_star",

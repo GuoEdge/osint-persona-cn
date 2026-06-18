@@ -26,3 +26,23 @@ def test_build_article_url_from_object():
 def test_passthrough_web_url():
     url = "https://www.zhihu.com/question/1"
     assert public_zhihu_url(url) == url
+
+
+def test_content_url_from_target_answer():
+    from osint_toolkit.utils.zhihu_urls import content_url_from_target
+
+    url = content_url_from_target(
+        {"type": "answer", "id": 9, "question": {"id": 1}},
+        {},
+    )
+    assert url == "https://www.zhihu.com/question/1/answer/9"
+
+
+def test_content_url_from_target_api_url():
+    from osint_toolkit.utils.zhihu_urls import content_url_from_target
+
+    url = content_url_from_target(
+        {"url": "https://api.zhihu.com/articles/42"},
+        {},
+    )
+    assert url == "https://zhuanlan.zhihu.com/p/42"

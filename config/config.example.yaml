@@ -63,6 +63,7 @@ bilibili:
     ingest_history: true
     ingest_favorites: true
     ingest_followings: true
+    ingest_likes: true
     my_comments: true
   comments_fetch_limit: 60
   danmaku_max_lines: 800

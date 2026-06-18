@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 import urllib.parse
 from functools import reduce
 from typing import Any
 
 from osint_toolkit.http.client import HttpClient
+
+logger = logging.getLogger(__name__)
 
 _WBI_KEY_TTL_SEC = 3600
 _wbi_key_cache: tuple[str, str, float] | None = None
@@ -69,8 +72,15 @@ async def fetch_wbi_keys(client: HttpClient, *, force_refresh: bool = False) -> 
 
 
 async def wbi_get(client: HttpClient, base_url: str, params: dict[str, Any]) -> Any:
-    img_key, sub_key = await fetch_wbi_keys(client)
-    signed = sign_wbi_params(params, img_key, sub_key)
-    qs = urllib.parse.urlencode(signed)
-    resp = await client.get(f"{base_url}?{qs}")
-    return resp.json()
+    payload: dict[str, Any] = {}
+    for attempt in range(2):
+        img_key, sub_key = await fetch_wbi_keys(client, force_refresh=attempt > 0)
+        signed = sign_wbi_params(params, img_key, sub_key)
+        qs = urllib.parse.urlencode(signed)
+        resp = await client.get(f"{base_url}?{qs}")
+        payload = resp.json()
+        if payload.get("code") != -352 or attempt > 0:
+            return payload
+        logger.warning("WBI -352 on %s, refreshing keys and retrying once", base_url)
+        clear_wbi_key_cache()
+    return payload

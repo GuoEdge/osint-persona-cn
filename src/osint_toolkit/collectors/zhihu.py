@@ -151,6 +151,23 @@ class ZhihuCollector(BaseCollector):
         if not items:
             items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)
 
+        if zhihu_openapi.openapi_enabled("global_search"):
+            try:
+                global_items = await zhihu_openapi.global_search(
+                    query,
+                    limit=min(limit, 10),
+                    client=self.client,
+                )
+                for item in global_items:
+                    if item.url in seen:
+                        continue
+                    seen.add(item.url)
+                    items.append(item)
+            except Exception as exc:  # noqa: BLE001
+                msg = f"openapi global_search 失败: {exc}"
+                self._search_warnings.append(msg)
+                logger.warning(msg)
+
         expanded = await self.expand_questions(items)
         if expanded:
             for item in expanded:
@@ -161,6 +178,12 @@ class ZhihuCollector(BaseCollector):
         if aggressive:
             return self._attach_search_warnings(items)
         return self._attach_search_warnings(items[:limit])
+
+    async def fetch_hot_list(self, limit: int = 30) -> list[IntelItem]:
+        """知乎热榜（需开放平台 access_secret）。"""
+        from osint_toolkit.ingest import zhihu_openapi
+
+        return await zhihu_openapi.hot_list(limit=limit, client=self.client)
 
     async def expand_questions(self, items: list[IntelItem]) -> list[IntelItem]:
         """对搜索到的提问（及回答所属提问）批量拉取高赞回答。"""

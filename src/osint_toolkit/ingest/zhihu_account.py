@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest.likes import save_endorsement
 from osint_toolkit.ingest.zhihu_activities import (
-    _zhihu_content_url,
     activity_entry_from_item,
     classify_activity,
     iter_api_data_items,
 )
 from osint_toolkit.storage.knowledge import log_event
+from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 
 async def _url_token(client: HttpClient) -> str:
@@ -143,7 +143,7 @@ async def ingest_voteanswers(limit: int = 500) -> list[dict]:
                     break
                 for item in batch:
                     target = item.get("target") or item
-                    content_url = _zhihu_content_url(target, item)
+                    content_url = content_url_from_target(target, item)
                     if not content_url or content_url in seen:
                         continue
                     seen.add(content_url)
@@ -227,15 +227,10 @@ async def ingest_followees(limit: int = 500) -> list[dict]:
 
 def _browse_entry_from_item(item: dict) -> dict | None:
     target = item.get("target") or item
-    question = target.get("question") or {}
-    answer_id = target.get("id")
-    qid = question.get("id")
-    if answer_id and qid:
-        url_ = f"https://www.zhihu.com/question/{qid}/answer/{answer_id}"
-    else:
-        url_ = target.get("url") or item.get("url") or ""
+    url_ = content_url_from_target(target, item)
     if not url_ or not str(url_).startswith("http"):
         return None
+    question = target.get("question") or {}
     title = question.get("title") or target.get("title") or item.get("title") or ""
     return {
         "source": "zhihu",
@@ -327,7 +322,7 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                     for raw in items:
                         content = raw.get("content") or raw
                         title = content.get("title") or coll.get("title", "")
-                        url_ = content.get("url") or raw.get("url") or ""
+                        url_ = content_url_from_target(content, raw)
                         if not url_ or url_ in seen:
                             continue
                         seen.add(url_)
@@ -355,7 +350,7 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                 if len(results) >= limit:
                     break
             paging = fav_payload.get("paging") or {}
-            if paging.get("is_end"):
+            if paging.get("is_end") or len(collections) < 20:
                 break
             offset += 20
     except Exception:  # noqa: BLE001

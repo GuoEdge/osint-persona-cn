@@ -110,6 +110,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "ingest_history": True,
             "ingest_favorites": True,
             "ingest_followings": True,
+            "ingest_likes": True,
             "my_comments": True,
         },
         "comments_fetch_limit": 60,

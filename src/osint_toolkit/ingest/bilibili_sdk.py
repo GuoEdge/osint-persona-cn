@@ -37,6 +37,7 @@ def get_bilibili_config() -> dict[str, Any]:
             "ingest_history": True,
             "ingest_favorites": True,
             "ingest_followings": True,
+            "ingest_likes": True,
             "my_comments": True,
         },
         "comments_fetch_limit": 60,
@@ -435,6 +436,55 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     return results
 
 
+async def ingest_likes(limit: int = 500) -> list[dict]:
+    """B站最近点赞视频（WBI like/archive/list，需 Cookie）。"""
+    from osint_toolkit.http.client import HttpClient
+    from osint_toolkit.ingest.bilibili_wbi import wbi_get
+
+    credential = load_credential()
+    if not credential:
+        raise RuntimeError("bilibili credential missing")
+
+    configure_sdk()
+    client = HttpClient()
+    results: list[dict] = []
+    seen: set[str] = set()
+    pn = 1
+    while len(results) < limit:
+        payload = await wbi_get(
+            client,
+            "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
+            {"pn": pn, "ps": 20},
+        )
+        if payload.get("code") not in (0, None):
+            raise RuntimeError(payload.get("message") or f"bilibili likes code={payload.get('code')}")
+        items = (payload.get("data") or {}).get("list") or []
+        if not items:
+            break
+        before = len(results)
+        for item in items:
+            url = _video_url_from_history(item)
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            results.append(
+                {
+                    "source": "bilibili",
+                    "title": item.get("title", ""),
+                    "url": url,
+                    "event_kind": "like",
+                }
+            )
+            if len(results) >= limit:
+                break
+        if len(results) >= limit or len(results) == before:
+            break
+        if len(items) < 20:
+            break
+        pn += 1
+    return results
+
+
 _COMMENT_TYPE_MAP: dict[int, Any] = {}
 
 
@@ -724,24 +774,53 @@ async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
     return {"text": "", "track": None, "source": "view_api"}
 
 
+async def fetch_danmaku_lines_legacy(
+    url: str,
+    *,
+    max_lines: int | None = None,
+    client=None,
+) -> list[str]:
+    """comment.bilibili.com XML 弹幕回退（不依赖 bilibili-api SDK）。"""
+    from osint_toolkit.http.client import HttpClient
+
+    limit = int(max_lines or get_bilibili_config().get("danmaku_max_lines") or 800)
+    http = client or HttpClient()
+    _, cid = await resolve_video_aid_cid(url, client=http)
+    if not cid:
+        return []
+    try:
+        resp = await http.get(f"https://comment.bilibili.com/{cid}.xml")
+        if resp.status_code != 200:
+            return []
+        lines = [
+            m.strip()
+            for m in re.findall(r"<d[^>]*>([^<]+)</d>", resp.text)
+            if m.strip()
+        ]
+        return lines[:limit]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili legacy danmaku failed: %s", exc)
+        return []
+
+
 async def fetch_danmaku_lines(url: str, *, max_lines: int | None = None) -> list[str]:
     cfg = get_bilibili_config()
     limit = int(max_lines or cfg.get("danmaku_max_lines") or 800)
-    if not sdk_enabled("danmaku") or not sdk_installed():
-        return []
-    try:
-        v = await _video_instance(url)
-        cid = await _resolve_cid(v)
-        danmakus = await v.get_danmakus(0, cid=cid)
-        lines: list[str] = []
-        for dm in danmakus[:limit]:
-            text = str(getattr(dm, "text", "") or "").strip()
-            if text:
-                lines.append(text)
-        return lines
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("bilibili sdk danmaku failed: %s", exc)
-        return []
+    if sdk_enabled("danmaku") and sdk_installed():
+        try:
+            v = await _video_instance(url)
+            cid = await _resolve_cid(v)
+            danmakus = await v.get_danmakus(0, cid=cid)
+            lines: list[str] = []
+            for dm in danmakus[:limit]:
+                text = str(getattr(dm, "text", "") or "").strip()
+                if text:
+                    lines.append(text)
+            if lines:
+                return lines
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk danmaku failed: %s", exc)
+    return await fetch_danmaku_lines_legacy(url, max_lines=limit)
 
 
 def _track_label(track: dict | None) -> str:

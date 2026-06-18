@@ -161,3 +161,52 @@ async def test_hot_list(monkeypatch):
     items = await zhihu_openapi.hot_list(limit=5, client=client)
     assert len(items) == 1
     assert items[0].personal.get("hot_list") is True
+
+
+@pytest.mark.asyncio
+async def test_global_search(monkeypatch):
+    client = MagicMock()
+    client.get = AsyncMock(
+        return_value=_mock_response(
+            {
+                "Code": 0,
+                "Data": {
+                    "Items": [
+                        {
+                            "Title": "知乎回答",
+                            "Url": "https://www.zhihu.com/question/1/answer/2",
+                            "ContentType": "Answer",
+                            "ContentText": "站内",
+                        },
+                        {
+                            "Title": "站外文章",
+                            "Url": "https://example.com/post",
+                            "ContentText": "站外",
+                        },
+                    ]
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(zhihu_openapi, "openapi_enabled", lambda feature: feature == "global_search")
+    monkeypatch.setattr(zhihu_openapi, "access_secret", lambda: "x")
+    monkeypatch.setattr(
+        zhihu_openapi,
+        "get_zhihu_config",
+        lambda: {"openapi": {"base_url": "https://developer.zhihu.com"}},
+    )
+
+    items = await zhihu_openapi.global_search("test", limit=5, client=client)
+    assert len(items) == 2
+    assert items[0].source == "zhihu"
+    assert items[1].source == "web"
+    assert items[0].personal.get("via") == "zhihu_openapi_global"
+
+
+def test_global_search_disabled(monkeypatch):
+    monkeypatch.setattr(zhihu_openapi, "openapi_enabled", lambda _f: False)
+
+    import asyncio
+
+    items = asyncio.run(zhihu_openapi.global_search("test"))
+    assert items == []

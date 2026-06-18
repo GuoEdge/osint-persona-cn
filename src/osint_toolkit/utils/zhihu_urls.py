@@ -54,6 +54,23 @@ def _question_id(obj: dict[str, Any] | None) -> str | None:
     return None
 
 
+def content_url_from_target(target: dict[str, Any], item: dict[str, Any] | None = None) -> str:
+    """从知乎 API target/item 结构解析内容公开 URL。"""
+    item = item or {}
+    target = target or {}
+    url = target.get("url") or item.get("url") or ""
+    if url.startswith("http"):
+        return public_zhihu_url(str(url), target)
+    question = target.get("question") or {}
+    answer_id = target.get("id")
+    qid = question.get("id")
+    if answer_id and qid:
+        return f"https://www.zhihu.com/question/{qid}/answer/{answer_id}"
+    if target.get("type") == "article" and target.get("id"):
+        return f"https://zhuanlan.zhihu.com/p/{target['id']}"
+    return str(url or "")
+
+
 def _url_from_object(obj: dict[str, Any] | None) -> str:
     if not obj:
         return ""

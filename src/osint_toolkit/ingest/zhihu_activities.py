@@ -24,23 +24,11 @@ def _zhihu_people_url(member: dict) -> str:
     return ""
 
 
-from osint_toolkit.utils.zhihu_urls import public_zhihu_url
+from osint_toolkit.utils.zhihu_urls import content_url_from_target, public_zhihu_url
 
 
 def _zhihu_content_url(target: dict, item: dict | None = None) -> str:
-    item = item or {}
-    target = target or {}
-    url = target.get("url") or item.get("url") or ""
-    if url.startswith("http"):
-        return public_zhihu_url(str(url), target)
-    question = target.get("question") or {}
-    answer_id = target.get("id")
-    qid = question.get("id")
-    if answer_id and qid:
-        return f"https://www.zhihu.com/question/{qid}/answer/{answer_id}"
-    if target.get("type") == "article" and target.get("id"):
-        return f"https://zhuanlan.zhihu.com/p/{target['id']}"
-    return url
+    return content_url_from_target(target, item)
 
 
 def classify_activity(item: dict[str, Any]) -> tuple[str, str] | None:

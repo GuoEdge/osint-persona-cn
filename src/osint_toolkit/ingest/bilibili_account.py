@@ -38,7 +38,8 @@ async def _nav_mid(client: HttpClient) -> int | None:
         data = resp.json().get("data") or {}
         mid = data.get("mid")
         return int(mid) if mid else None
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili nav mid lookup failed: %s", exc)
         return None
 
 
@@ -154,8 +155,8 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                 pn += 1
             if len(results) >= limit:
                 break
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili favorites ingest failed: %s", exc)
     return results
 
 
@@ -199,7 +200,18 @@ async def _ingest_likes_legacy(client: HttpClient, mid: int, limit: int) -> list
 
 
 async def ingest_likes(limit: int = 500) -> list[dict]:
-    """B站最近点赞视频（WBI like/archive/list，回退 x/space/like/video）。"""
+    """B站最近点赞视频（SDK WBI like/archive/list，回退 x/space/like/video）。"""
+    from osint_toolkit.ingest import bilibili_sdk
+
+    if bilibili_sdk.sdk_enabled("ingest_likes"):
+        try:
+            rows = await bilibili_sdk.ingest_likes(limit)
+            for entry in rows:
+                log_event("bilibili_like", entry)
+            return rows
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk likes failed, fallback to httpx: %s", exc)
+
     client = HttpClient()
     mid = await _nav_mid(client)
     if not mid:
@@ -228,12 +240,13 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
             if len(items) < 20:
                 break
             pn += 1
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili likes ingest failed: %s", exc)
         if not results:
             try:
                 return await _ingest_likes_legacy(client, mid, limit)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as legacy_exc:  # noqa: BLE001
+                logger.warning("bilibili likes legacy fallback failed: %s", legacy_exc)
     return results
 
 
@@ -291,6 +304,6 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
             if len(batch) < 50:
                 break
             pn += 1
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili followings ingest failed: %s", exc)
     return results

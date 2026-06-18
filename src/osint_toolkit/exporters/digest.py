@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -10,7 +11,35 @@ from osint_toolkit.persona.behavior_signals import score_event
 from osint_toolkit.storage.sqlite import connect
 
 
-def generate_daily_digest(*, use_ai: bool = False, no_ai: bool = False) -> str:
+def _zhihu_hot_list_lines_sync(*, limit: int = 15) -> list[str]:
+    from osint_toolkit.ingest import zhihu_openapi
+
+    if not zhihu_openapi.openapi_enabled("hot_list"):
+        return []
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        items = asyncio.run(zhihu_openapi.hot_list(limit=limit))
+    else:
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            items = pool.submit(asyncio.run, zhihu_openapi.hot_list(limit=limit)).result(timeout=30)
+    if not items:
+        return []
+    lines = ["## 知乎热榜", ""]
+    for index, item in enumerate(items, 1):
+        lines.append(f"{index}. {item.title} — {item.url}")
+    lines.append("")
+    return lines
+
+
+def generate_daily_digest(
+    *,
+    use_ai: bool = False,
+    no_ai: bool = False,
+    include_hot_list: bool = True,
+) -> str:
     if use_ai and not no_ai:
         from osint_toolkit.ai.digest import generate_ai_daily_digest
         from osint_toolkit.persona.context import maybe_load_persona_context
@@ -28,6 +57,10 @@ def generate_daily_digest(*, use_ai: bool = False, no_ai: bool = False) -> str:
     ).fetchall()
     conn.close()
     lines = [f"# 每日简报 {datetime.now(UTC).date()}", "", f"今日事件: {len(rows)} 条", ""]
+    if include_hot_list:
+        hot_lines = _zhihu_hot_list_lines_sync()
+        if hot_lines:
+            lines.extend(hot_lines)
     ranked = []
     for row in rows:
         data = json.loads(row["data_json"])

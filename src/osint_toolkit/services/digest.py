@@ -9,8 +9,8 @@ from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.exporters.digest import generate_daily_digest
 
 
-def get_daily_digest(*, use_ai: bool = False, no_ai: bool = False) -> str:
-    return generate_daily_digest(use_ai=use_ai, no_ai=no_ai)
+def get_daily_digest(*, use_ai: bool = False, no_ai: bool = False, include_hot_list: bool = True) -> str:
+    return generate_daily_digest(use_ai=use_ai, no_ai=no_ai, include_hot_list=include_hot_list)
 
 
 def list_daily_digests(limit: int = 30) -> list[dict[str, Any]]:

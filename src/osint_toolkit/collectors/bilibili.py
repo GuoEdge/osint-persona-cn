@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from typing import Any
 
@@ -12,6 +13,7 @@ from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem, IntelMetrics
 from osint_toolkit.processors.normalize import html_to_text
 
+logger = logging.getLogger(__name__)
 
 class BilibiliCollector(BaseCollector):
     name = "bilibili"
@@ -138,7 +140,8 @@ class BilibiliCollector(BaseCollector):
                     normalized,
                     limit=limit,
                 )
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("bilibili sdk search failed, fallback to WBI: %s", exc)
                 if not search_cfg.get("legacy_wbi_fallback", True):
                     raise
                 if not bilibili_sdk.legacy_wbi_supports(normalized):
@@ -318,17 +321,29 @@ class BilibiliCollector(BaseCollector):
         return "video"
 
     async def enrich_video(self, item: IntelItem, *, page_html: str | None = None) -> None:
+        from osint_toolkit.analyzers.danmaku import aggregate_danmaku, summarize_danmaku
         from osint_toolkit.ingest import bilibili_sdk
 
         if item.type != "video":
             return
+        sdk_ok = False
         if bilibili_sdk.sdk_enabled("subtitle") or bilibili_sdk.sdk_enabled("danmaku"):
             try:
                 await bilibili_sdk.enrich_video_item(item)
-                return
-            except Exception:  # noqa: BLE001
-                pass
-        await self._apply_subtitle_from_url(item)
+                sdk_ok = True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("bilibili sdk enrich failed, fallback to legacy: %s", exc)
+        if not sdk_ok or not (item.layers.get("subtitle") or {}).get("text"):
+            await self._apply_subtitle_from_url(item)
+        if not item.layers.get("danmaku_top") and bilibili_sdk.sdk_enabled("danmaku"):
+            lines = await bilibili_sdk.fetch_danmaku_lines(item.url)
+            if lines:
+                top = aggregate_danmaku(lines, top_n=15)
+                item.layers["danmaku_top"] = top
+                item.layers["danmaku_count"] = len(lines)
+                summary = await summarize_danmaku(top)
+                if summary:
+                    item.layers["danmaku_summary"] = summary
 
     async def _fetch_subtitle_legacy(self, page_html: str) -> str:
         """Deprecated: page_html 不再用于解析 aid/cid。"""
@@ -354,8 +369,8 @@ class BilibiliCollector(BaseCollector):
                     comment_type=comment_type,
                     limit=limit,
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("bilibili sdk comments failed, fallback to legacy: %s", exc)
         collected: list[dict] = []
         seen_rpids: set[int] = set()
         next_offset = 0
@@ -414,8 +429,8 @@ class BilibiliCollector(BaseCollector):
             replies = payload.get("replies") or []
             cursor = payload.get("cursor") or {}
             return replies, int(cursor.get("pagination_reply", {}).get("next_offset") or 0)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili wbi reply failed, fallback to legacy: %s", exc)
         api = (
             f"https://api.bilibili.com/x/v2/reply/main?type={comment_type}&oid={oid}&mode=3&plat=1"
         )
@@ -429,7 +444,8 @@ class BilibiliCollector(BaseCollector):
             pagination = cursor.get("pagination_reply") or {}
             next_offset = int(pagination.get("next_offset") or 0)
             return payload.get("replies") or [], next_offset
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili legacy reply failed: %s", exc)
             return [], 0
 
     async def _resolve_oid(self, url: str) -> str | None:
