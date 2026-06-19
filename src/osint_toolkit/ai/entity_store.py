@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from osint_toolkit.ai.alias_filter import is_valid_search_term
+from osint_toolkit.ai.alias_filter import has_relevance_to_query, is_valid_search_term
 from osint_toolkit.auth.paths import get_data_dir
 
 DISCOVERED_FILENAME = "discovered.yaml"
@@ -70,7 +70,12 @@ def merge_discovered_aliases(
     if not canonical:
         return {"saved": False, "reason": "empty canonical"}
 
-    new_aliases = [a for a in _norm_list(aliases) if is_valid_search_term(a, query=canonical)]
+    new_aliases = [
+        a
+        for a in _norm_list(aliases)
+        if is_valid_search_term(a, query=canonical, require_relevance=True)
+        and has_relevance_to_query(a, canonical)
+    ]
     new_slurs = _norm_list(slurs or [])
     new_aliases = [a for a in new_aliases if a.lower() != canonical.lower()]
     new_slurs = [s for s in new_slurs if s.lower() != canonical.lower()]

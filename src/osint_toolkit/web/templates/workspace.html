@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% block title %}搜罗 — 个人情报工具{% endblock %}
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.17.2"></script>
 {% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--accent">
   <div>
     <h1>搜罗</h1>
     <p class="page-desc">输入话题，从知乎、B站、Web 等来源并行采集，可选 AI 摘要与情报报告。</p>
@@ -14,19 +13,39 @@
   </div>
 </div>
 
-<nav class="pipeline-steps card" aria-label="推荐流程">
-  <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
-  <span class="pipeline-arrow">→</span>
-  <a href="/ingest" class="pipeline-step">2. 完整同步</a>
-  <span class="pipeline-arrow">→</span>
-  <a href="/persona" class="pipeline-step">3. 构建画像</a>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step active">4. 搜罗</span>
+<nav class="pipeline-stepper card" aria-label="推荐流程">
+  <ol class="pipeline-stepper-list">
+    <li class="pipeline-stepper-item is-done">
+      <a href="/settings#deps" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">环境检查</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-done">
+      <a href="/ingest" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">完整同步</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-done">
+      <a href="/persona" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">构建画像</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-active">
+      <span class="pipeline-stepper-inner">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">搜罗</span>
+      </span>
+    </li>
+  </ol>
 </nav>
 
 <div id="setup-wizard" class="setup-wizard card hidden"></div>
 
 <div id="auth-banner" class="alert alert-warn hidden"></div>
+<div id="source-auth-hint" class="alert alert-warn hidden" role="status"></div>
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
 <div id="fork-banner" class="alert alert-info hidden"></div>
 <div id="active-search-banner" class="alert alert-warn hidden"></div>
@@ -35,6 +54,7 @@
   <div class="query-row">
     <input type="text" id="search-query" placeholder="你想了解什么话题？例如：MCP 协议、丰川祥子…" required autofocus>
     <button type="submit" class="btn" id="btn-search-submit">开始搜罗</button>
+    <button type="button" class="btn btn-secondary" id="btn-search-queue" title="加入队列后在后台执行，不切换当前结果区">加入队列</button>
   </div>
   <div id="suggested-queries" class="chip-group mt-1"></div>
   <details id="expanded-queries-wrap" class="mt-1 hidden">
@@ -42,24 +62,51 @@
     <div id="expanded-queries" class="chip-group mt-1"></div>
   </details>
 
-  <div class="toolbar-group">
-    <span class="toolbar-label">来源</span>
-    <div class="chip-group">
-      {% for s in sources %}
-      <label class="chip">
-        <input type="checkbox" name="sources" value="{{ s }}" {% if s in ['zhihu','bilibili','web','weixin'] %}checked{% endif %}>
-        {% if s == 'zhihu' %}知乎{% elif s == 'bilibili' %}B站{% elif s == 'web' %}网页{% elif s == 'v2ex' %}V2EX{% elif s == 'rss' %}RSS{% elif s == 'weixin' %}微信{% else %}{{ s }}{% endif %}
-      </label>
-      {% endfor %}
+  <div class="toolbar-group source-catalog-panel">
+    <div class="source-catalog-head">
+      <span class="toolbar-label">来源</span>
+      <span id="source-selection-summary" class="source-selection-summary muted" aria-live="polite"></span>
     </div>
+    {% macro source_chip(s) %}
+    <label class="chip source-chip" data-source-id="{{ s.id }}" data-auth-mode="{{ s.auth_mode }}" data-comment-mine="{{ '1' if s.comment_mine else '0' }}" data-depth="{{ s.depth }}" title="{{ s.description }}{% if s.login_hint %} · {{ s.login_hint }}{% endif %}">
+      <input type="checkbox" name="sources" value="{{ s.id }}" {% if s.default %}checked{% endif %}>
+      <span class="source-chip-label">{{ s.label }}</span>
+      <span class="source-chip-status" aria-live="polite"></span>
+    </label>
+    {% endmacro %}
+    {% for group in source_catalog %}
+    {% if group.tier == 'primary' %}
+    <div class="source-category source-category-core">
+      <div class="chip-group chip-group-core">
+        {% for s in group.sources %}{{ source_chip(s) }}{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+    <details class="source-catalog-more">
+      <summary>更多来源 <span id="extended-source-count" class="muted"></span></summary>
+      <p class="muted source-catalog-hint">彩色标签表示当前登录/Cookie 状态：绿色「已就绪」、琥珀「摘要模式」、橙色「需登录」。勾选需登录的信源时会引导你打开平台登录页，并由浏览器扩展同步 Cookie。</p>
+      <div class="source-catalog-extended">
+        {% for group in source_catalog %}
+        {% if group.tier != 'primary' %}
+        <section class="source-category-compact">
+          <h4 class="source-category-label">{{ group.label }}</h4>
+          <div class="chip-group chip-group-compact">
+            {% for s in group.sources %}{{ source_chip(s) }}{% endfor %}
+          </div>
+        </section>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </details>
   </div>
 
   <div class="search-toolbar">
-    <div class="inline-field">
-      <label for="search-profile">配置</label>
-      <select id="search-profile">
-        {% for p in profiles %}
-        <option value="{{ p }}">{{ p }}</option>
+    <div class="inline-field profile-field">
+      <label for="search-profile">搜罗模式</label>
+      <select id="search-profile" aria-describedby="search-profile-hint">
+        {% for p in profile_catalog %}
+        <option value="{{ p.id }}">{{ p.label }}</option>
         {% endfor %}
       </select>
     </div>
@@ -68,14 +115,48 @@
       <input type="number" id="search-limit" value="10" min="1" max="50">
     </div>
   </div>
+  {% set ns = namespace(prof=none) %}
+  {% for p in profile_catalog %}
+    {% if p.id == 'default' %}{% set ns.prof = p %}{% endif %}
+  {% endfor %}
+  {% if not ns.prof and profile_catalog|length > 0 %}{% set ns.prof = profile_catalog[0] %}{% endif %}
+  <div id="search-profile-hint" class="profile-hint" role="note">{% if ns.prof %}
+    <strong>{{ ns.prof.label }}</strong> — {{ ns.prof.summary }}
+    {% if ns.prof.detail %}<p class="profile-hint-detail">{{ ns.prof.detail }}</p>{% endif %}
+    {% if 'simulate_persona' in ns.prof %}
+      {% if ns.prof.simulate_persona %}
+    <p class="profile-hint-meta">画像模拟：本模式默认<strong>开启</strong>（可在「更多选项」中调整）</p>
+      {% else %}
+    <p class="profile-hint-meta">画像模拟：本模式默认<strong>关闭</strong></p>
+      {% endif %}
+    {% else %}
+    <p class="profile-hint-meta">画像模拟：由「更多选项 → 跳过画像模拟」自行决定</p>
+    {% endif %}
+  {% endif %}</div>
+  <div id="source-routing-hint" class="profile-hint source-routing-hint hidden" role="note"></div>
+  <details id="source-plan-panel" class="source-plan-panel card hidden">
+    <summary>AI 信源规划 <span id="source-plan-badge" class="muted"></span></summary>
+    <div id="source-plan-body" class="source-plan-body"></div>
+  </details>
 
   <div class="toggle-row">
     <label><input type="checkbox" id="opt-create-research-tree" checked> 纳入研究树（可分叉、导图）</label>
-    <label><input type="checkbox" id="opt-digest"> 生成情报报告</label>
-    <label><input type="checkbox" id="opt-mine-comments" checked> 挖掘 B 站热评</label>
+    <label title="搜罗完成后在本页「情报报告」面板生成 AI 归纳；与导航「简报」页的每日摘要不同"><input type="checkbox" id="opt-digest"> 本轮情报报告</label>
+  </div>
+  <div id="comment-mine-panel" class="comment-mine-panel">
+    <div class="toggle-row comment-mine-head">
+      <label><input type="checkbox" id="opt-mine-comments" checked> 评论与社区层挖掘</label>
+      <span class="muted comment-mine-head-hint">对支持的平台单独选择是否拉取热评/社区观点</span>
+    </div>
+    <div id="comment-mine-sources" class="chip-group comment-mine-sources" role="group" aria-label="按信源选择社区层挖掘"></div>
   </div>
   <details class="mt-1">
     <summary>更多选项</summary>
+    <p class="muted section-hint" style="font-size:0.85rem;margin-top:0.5rem">
+      <strong>AI 选项优先级</strong>：勾选「跳过 AI」时，摘要/报告/评论归纳等 AI 步骤均不调用（除非在高级选项单独禁用某步）。<br>
+      「本轮情报报告」需 AI 可用；与「跳过 AI」同时勾选时报告通常无法生成。<br>
+      高级选项中禁用「情报报告」步骤时，即使勾选「本轮情报报告」也不会生成报告。
+    </p>
     <div class="toggle-row mt-1">
       <label><input type="checkbox" id="opt-trace"> 记录运行轨迹</label>
       <label><input type="checkbox" id="opt-include-slurs" checked> 含贬义/黑称关联词</label>
@@ -84,7 +165,7 @@
       <span class="muted" style="font-size:0.85rem">（画像模拟需先 <a href="/persona">构建画像</a>）</span>
     </div>
     <div class="inline-field mt-1">
-      <label for="comment-mine-top">热评挖掘条数（B站视频）</label>
+      <label for="comment-mine-top">社区层挖掘条数（top N 条目）</label>
       <input type="number" id="comment-mine-top" value="12" min="0" max="30">
     </div>
   </details>
@@ -93,8 +174,14 @@
     <summary>高级选项</summary>
     <div class="toggle-row">
       <span class="toolbar-label">禁用 AI 步骤</span>
+      <label><input type="checkbox" name="no-ai-step" value="alias_discover"> 关联词发现</label>
+      <label><input type="checkbox" name="no-ai-step" value="query_analyze"> 查询分析</label>
+      <label><input type="checkbox" name="no-ai-step" value="source_plan"> 信源规划</label>
       <label><input type="checkbox" name="no-ai-step" value="ai_summarize"> 摘要</label>
       <label><input type="checkbox" name="no-ai-step" value="persona_simulate"> 画像模拟</label>
+      <label><input type="checkbox" name="no-ai-step" value="comment_mine"> 评论挖掘</label>
+      <label><input type="checkbox" name="no-ai-step" value="report"> 情报报告</label>
+      <label><input type="checkbox" name="no-ai-step" value="danmaku_interpret"> 弹幕解读</label>
     </div>
     <div class="form-row mt-1">
       <label for="ai-instruct">本次 AI 补充指令</label>
@@ -107,43 +194,100 @@
   <div id="steps-bar" class="steps-bar"></div>
 </div>
 
+<details id="search-task-panel" class="card search-task-panel mt-1" open>
+  <summary>
+    搜罗任务
+    <span id="search-task-summary" class="muted"></span>
+  </summary>
+  <div id="search-task-list" class="search-task-list muted">暂无进行中的搜罗任务</div>
+</details>
+
+<div id="search-timeline" class="card search-timeline hidden" aria-label="搜罗过程摘要">
+  <h3 class="search-timeline-title">搜罗过程</h3>
+  <div id="search-timeline-body" class="muted"></div>
+</div>
+
+<details id="watches-panel" class="card mt-1">
+  <summary>话题监视 <span id="watches-count" class="muted"></span></summary>
+  <p class="muted">在 <code>~/.osint/config.yaml</code> 的 <code>watches</code> 段配置定时搜罗；支持 <code>6h</code> 间隔或每日 <code>08:30</code>。</p>
+  <button type="button" class="btn btn-sm btn-ghost" id="btn-watches-refresh">刷新列表</button>
+  <div id="watches-list" class="muted">加载中…</div>
+</details>
+
 <div class="workspace-panel-tabs" role="tablist" aria-label="搜罗内容分区">
-  <button type="button" class="workspace-panel-tab active" role="tab" aria-selected="true" data-panel="results">搜索结果</button>
-  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="report">情报报告</button>
-  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="research">研究树</button>
-  <label class="workspace-split-toggle" id="workspace-split-wrap" title="宽屏下同时查看结果与报告">
+  <div class="ui-segmented workspace-panel-segmented">
+    <button type="button" class="workspace-panel-tab active" role="tab" aria-selected="true" aria-controls="workspace-panel-results" data-panel="results">搜索结果</button>
+    <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" aria-controls="workspace-panel-report" data-panel="report">情报报告</button>
+    <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" aria-controls="workspace-panel-research" data-panel="research">研究树</button>
+  </div>
+  <label class="workspace-split-toggle" id="workspace-split-wrap" title="宽屏（≥1280px）左右分屏对照结果与报告；分屏时追问栏请切换到「情报报告」Tab 全宽查看">
     <input type="checkbox" id="workspace-split-view"> 结果/报告分屏
   </label>
 </div>
+<details class="workspace-interaction-tips" id="workspace-interaction-tips">
+  <summary>操作提示</summary>
+  <ul class="interaction-tips-list muted">
+    <li>报告内 <code>[cN]</code>：<strong>单击</strong>定位到结果卡片；<strong>Ctrl/⌘+单击</strong>或 <strong>Shift+单击</strong>打开原文</li>
+    <li>结果卡片默认收起，<strong>点击标题</strong>展开正文；工具栏可「全部展开/收起」</li>
+    <li>宽屏勾选「结果/报告分屏」可左右对照；从报告点引用时会自动开启分屏</li>
+    <li>研究树中选中一轮搜罗后，可用笔记、分叉深挖、AI 归纳与建议查询</li>
+    <li>信源计划表中「必采 / 排除」可覆盖 AI 对单个信源的取舍</li>
+    <li>需登录的信源：勾选后会弹出登录引导；芯片标签显示绿色「已就绪」、琥珀「摘要模式」、橙色「需登录」</li>
+  </ul>
+</details>
 
 <div class="results-layout panel-results">
-  <section class="results-panel">
+  <section class="results-panel" id="workspace-panel-results" role="tabpanel">
     <div class="section-title">
       <h2>搜索结果</h2>
       <span class="muted" id="results-count"></span>
     </div>
     <p class="muted results-hint">卡片默认收起，只显示标题与摘要；点击展开后可分块查看原文、热评与模拟。</p>
     <div id="search-results">
-      <div class="empty-state">输入话题并点击「开始搜罗」，结果将显示在这里</div>
-    </div>
-  </section>
-  <section class="report-panel-wrap">
-    <h2>情报报告</h2>
-    <div id="report-panel" class="card card-flat markdown-body">
-      <p class="muted">勾选「生成情报报告」后，AI 归纳内容会显示在此；也可在结果卡片上反馈有用/噪音。</p>
-    </div>
-    <div id="ask-section" class="card mt-1 hidden">
-      <h2>追问报告</h2>
-      <div id="ask-history"></div>
-      <form id="ask-form" class="mt-1">
-        <div class="query-row">
-          <input type="text" id="ask-question" placeholder="基于报告继续提问…">
-          <button type="submit" class="btn btn-sm">发送</button>
+      <div class="empty-state-rich empty-state-icon--search">
+        <div class="empty-state-rich-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         </div>
-      </form>
+        <div class="empty-state-title">开始你的第一次搜罗</div>
+        <p class="empty-state-desc muted">输入话题并点击「开始搜罗」，多源结果将显示在这里</p>
+      </div>
     </div>
   </section>
-  <section class="research-panel-wrap">
+  <section class="report-panel-wrap" id="workspace-panel-report" role="tabpanel" aria-hidden="true">
+    <div class="report-ask-layout">
+      <div class="report-main">
+        <h2>情报报告</h2>
+        <div class="reading-toolbar" id="report-reading-toolbar">
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-size-down" title="减小字号">A−</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-size-up" title="增大字号">A+</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-split-btn" title="对照结果分屏">对照结果</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-focus-btn" title="沉浸阅读">Focus</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-copy-md" title="复制 Markdown">复制</button>
+        </div>
+        <div class="report-layout-with-toc">
+          <aside id="report-toc" class="report-toc hidden" aria-label="报告目录"></aside>
+          <div class="report-main-inner">
+            <div id="report-panel" class="card card-flat markdown-body reading-surface">
+              <p class="muted">勾选「本轮情报报告」后，AI 归纳内容会显示在此（非导航「简报」页的每日摘要）；也可在结果卡片上反馈有用/噪音。</p>
+            </div>
+            <div id="report-interaction-hint" class="interaction-hint-bar hidden" role="note" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+      <aside id="ask-section" class="ask-sidebar card hidden" aria-label="追问报告">
+        <h2>追问报告</h2>
+        <div id="ask-history" class="ask-history"></div>
+        <form id="ask-form" class="ask-form">
+          <div class="query-row">
+            <input type="text" id="ask-question" placeholder="基于报告继续提问…" autocomplete="off" title="Enter 发送；回答中的 [cN] 引用可点击定位">
+            <button type="submit" class="btn btn-sm" title="发送追问（Enter）">发送</button>
+          </div>
+        </form>
+        <div id="ask-interaction-hint" class="interaction-hint-bar hidden" role="note"></div>
+      </aside>
+    </div>
+  </section>
+  <section class="research-panel-wrap" id="workspace-panel-research" role="tabpanel" aria-hidden="true">
     <div class="section-title">
       <h2>研究树</h2>
       <div class="research-view-toggle">
@@ -156,12 +300,15 @@
       <button type="button" class="btn btn-sm btn-ghost" id="btn-research-new">新建研究</button>
       <button type="button" class="btn btn-sm btn-ghost" id="btn-research-clear">脱离</button>
     </div>
+    <div id="research-toolbar-hint" class="alert alert-warn research-toolbar-hint hidden" role="status">
+      请先在下方研究树中点击一轮搜罗，再使用笔记、分叉深挖或 AI 建议。
+    </div>
     <div id="research-panel" class="card card-flat">
       <p class="muted">搜罗将自动纳入研究树；可在此跟踪多轮探索、笔记与分叉。</p>
     </div>
     <div id="research-node-detail" class="research-node-detail hidden"></div>
     <div id="research-note-form" class="research-note-form hidden">
-      <textarea id="research-note-input" rows="3" placeholder="记录关注点、假设或待验证方向…"></textarea>
+      <textarea id="research-note-input" rows="3" placeholder="记录关注点、假设或待验证方向…" title="Ctrl/⌘+Enter 快速保存"></textarea>
       <div class="research-note-form-actions">
         <button type="button" class="btn btn-sm" id="btn-research-note-save">保存笔记</button>
         <button type="button" class="btn btn-sm btn-ghost" id="btn-research-note-cancel">取消</button>
@@ -173,7 +320,22 @@
     <div id="research-markmap" class="research-markmap hidden"></div>
   </section>
 </div>
+
+<dialog id="source-auth-modal" class="source-auth-modal">
+  <form method="dialog" class="source-auth-modal-inner">
+    <h3 id="source-auth-modal-title">登录以启用完整采集</h3>
+    <p id="source-auth-modal-body" class="muted"></p>
+    <ol id="source-auth-modal-steps" class="source-auth-steps muted"></ol>
+    <div class="source-auth-modal-actions">
+      <button type="button" class="btn btn-sm" id="source-auth-btn-login">打开登录页</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="source-auth-btn-sync">我已登录，同步 Cookie</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="source-auth-btn-serp">不登录，使用搜索引擎摘要</button>
+      <button type="button" class="btn btn-sm btn-ghost" value="cancel">取消勾选</button>
+    </div>
+    <p class="muted source-auth-modal-foot"><a href="/settings">设置页</a> · <a href="/ingest#extension">安装扩展</a></p>
+  </form>
+</dialog>
 {% endblock %}
 {% block scripts %}
-<script>initWorkspace({{ profiles | tojson }}, {{ sources | tojson }});</script>
+<script>initWorkspace({{ profile_catalog | tojson }}, {{ source_catalog | tojson }});</script>
 {% endblock %}

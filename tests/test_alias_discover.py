@@ -38,12 +38,13 @@ def test_expand_query_prioritizes_network_aliases():
         ["bilibili"],
         None,
         no_ai=True,
-        discovered_aliases=["网络新梗", "小祥"],
+        discovered_aliases=["小祥", "字幕:ai"],
     )
     queries = result["queries_used"]
     assert queries[0] == "丰川祥子"
-    assert "网络新梗" in queries
-    assert result["network_aliases"] == ["网络新梗", "小祥"]
+    assert "小祥" in queries
+    assert "字幕:ai" not in queries
+    assert "小祥" in result["network_aliases"]
 
 
 @pytest.mark.asyncio
@@ -104,6 +105,23 @@ def test_ai_extract_requires_evidence_items():
     terms, details = ai_extract_aliases("丰川祥子", [], no_ai=True)
     assert terms == []
     assert details == []
+
+
+@pytest.mark.asyncio
+async def test_discover_skips_probe_for_narrow_product(monkeypatch):
+    probe_called = False
+
+    async def fake_probe(*args, **kwargs):
+        nonlocal probe_called
+        probe_called = True
+        return []
+
+    monkeypatch.setattr("osint_toolkit.ai.alias_discover.probe_network", fake_probe)
+    result = await discover_aliases("glm5.2", ["bilibili"], no_ai=True)
+    assert result.get("skipped") == "narrow_product"
+    assert probe_called is False
+    assert "GLM-5.2" in result["discovered_aliases"]
+    assert "字幕:ai" not in result["discovered_aliases"]
 
 
 @pytest.mark.asyncio

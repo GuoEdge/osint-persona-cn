@@ -3,17 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="osint-token" content="{{ web_token }}">
   <title>{% block title %}个人情报工具{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/theme-init.js?v={{ static_v }}"></script>
+  <link rel="stylesheet" href="/static/tokens.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/app.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/ui.css?v={{ static_v }}">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
   <div class="layout">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="主导航">
       <div class="brand">
-        个人情报
-        <span class="brand-sub">本地 OSINT 工作台</span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/>
+            <path d="M20 20l-3.5-3.5"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          个人情报
+          <span class="brand-sub">本地 OSINT 工作台</span>
+        </span>
       </div>
       <nav>
         {% for group in nav_groups %}
@@ -39,8 +52,15 @@
       </div>
     </main>
   </div>
-  <script src="/static/app.js"></script>
-  <script>initGlobalSidebar();</script>
+  <nav class="mobile-tab-bar" aria-label="快捷导航">
+    <a href="/" class="{% if active == 'workspace' %}active{% endif %}">搜罗</a>
+    <a href="/knowledge" class="{% if active == 'knowledge' %}active{% endif %}">知识库</a>
+    <a href="/ingest" class="{% if active in ['ingest', 'behavior', 'digest'] %}active{% endif %}">数据</a>
+    <a href="/persona" class="{% if active == 'persona' %}active{% endif %}">画像</a>
+    <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">设置</a>
+  </nav>
+  <script src="/static/app.js?v={{ static_v }}"></script>
+  <script>initTheme(); initGlobalSidebar(); initGlobalShortcuts();</script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -15,3 +15,32 @@ def test_dedup_by_url_and_similar_title():
     out = dedup_items(items)
     assert len(out) == 2
     assert out[0].url == "https://a.com/1"
+
+
+def test_dedup_keeps_multiple_zhihu_answers_same_title():
+    title = "如何评价最新发布并开源的 GLM-5.2？"
+    items = [
+        IntelItem(
+            source="zhihu",
+            type="answer",
+            url="https://www.zhihu.com/question/1/answer/101",
+            title=title,
+            content="高赞观点 A",
+        ),
+        IntelItem(
+            source="zhihu",
+            type="answer",
+            url="https://www.zhihu.com/question/1/answer/102",
+            title=title,
+            content="高赞观点 B",
+        ),
+        IntelItem(
+            source="zhihu",
+            type="answer",
+            url="https://www.zhihu.com/question/1/answer/103",
+            title=title,
+            content="最新观点 C",
+        ),
+    ]
+    out = dedup_items(items)
+    assert len(out) == 3

@@ -177,7 +177,13 @@ class ZhihuCollector(BaseCollector):
                 items.append(item)
         if aggressive:
             return self._attach_search_warnings(items)
-        return self._attach_search_warnings(items[:limit])
+        # 非 aggressive 时仍保留已展开的多条回答，仅截断「搜索种子」条数
+        if len(items) <= limit:
+            return self._attach_search_warnings(items)
+        seed_count = max(0, len(items) - len(expanded or []))
+        keep_expanded = list(expanded or [])
+        trimmed_seed = items[:seed_count][:limit]
+        return self._attach_search_warnings(trimmed_seed + keep_expanded)
 
     async def fetch_hot_list(self, limit: int = 30) -> list[IntelItem]:
         """知乎热榜（需开放平台 access_secret）。"""
@@ -191,7 +197,9 @@ class ZhihuCollector(BaseCollector):
         if not cfg.get("zhihu_expand_answers", True):
             return []
         max_questions = int(cfg.get("zhihu_expand_question_top", 15))
-        per_question = int(cfg.get("zhihu_answers_per_question", 50))
+        hot_top = int(cfg.get("zhihu_answers_hot_top", 10))
+        recent_top = int(cfg.get("zhihu_answers_recent_top", 4))
+        per_question = int(cfg.get("zhihu_answers_per_question", hot_top + recent_top))
         expand_from_answers = bool(cfg.get("zhihu_expand_from_answers", True))
 
         question_meta: dict[str, tuple[str, str]] = {}
@@ -244,14 +252,58 @@ class ZhihuCollector(BaseCollector):
         if not qid.isdigit():
             return []
 
+        cfg = self._zhihu_search_cfg()
+        hot_top = min(int(cfg.get("zhihu_answers_hot_top", 10)), limit)
+        recent_top = min(int(cfg.get("zhihu_answers_recent_top", 4)), max(0, limit - hot_top))
+
+        hot = await self._fetch_answers_sorted(qid, sort_by="vote_num", limit=hot_top)
+        hot_urls = {i.url for i in hot}
+        for item in hot:
+            item.personal["answer_bucket"] = "hot"
+
+        recent_merged: list[IntelItem] = []
+        if recent_top > 0:
+            recent_raw = await self._fetch_answers_sorted(
+                qid, sort_by="updated", limit=recent_top + len(hot_urls)
+            )
+            for item in recent_raw:
+                if item.url in hot_urls:
+                    continue
+                item.personal["answer_bucket"] = "recent"
+                recent_merged.append(item)
+                if len(recent_merged) >= recent_top:
+                    break
+
+        merged: list[IntelItem] = []
+        seen: set[str] = set()
+        for item in hot + recent_merged:
+            if item.url in seen:
+                continue
+            seen.add(item.url)
+            if item.personal.get("answer_bucket") != "recent":
+                item.personal.setdefault("answer_bucket", "hot")
+            merged.append(item)
+            if len(merged) >= limit:
+                break
+        return merged
+
+    async def _fetch_answers_sorted(
+        self,
+        qid: str,
+        *,
+        sort_by: str,
+        limit: int,
+    ) -> list[IntelItem]:
+        if limit <= 0:
+            return []
         items: list[IntelItem] = []
         seen: set[str] = set()
         offset = 0
         while len(items) < limit:
             api = (
                 f"https://www.zhihu.com/api/v4/questions/{qid}/answers"
-                "?include=content,comment_count,voteup_count,author,question"
-                f"&offset={offset}&limit=20&sort_by=vote_num"
+                "?include=content,comment_count,voteup_count,author,question,created_time,updated_time"
+                f"&offset={offset}&limit=20&sort_by={sort_by}"
             )
             try:
                 resp = await self.client.get(api)

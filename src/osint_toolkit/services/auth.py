@@ -16,16 +16,21 @@ from osint_toolkit.auth.cookie_sync import (
 from osint_toolkit.auth.paths import get_config_paths, get_cookies_dir, get_data_dir
 
 
-def get_auth_status(target: str = "all") -> list[dict[str, Any]]:
+def get_auth_status(target: str = "all", *, live_probe: bool = False) -> list[dict[str, Any]]:
+    """live_probe=False 时仅检查本地配置/Cookie 文件，避免页面加载触发远程探测卡住。"""
     target = target.lower()
     results: list[dict[str, Any]] = []
     if target in {"all", "deepseek"}:
         entry: dict[str, Any] = {"name": "DeepSeek API", "key": "deepseek"}
         try:
             resolve_api_key()
-            result = DeepSeekClient().test_connection()
-            entry["ok"] = bool(result.get("ok"))
-            entry["detail"] = f"model={result.get('model', '')}"
+            if live_probe:
+                result = DeepSeekClient().test_connection()
+                entry["ok"] = bool(result.get("ok"))
+                entry["detail"] = f"model={result.get('model', '')}"
+            else:
+                entry["ok"] = True
+                entry["detail"] = "已配置（未探测连通性）"
         except Exception as exc:  # noqa: BLE001
             entry["ok"] = False
             entry["detail"] = str(exc)
@@ -37,15 +42,28 @@ def get_auth_status(target: str = "all") -> list[dict[str, Any]]:
         r = validate_domain_cookie("zhihu.com")
         results.append({"name": "zhihu.com", "key": "zhihu", "ok": r["ok"], "detail": r["reason"]})
     if target in {"all", "zhihu_openapi"}:
-        from osint_toolkit.ingest.zhihu_openapi import test_connection_sync
+        if live_probe:
+            from osint_toolkit.ingest.zhihu_openapi import test_connection_sync
 
-        openapi = test_connection_sync()
+            openapi = test_connection_sync()
+            ok = bool(openapi.get("ok"))
+            detail = str(openapi.get("detail") or "")
+        else:
+            from osint_toolkit.utils.secrets import resolve_secret
+
+            try:
+                resolve_secret("zhihu_openapi")
+                ok = True
+                detail = "已配置（未探测连通性）"
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                detail = str(exc)
         results.append(
             {
                 "name": "知乎开放平台",
                 "key": "zhihu_openapi",
-                "ok": bool(openapi.get("ok")),
-                "detail": str(openapi.get("detail") or ""),
+                "ok": ok,
+                "detail": detail,
             }
         )
     return results

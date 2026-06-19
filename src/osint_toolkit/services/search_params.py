@@ -18,8 +18,11 @@ SEARCH_PIPELINE_KEYS = frozenset({
     "disabled_ai_steps",
     "deep_top",
     "comment_mine_top",
+    "comment_mine_sources",
+    "serp_fallback_accepted",
     "include_slurs",
     "run_id",
+    "source_overrides",
 })
 
 # 仅落盘 / 研究树，不传入 pipeline

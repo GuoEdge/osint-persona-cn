@@ -4,21 +4,40 @@
 
 {% block content %}
 
-<div class="page-header">
+<div class="page-header page-header--accent">
   <div>
     <h1>行为同步</h1>
     <p class="page-desc">一条主路径完成 B站/知乎行为导入；扩展负责日常被动采集。</p>
   </div>
 </div>
 
-<nav class="pipeline-steps card" aria-label="推荐流程">
-  <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step active">2. 完整同步</span>
-  <span class="pipeline-arrow">→</span>
-  <a href="/persona" class="pipeline-step">3. 构建画像</a>
-  <span class="pipeline-arrow">→</span>
-  <a href="/" class="pipeline-step">4. 搜罗</a>
+<nav class="pipeline-stepper card" aria-label="推荐流程">
+  <ol class="pipeline-stepper-list">
+    <li class="pipeline-stepper-item is-done">
+      <a href="/settings#deps" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">环境检查</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-active">
+      <span class="pipeline-stepper-inner">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">完整同步</span>
+      </span>
+    </li>
+    <li class="pipeline-stepper-item">
+      <a href="/persona" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">构建画像</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item">
+      <a href="/" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">搜罗</span>
+      </a>
+    </li>
+  </ol>
 </nav>
 
 <div id="setup-wizard" class="setup-wizard card hidden"></div>
@@ -26,17 +45,18 @@
 <div id="auth-banner" class="alert alert-warn hidden"></div>
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
 
-<div id="ingest-preflight" class="card mb-1 ingest-preflight-card">
+<div class="ui-inset-group mb-1">
+<div id="ingest-preflight" class="ingest-preflight-card">
   <h2>同步前检查</h2>
   <div id="ingest-preflight-content" class="muted">正在检查 Cookie 与登录态…</div>
 </div>
 
-<div id="ingest-health-panel" class="card mb-1">
+<div id="ingest-health-panel">
   <h2>数据概况</h2>
   <div id="ingest-health-content" class="muted">加载中…</div>
 </div>
 
-<div class="card mb-1" id="full-sync-card">
+<div id="full-sync-card">
   <h2>推荐：一键完整同步</h2>
   <p class="muted">一条路径导入你的 B站/知乎行为与 Edge 浏览记录，并尝试用本机浏览器补全缺失项（约 2–5 分钟）。</p>
   <ul class="muted ingest-steps-hint">
@@ -50,6 +70,7 @@
   </div>
   <div id="ingest-full-sync-progress" class="mt-1 muted hidden"></div>
   <div id="ingest-full-sync-result" class="mt-1"></div>
+</div>
 </div>
 
 <details class="card mb-1">

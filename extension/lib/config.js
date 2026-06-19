@@ -8,4 +8,17 @@ const OSINTConfig = {
       });
     });
   },
+  async getWebToken() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(["webToken"], (data) => {
+        resolve(data.webToken || "");
+      });
+    });
+  },
+  async authHeaders(extra = {}) {
+    const headers = { ...extra };
+    const webToken = await OSINTConfig.getWebToken();
+    if (webToken) headers["X-Osint-Token"] = webToken;
+    return headers;
+  },
 };

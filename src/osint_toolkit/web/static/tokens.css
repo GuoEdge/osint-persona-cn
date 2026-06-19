@@ -1,0 +1,195 @@
+/* Apple-inspired design tokens — light default, dark via data-theme */
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  --font-reading: var(--font);
+  --font-size-reading: 1.02rem;
+  --line-height-reading: 1.7;
+  --measure: 68ch;
+
+  --bg: #f5f5f7;
+  --bg-subtle: #ebebed;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-inset: #f2f2f7;
+  --surface-elevated: #f2f2f7;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #86868b;
+  --muted: #86868b;
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.12);
+  --accent-hover: #0056d6;
+  --accent-text: #ffffff;
+  --success: #34c759;
+  --warn: #ff9500;
+  --warn-soft: rgba(255, 149, 0, 0.12);
+  --danger: #ff3b30;
+  --danger-soft: rgba(255, 59, 48, 0.1);
+  --focus-ring: rgba(0, 122, 255, 0.22);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --radius-lg: 14px;
+  --radius: 12px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+  --sidebar-w: 248px;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --duration-fast: 0.15s;
+  --duration-normal: 0.25s;
+  --duration-slow: 0.45s;
+  --shell-blur: blur(20px) saturate(180%);
+  --content-max: 1120px;
+
+  color-scheme: light;
+
+  --accent-glow: color-mix(in srgb, var(--accent) 14%, transparent);
+  --hero-mesh: linear-gradient(135deg, var(--surface) 0%, color-mix(in srgb, var(--accent) 6%, var(--surface-inset)) 55%, var(--surface-inset) 100%);
+  --progress-shine: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 70%, #6366f1) 50%, var(--accent) 100%);
+
+  --hero-gradient: linear-gradient(135deg, var(--surface) 0%, var(--surface-inset) 100%);
+  --wizard-gradient: linear-gradient(135deg, var(--accent-soft) 0%, var(--surface) 100%);
+  --persona-current-gradient: linear-gradient(90deg, var(--accent-soft) 0%, var(--surface) 100%);
+
+  --semantic-success-bg: rgba(52, 199, 89, 0.14);
+  --semantic-success-fg: #248a3d;
+  --semantic-success-border: rgba(52, 199, 89, 0.35);
+  --semantic-warn-bg: var(--warn-soft);
+  --semantic-warn-fg: #9a6700;
+  --semantic-warn-border: rgba(255, 149, 0, 0.35);
+  --semantic-danger-bg: var(--danger-soft);
+  --semantic-danger-fg: #c41e16;
+  --semantic-danger-border: rgba(255, 59, 48, 0.35);
+  --semantic-info-bg: rgba(0, 122, 255, 0.1);
+  --semantic-info-fg: #0055b3;
+  --semantic-info-border: rgba(0, 122, 255, 0.28);
+  --semantic-neutral-bg: var(--surface-inset);
+  --semantic-neutral-fg: var(--text-secondary);
+
+  --code-bg: var(--surface-inset);
+  --kbd-bg: color-mix(in srgb, var(--accent) 14%, var(--surface-inset));
+
+  --source-zhihu-bg: color-mix(in srgb, #1d4ed8 12%, var(--surface-inset));
+  --source-zhihu-fg: #1d4ed8;
+  --source-bilibili-bg: color-mix(in srgb, #db2777 12%, var(--surface-inset));
+  --source-bilibili-fg: #db2777;
+  --source-web-bg: color-mix(in srgb, #4338ca 12%, var(--surface-inset));
+  --source-web-fg: #4338ca;
+  --source-v2ex-bg: color-mix(in srgb, #b45309 12%, var(--surface-inset));
+  --source-v2ex-fg: #b45309;
+  --source-rss-bg: color-mix(in srgb, #047857 12%, var(--surface-inset));
+  --source-rss-fg: #047857;
+  --source-weixin-bg: color-mix(in srgb, #047857 12%, var(--surface-inset));
+  --source-weixin-fg: #047857;
+  --source-ithome-bg: color-mix(in srgb, #b91c1c 12%, var(--surface-inset));
+  --source-ithome-fg: #b91c1c;
+  --source-netease_music-bg: color-mix(in srgb, #b91c1c 12%, var(--surface-inset));
+  --source-netease_music-fg: #b91c1c;
+  --source-qq_music-bg: color-mix(in srgb, #15803d 12%, var(--surface-inset));
+  --source-qq_music-fg: #15803d;
+  --source-kugou-bg: color-mix(in srgb, #0369a1 12%, var(--surface-inset));
+  --source-kugou-fg: #0369a1;
+  --source-douban-bg: color-mix(in srgb, #4d7c0f 12%, var(--surface-inset));
+  --source-douban-fg: #4d7c0f;
+  --source-sspai-bg: color-mix(in srgb, #be185d 12%, var(--surface-inset));
+  --source-sspai-fg: #be185d;
+  --source-juejin-bg: color-mix(in srgb, #1d4ed8 12%, var(--surface-inset));
+  --source-juejin-fg: #1d4ed8;
+  --source-kr36-bg: color-mix(in srgb, #c2410c 12%, var(--surface-inset));
+  --source-kr36-fg: #c2410c;
+  --source-huxiu-bg: color-mix(in srgb, #7e22ce 12%, var(--surface-inset));
+  --source-huxiu-fg: #7e22ce;
+  --source-solidot-bg: color-mix(in srgb, #334155 12%, var(--surface-inset));
+  --source-solidot-fg: #334155;
+  --source-seen-bg: color-mix(in srgb, #6d28d9 12%, var(--surface-inset));
+  --source-seen-fg: #6d28d9;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-subtle: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-raised: #2c2c2e;
+  --surface-inset: #2c2c2e;
+  --surface-elevated: #3a3a3c;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --text: #f5f5f7;
+  --text-secondary: #aeaeb2;
+  --text-muted: #8e8e93;
+  --muted: #8e8e93;
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --accent-hover: #409cff;
+  --warn-soft: rgba(255, 149, 0, 0.16);
+  --danger-soft: rgba(255, 59, 48, 0.14);
+  --focus-ring: rgba(10, 132, 255, 0.32);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.45);
+
+  --accent-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+  --hero-mesh: linear-gradient(135deg, var(--surface-raised) 0%, color-mix(in srgb, var(--accent) 10%, var(--surface)) 50%, var(--surface) 100%);
+  --progress-shine: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 60%, #818cf8) 50%, var(--accent) 100%);
+
+  --hero-gradient: linear-gradient(135deg, var(--surface-raised) 0%, var(--surface) 100%);
+  --wizard-gradient: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)) 0%, var(--surface) 100%);
+  --persona-current-gradient: linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, var(--surface)) 0%, var(--surface) 100%);
+
+  --semantic-success-bg: rgba(48, 209, 88, 0.16);
+  --semantic-success-fg: #30d158;
+  --semantic-success-border: rgba(48, 209, 88, 0.35);
+  --semantic-warn-fg: #ff9f0a;
+  --semantic-danger-fg: #ff453a;
+  --semantic-info-bg: rgba(10, 132, 255, 0.16);
+  --semantic-info-fg: #64b5ff;
+  --semantic-info-border: rgba(10, 132, 255, 0.35);
+  --semantic-neutral-bg: var(--surface-elevated);
+  --semantic-neutral-fg: var(--text-secondary);
+
+  --code-bg: #2c2c2e;
+  --kbd-bg: color-mix(in srgb, var(--accent) 22%, var(--surface-elevated));
+
+  --source-zhihu-bg: color-mix(in srgb, #64b5ff 20%, var(--surface-raised));
+  --source-zhihu-fg: #64b5ff;
+  --source-bilibili-bg: color-mix(in srgb, #ff6eb4 18%, var(--surface-raised));
+  --source-bilibili-fg: #ff6eb4;
+  --source-web-bg: color-mix(in srgb, #a5b4fc 18%, var(--surface-raised));
+  --source-web-fg: #a5b4fc;
+  --source-v2ex-bg: color-mix(in srgb, #fbbf24 18%, var(--surface-raised));
+  --source-v2ex-fg: #fbbf24;
+  --source-rss-bg: color-mix(in srgb, #34d399 18%, var(--surface-raised));
+  --source-rss-fg: #34d399;
+  --source-weixin-bg: color-mix(in srgb, #34d399 18%, var(--surface-raised));
+  --source-weixin-fg: #34d399;
+  --source-ithome-bg: color-mix(in srgb, #f87171 18%, var(--surface-raised));
+  --source-ithome-fg: #f87171;
+  --source-netease_music-bg: color-mix(in srgb, #f87171 18%, var(--surface-raised));
+  --source-netease_music-fg: #f87171;
+  --source-qq_music-bg: color-mix(in srgb, #4ade80 18%, var(--surface-raised));
+  --source-qq_music-fg: #4ade80;
+  --source-kugou-bg: color-mix(in srgb, #38bdf8 18%, var(--surface-raised));
+  --source-kugou-fg: #38bdf8;
+  --source-douban-bg: color-mix(in srgb, #a3e635 18%, var(--surface-raised));
+  --source-douban-fg: #a3e635;
+  --source-sspai-bg: color-mix(in srgb, #f472b6 18%, var(--surface-raised));
+  --source-sspai-fg: #f472b6;
+  --source-juejin-bg: color-mix(in srgb, #64b5ff 18%, var(--surface-raised));
+  --source-juejin-fg: #64b5ff;
+  --source-kr36-bg: color-mix(in srgb, #fb923c 18%, var(--surface-raised));
+  --source-kr36-fg: #fb923c;
+  --source-huxiu-bg: color-mix(in srgb, #c084fc 18%, var(--surface-raised));
+  --source-huxiu-fg: #c084fc;
+  --source-solidot-bg: color-mix(in srgb, #94a3b8 18%, var(--surface-raised));
+  --source-solidot-fg: #94a3b8;
+  --source-seen-bg: color-mix(in srgb, #a78bfa 18%, var(--surface-raised));
+  --source-seen-fg: #a78bfa;
+}

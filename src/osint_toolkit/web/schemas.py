@@ -24,10 +24,13 @@ class SearchRequest(BaseModel):
     comment_mine_top: int | None = None
     include_slurs: bool | None = None
     mine_comments: bool = True
+    serp_fallback_accepted: list[str] = Field(default_factory=list)
+    comment_mine_sources: list[str] | None = None
     tree_id: str | None = None
     parent_node_id: str | None = None
     fork_from_run_id: str | None = None
     create_tree: bool = False
+    source_overrides: dict[str, list[str]] | None = None
 
 
 class SearchExpandRequest(BaseModel):
@@ -35,12 +38,20 @@ class SearchExpandRequest(BaseModel):
     sources: list[str] = Field(default_factory=lambda: list(DEFAULT_SEARCH_SOURCES))
     no_ai: bool = False
     include_slurs: bool | None = None
+    profile: str = "default"
+    source_overrides: dict[str, list[str]] | None = None
 
 
 class SaveRequest(BaseModel):
     url: str
     with_comments: bool = False
     no_ai: bool = False
+
+
+class SaveRunItemsRequest(BaseModel):
+    item_ids: list[str] | None = None
+    min_relevance: float = 0.25
+    tags: list[str] | None = None
 
 
 class FeedbackRequest(BaseModel):
@@ -58,6 +69,7 @@ class AskRequest(BaseModel):
     run_id: str | None = None
     tree_id: str | None = None
     parent_node_id: str | None = None
+    history: list[dict[str, str]] = []
 
 
 class ResearchTreeCreate(BaseModel):
@@ -94,6 +106,15 @@ class ResearchInsightRequest(BaseModel):
 
 class PersonaRollbackRequest(BaseModel):
     version: int
+
+
+class RunsCleanupRequest(BaseModel):
+    older_than_days: int = 30
+    keep_latest: int = 20
+    dry_run: bool = False
+    statuses: list[str] = Field(
+        default_factory=lambda: ["done", "error", "interrupted", "cancelled", "unknown"]
+    )
 
 
 class IngestBrowserRequest(BaseModel):
@@ -156,3 +177,7 @@ class BrowserSyncRequest(BaseModel):
 
 class SecretSaveRequest(BaseModel):
     value: str
+
+
+class TunablePatchRequest(BaseModel):
+    values: dict[str, Any]

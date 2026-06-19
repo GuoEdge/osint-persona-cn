@@ -3,21 +3,33 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from osint_toolkit.storage.sqlite import connect
+
+INVENTORY_SNAPSHOT_TYPES = frozenset(
+    {
+        "bilibili_follow",
+        "bilibili_fav",
+        "zhihu_fav",
+        "zhihu_follow",
+    }
+)
 
 _HIGH_VALUE_TYPES = frozenset(
     {
         "bilibili_like",
         "bilibili_coin",
-        "bilibili_fav",
         "bilibili_watch",
         "bilibili_comment_post",
         "bilibili_comment_like",
-        "bilibili_follow",
         "zhihu_vote",
-        "zhihu_fav",
+        "zhihu_browse",
+        "zhihu_activity",
+        "zhihu_pin",
+        "zhihu_answer",
         "github_star",
         "ext_save",
     }
@@ -38,6 +50,8 @@ _INTEREST_HOSTS = (
 
 
 def score_event(event_type: str, data: dict[str, Any]) -> int:
+    if event_type in INVENTORY_SNAPSHOT_TYPES:
+        return 0
     score = 0
     if event_type in _HIGH_VALUE_TYPES:
         score += 80
@@ -117,3 +131,37 @@ def load_recent_interest_hints(*, limit: int = 12) -> list[dict[str, str]]:
             }
         )
     return hints
+
+
+def load_event_type_breakdown(*, fetch_limit: int = 500) -> dict[str, Any]:
+    """Split event counts into inventory snapshots vs recent activity, with 7-day recency."""
+    conn = connect()
+    rows = conn.execute(
+        "SELECT event_type, created_at FROM events ORDER BY id DESC LIMIT ?",
+        (fetch_limit,),
+    ).fetchall()
+    conn.close()
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    inventory = Counter()
+    recent_all = Counter()
+    recent_7d = Counter()
+    for row in rows:
+        event_type = str(row["event_type"])
+        if event_type in INVENTORY_SNAPSHOT_TYPES:
+            inventory[event_type] += 1
+            continue
+        recent_all[event_type] += 1
+        created = str(row["created_at"] or "")
+        try:
+            ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            if ts >= cutoff:
+                recent_7d[event_type] += 1
+        except ValueError:
+            pass
+    return {
+        "inventory_snapshots": dict(inventory),
+        "recent_activity": dict(recent_all),
+        "recent_activity_7d": dict(recent_7d),
+    }

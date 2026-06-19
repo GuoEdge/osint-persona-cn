@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from osint_toolkit.auth.cookie_sync import cookies_for_playwright
 from osint_toolkit.utils.config import get_browser_sync_config
+
+_playwright_sem = asyncio.Semaphore(1)
 
 
 def playwright_available() -> bool:
@@ -51,13 +54,14 @@ async def run_with_cookie_page(
 
     from playwright.async_api import async_playwright
 
-    async with async_playwright() as pw:
-        browser = await _launch_chromium(pw, headless=headless)
-        context = await browser.new_context()
-        await context.add_cookies(pw_cookies)
-        page = await context.new_page()
-        try:
-            return await callback(page)
-        finally:
-            await context.close()
-            await browser.close()
+    async with _playwright_sem:
+        async with async_playwright() as pw:
+            browser = await _launch_chromium(pw, headless=headless)
+            context = await browser.new_context()
+            await context.add_cookies(pw_cookies)
+            page = await context.new_page()
+            try:
+                return await callback(page)
+            finally:
+                await context.close()
+                await browser.close()

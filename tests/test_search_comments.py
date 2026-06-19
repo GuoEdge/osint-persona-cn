@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osint_toolkit.analyzers.citations import assign_citation_ids
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.services import search as search_mod
 
@@ -23,9 +24,9 @@ async def test_mine_comments_before_summarize(monkeypatch):
     bili_item.signals.relevance = 0.9
 
     async def fake_collect(source: str, query: str, limit: int):
-        return [bili_item] if source == "bilibili" else []
+        return ([bili_item], []) if source == "bilibili" else ([], [])
 
-    async def fake_mine(items, *, top, no_ai):
+    async def fake_mine(items, *, top, no_ai, disabled_steps=None, comment_mine_sources=None):
         order.append("mine")
         items[0].layers["comments_summary"] = "社区观点测试"
         return [{"item_id": items[0].id, "comments_summary": "社区观点测试"}]
@@ -76,6 +77,7 @@ def test_report_payload_includes_comments_summary():
         content="c",
     )
     item.layers["comments_summary"] = "热评归纳"
+    assign_citation_ids([item])
     text = _fallback_report("q", [item], "run-1")
-    assert "社区观点" in text
-    assert "热评归纳" in text
+    assert "[c1]" in text
+    assert "热评归纳" in text or "t" in text

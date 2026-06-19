@@ -6,8 +6,10 @@ import json
 from typing import Any
 
 from osint_toolkit.ai.client import DeepSeekClient
+from osint_toolkit.ai.steering import build_system_prompt
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.feedback.store import FeedbackStore
+from osint_toolkit.persona.context import maybe_load_persona_context
 from osint_toolkit.research.tree import add_node, load_tree
 from osint_toolkit.services.runs import show_run
 
@@ -62,19 +64,40 @@ def _run_context(run_id: str) -> tuple[str, str, list[str]]:
     return query, report, useful
 
 
+def _persona_prompt_block() -> str:
+    ctx = maybe_load_persona_context()
+    if not ctx:
+        return ""
+    parts: list[str] = []
+    if ctx.brief:
+        parts.append(f"用户画像:\n{ctx.brief}")
+    if ctx.interest_hints:
+        hints = json.dumps(ctx.interest_hints[:8], ensure_ascii=False)
+        parts.append(f"近期兴趣:\n{hints}")
+    return "\n\n".join(parts)
+
+
 def generate_insight(*, tree_id: str, run_id: str, parent_node_id: str | None = None) -> dict[str, Any]:
     try:
         query, report, useful = _run_context(run_id)
     except FileNotFoundError as exc:
         return {"ok": False, "error": str(exc)}
     context = f"话题: {query}\n报告:\n{report}\n有用条目: {', '.join(useful)}"
+    persona_block = _persona_prompt_block()
+    if persona_block:
+        context = f"{persona_block}\n\n{context}"
     try:
         client = DeepSeekClient()
+        persona_ctx = maybe_load_persona_context()
         text = client.chat(
             messages=[
                 {
                     "role": "system",
-                    "content": "你是情报研究助手。用 3-6 条要点归纳本轮搜罗收获，每条一行，简洁可执行。",
+                    "content": build_system_prompt(
+                        task="归纳本轮搜罗要点",
+                        persona_brief=persona_ctx.brief if persona_ctx else "",
+                    )
+                    + " 用 3-6 条要点归纳本轮搜罗收获，每条一行，简洁可执行。",
                 },
                 {"role": "user", "content": context},
             ]
@@ -120,17 +143,26 @@ def suggest_queries(*, run_id: str | None = None, tree_id: str | None = None) ->
             pass
     if not base_query and not report:
         return {"ok": False, "error": "需要 run_id 或 tree_id", "queries": []}
+    persona_block = _persona_prompt_block()
+    user_content = f"原话题:{base_query}\n报告摘要:{report[:2000]}"
+    if persona_block:
+        user_content = f"{persona_block}\n\n{user_content}"
     try:
         client = DeepSeekClient()
+        persona_ctx = maybe_load_persona_context()
         raw = client.chat(
             messages=[
                 {
                     "role": "system",
-                    "content": "输出 1-3 个后续搜罗查询词，JSON 数组字符串，不要其它文字。",
+                    "content": build_system_prompt(
+                        task="后续搜罗建议",
+                        persona_brief=persona_ctx.brief if persona_ctx else "",
+                    )
+                    + " 输出 1-3 个后续搜罗查询词，JSON 数组字符串，不要其它文字。",
                 },
                 {
                     "role": "user",
-                    "content": f"原话题:{base_query}\n报告摘要:{report[:2000]}",
+                    "content": user_content,
                 },
             ]
         )

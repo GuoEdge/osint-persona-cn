@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.prompt_loader import load_prompt
@@ -22,10 +23,11 @@ def summarize_item(
     client: DeepSeekClient | None = None,
     runtime_instruct: str = "",
     no_ai: bool = False,
+    disabled_steps: list[str] | None = None,
     persona_ctx: PersonaContext | None = None,
 ) -> tuple[str, dict]:
     meta = {"prompt_source": "builtin", "directives_hash": directives_hash(), "ai_invoked": False}
-    if not is_step_enabled("summarize", no_ai=no_ai):
+    if not is_step_enabled("summarize", no_ai=no_ai, disabled_steps=disabled_steps):
         return _fallback_summary(item), meta
     client = client or DeepSeekClient()
     prompt_tpl, source = load_prompt("summarize")
@@ -39,25 +41,29 @@ def summarize_item(
     comments_summary = item.layers.get("comments_summary")
     if comments_summary:
         comments_block = f"\n\n社区观点（非事实，来自热评归纳）:\n{comments_summary[:2000]}\n"
-    summary = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(
-                    task="摘要",
-                    runtime_instruct=runtime_instruct,
-                    persona_brief=persona_ctx.brief if persona_ctx else "",
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"{prompt_tpl}{hints_block}\n\n标题:{item.title}\n来源:{item.source}\n\n{content}"
-                    f"{comments_block}"
-                ),
-            },
-        ]
-    )
+    try:
+        summary = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(
+                        task="摘要",
+                        runtime_instruct=runtime_instruct,
+                        persona_brief=persona_ctx.brief if persona_ctx else "",
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"{prompt_tpl}{hints_block}\n\n标题:{item.title}\n来源:{item.source}\n\n{content}"
+                        f"{comments_block}"
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        meta["ai_error"] = str(exc)
+        return _fallback_summary(item), meta
     item.summary = summary
     return summary, meta
 
@@ -68,16 +74,43 @@ def summarize_batch(
     client: DeepSeekClient | None = None,
     runtime_instruct: str = "",
     no_ai: bool = False,
+    disabled_steps: list[str] | None = None,
     persona_ctx: PersonaContext | None = None,
+    max_workers: int = 4,
 ) -> list[dict]:
-    results = []
-    for item in items:
+    if not items:
+        return []
+    if no_ai or not is_step_enabled("summarize", no_ai=no_ai, disabled_steps=disabled_steps):
+        return [
+            {
+                "id": item.id,
+                "summary": _fallback_summary(item),
+                "meta": {"prompt_source": "builtin", "directives_hash": directives_hash(), "ai_invoked": False},
+            }
+            for item in items
+        ]
+
+    shared_client = client or DeepSeekClient()
+
+    def _one(item: IntelItem) -> dict:
         summary, meta = summarize_item(
             item,
-            client=client,
+            client=shared_client,
             runtime_instruct=runtime_instruct,
             no_ai=no_ai,
+            disabled_steps=disabled_steps,
             persona_ctx=persona_ctx,
         )
-        results.append({"id": item.id, "summary": summary, "meta": meta})
-    return results
+        return {"id": item.id, "summary": summary, "meta": meta}
+
+    workers = max(1, min(max_workers, len(items)))
+    if workers == 1:
+        return [_one(item) for item in items]
+
+    results: list[dict | None] = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_one, item): idx for idx, item in enumerate(items)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+    return [r for r in results if r is not None]

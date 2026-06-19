@@ -19,5 +19,9 @@ def test_resolve_api_key_from_env(monkeypatch):
 def test_resolve_api_key_missing(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("OSINT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "osint_toolkit.utils.secrets._env_from_windows_user",
+        lambda _name: None,
+    )
     with pytest.raises(ValueError, match="未配置 DeepSeek API Key"):
         resolve_api_key()

@@ -28,8 +28,9 @@ CAPTURE_URL_PATTERNS: tuple[str, ...] = (
     r"zhihu\.com/api/v4/.*recent",
     r"zhihu\.com/api/v4/.*record_viewed",
     r"zhihu\.com/api/v4/.*viewed",
-    r"mp\.weixin\.qq\.com/s\?",
     r"api\.github\.com/graphql",
+    r"github\.com/.*/starred",
+    r"mp\.weixin\.qq\.com/s\?",
 )
 
 _COMPILED = tuple(re.compile(p, re.I) for p in CAPTURE_URL_PATTERNS)

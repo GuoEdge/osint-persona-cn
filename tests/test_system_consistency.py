@@ -9,12 +9,13 @@ import pytest
 
 from osint_toolkit.collectors.base import BaseCollector
 from osint_toolkit.collectors.registry import COLLECTORS, DEFAULT_SEARCH_SOURCES, PROBE_SOURCES, normalize_sources
+from osint_toolkit.collectors.source_catalog import get_all_source_ids
 from osint_toolkit.services import search as search_service
 from osint_toolkit.web import schemas as web_schemas
 
 
 def test_collector_registry_complete():
-    assert set(COLLECTORS) == {"zhihu", "bilibili", "web", "v2ex", "rss", "weixin"}
+    assert set(COLLECTORS) == set(get_all_source_ids())
     for name, cls in COLLECTORS.items():
         assert cls.name == name
         assert issubclass(cls, BaseCollector)

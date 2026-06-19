@@ -42,6 +42,7 @@ def get_bilibili_config() -> dict[str, Any]:
         },
         "comments_fetch_limit": 60,
         "danmaku_max_lines": 800,
+        "subtitle_prefer": "ai_first",
         "search": {
             "types": ["video", "article", "bili_user"],
             "order_video": "totalrank",
@@ -744,7 +745,8 @@ async def fetch_subtitle_for_aid_cid(
                 payload = resp.json()
             data = payload.get("data") or {}
             tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
-            track = pick_subtitle_track(tracks)
+            prefer = str(get_bilibili_config().get("subtitle_prefer") or "ai_first")
+            track = pick_subtitle_track(tracks, prefer=prefer)
             if not track:
                 last_reason = "no_tracks"
                 continue
@@ -784,7 +786,8 @@ async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
             cid = await _resolve_cid(v, page_index)
             payload = await v.get_subtitle(cid=cid)
             tracks = _subtitle_tracks_from_payload(payload or {})
-            track = pick_subtitle_track(tracks)
+            prefer = str(get_bilibili_config().get("subtitle_prefer") or "ai_first")
+            track = pick_subtitle_track(tracks, prefer=prefer)
             if track:
                 sub_url = _track_subtitle_url(track)
                 if sub_url:

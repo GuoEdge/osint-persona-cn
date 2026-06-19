@@ -26,6 +26,16 @@ DEFAULT_DOMAINS = [
     "sspai.com",
     "huxiu.com",
     "36kr.com",
+    "weibo.com",
+    "xiaohongshu.com",
+    "tieba.baidu.com",
+    "okjike.com",
+    "maimai.cn",
+    "douban.com",
+    "music.163.com",
+    "y.qq.com",
+    "kugou.com",
+    "music.migu.cn",
 ]
 
 DOMAIN_REQUIRED_KEYS: dict[str, list[str]] = {
@@ -45,11 +55,17 @@ class CookieSyncResult:
     synced_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
+from osint_toolkit.utils.safe_path import PathSecurityError, assert_domain
+
+
 def _normalize_domain(domain: str) -> str:
-    domain = domain.strip().lower()
-    if domain.startswith("."):
-        domain = domain[1:]
-    return domain
+    try:
+        return assert_domain(domain)
+    except PathSecurityError:
+        domain = domain.strip().lower()
+        if domain.startswith("."):
+            domain = domain[1:]
+        return domain
 
 
 def _cookie_matches_domain(cookie_domain: str, target_domain: str) -> bool:
@@ -197,20 +213,25 @@ def import_cookie_headers(
         domains_requested=domains,
     )
     for domain in domains:
+        try:
+            safe_domain = assert_domain(domain)
+        except PathSecurityError:
+            result.errors.append(f"非法域名: {domain}")
+            continue
         header = str(headers_by_domain.get(domain) or headers_by_domain.get(f".{domain}") or "").strip()
         if not header:
             continue
         payload = {
-            "domain": domain,
+            "domain": safe_domain,
             "browser": browser,
             "synced_at": result.synced_at,
             "cookie_header": header,
             "cookies": [],
         }
-        out_file = output_dir / f"{domain}.json"
+        out_file = output_dir / f"{safe_domain}.json"
         out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        result.domains_synced.append(domain)
-        result.cookie_counts[domain] = max(1, header.count(";") + 1)
+        result.domains_synced.append(safe_domain)
+        result.cookie_counts[safe_domain] = max(1, header.count(";") + 1)
     if not result.domains_synced:
         result.errors.append("未收到任何域名的 Cookie 字符串")
     _write_index(result)

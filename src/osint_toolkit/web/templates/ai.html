@@ -9,26 +9,28 @@
 </div>
 <div id="hard-constraints" class="alert alert-warn"></div>
 
-<div class="tabs">
-  <span class="tab active" data-panel="panel-directives">导向 (directives)</span>
-  <span class="tab" data-panel="panel-prompts">Prompt 模板</span>
+<div class="tabs ui-segmented-wrap" role="tablist" aria-label="AI 控制分区">
+  <div class="ui-segmented" id="ai-tabs">
+    <button type="button" class="tab active" role="tab" aria-selected="true" aria-controls="panel-directives" data-panel="panel-directives" id="ai-tab-directives">导向 (directives)</button>
+    <button type="button" class="tab" role="tab" aria-selected="false" aria-controls="panel-prompts" data-panel="panel-prompts" id="ai-tab-prompts">Prompt 模板</button>
+  </div>
 </div>
 
-<div id="panel-directives" class="tab-panel active">
+<div id="panel-directives" class="tab-panel active" role="tabpanel" aria-labelledby="ai-tab-directives">
   <div class="card">
-    <textarea id="directives-editor" rows="20" style="font-family: monospace;"></textarea>
+    <textarea id="directives-editor" class="ai-editor-inset" rows="20"></textarea>
     <button id="btn-save-directives" class="btn mt-1">保存</button>
   </div>
 </div>
 
-<div id="panel-prompts" class="tab-panel">
+<div id="panel-prompts" class="tab-panel" role="tabpanel" aria-labelledby="ai-tab-prompts" aria-hidden="true">
   <div class="card">
     <div class="form-row">
       <label for="prompt-select">模板</label>
       <select id="prompt-select"></select>
     </div>
     <p id="prompt-source" class="muted"></p>
-    <textarea id="prompt-editor" rows="15"></textarea>
+    <textarea id="prompt-editor" class="ai-editor-inset" rows="15"></textarea>
     <div class="mt-1">
       <button id="btn-save-prompt" class="btn">保存</button>
       <button id="btn-reset-prompt" class="btn btn-secondary">恢复内置</button>

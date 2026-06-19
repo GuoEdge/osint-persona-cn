@@ -5,6 +5,7 @@ const OSINTPlatforms = {
     "bilibili.com",
     "zhihu.com",
     "github.com",
+    "mp.weixin.qq.com",
     "v2ex.com",
     "juejin.cn",
     "sspai.com",
@@ -38,6 +39,7 @@ const OSINTPlatforms = {
     const u = String(url || "").toLowerCase();
     if (u.includes("bilibili.com")) return "bilibili";
     if (u.includes("zhihu.com")) return "zhihu";
+    if (u.includes("mp.weixin.qq.com")) return "weixin";
     if (u.includes("github.com")) return "github";
     if (u.includes("v2ex.com")) return "v2ex";
     if (u.includes("juejin.cn")) return "juejin";

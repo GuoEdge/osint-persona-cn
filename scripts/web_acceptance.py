@@ -266,6 +266,18 @@ def main() -> None:
         saved_title = save.json()["item"].get("title", "")
         ok(7, "收录", saved_title[:60], report=report)
 
+        # 7b batch save from search run
+        if run_id and items:
+            batch = client.post(
+                f"/api/search/{run_id}/save-items",
+                json={"min_relevance": 0},
+            )
+            if batch.status_code != 200:
+                warn(7, "批量收录", f"status={batch.status_code} {batch.text[:120]}", report=report)
+            else:
+                saved_n = batch.json().get("saved_count", 0)
+                ok(7, "搜罗→知识库批量收录", f"saved_count={saved_n}", report=report)
+
         # 8 knowledge recall
         recall = client.get("/api/knowledge/recall", params={"q": "Python", "limit": 10}).json()
         if recall.get("count", 0) < 1:

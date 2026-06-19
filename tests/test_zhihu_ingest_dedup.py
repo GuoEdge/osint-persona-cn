@@ -44,7 +44,14 @@ async def test_ingest_activities_skips_answer_votes_when_requested(monkeypatch):
     monkeypatch.setattr(zhihu_account, "classify_activity", lambda _item: ("zhihu_vote", "answer_vote"))
 
     logged: list[tuple[str, dict]] = []
-    monkeypatch.setattr(zhihu_account, "log_event", lambda et, entry: logged.append((et, entry)))
+
+    def track_dedup(event_type, entry, _key):
+        logged.append((event_type, entry))
+        return True
+
+    monkeypatch.setattr(zhihu_account, "log_event_deduped", track_dedup)
+    monkeypatch.setattr(zhihu_account, "_zhihu_section", lambda: {})
+    monkeypatch.setattr(zhihu_account, "_persist_zhihu", lambda **_k: None)
     monkeypatch.setattr(zhihu_account, "save_endorsement", lambda **_k: None)
 
     class FakeResp:

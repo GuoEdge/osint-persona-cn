@@ -27,11 +27,21 @@ cookie_sync:
 
 profiles:
   default:
+    label: 默认
+    summary: 日常话题搜罗：知乎、B站、网页与微信，广度与速度均衡。
     sources: [zhihu, bilibili, web, weixin]
+  full:
+    label: 全量
+    summary: 在默认基础上增加 V2EX 与 RSS，信源最全、耗时更长。
+    sources: [zhihu, bilibili, web, v2ex, rss, weixin]
   research:
+    label: 深度研究
+    summary: 偏社区与技术站点，不含微信；默认开启画像模拟。
     sources: [zhihu, bilibili, v2ex, web, rss]
     simulate_persona: true
   zhihu_deep:
+    label: 知乎深挖
+    summary: 仅知乎，适合问答与观点型话题；默认跳过画像模拟。
     sources: [zhihu]
     simulate_persona: false
 
@@ -67,6 +77,8 @@ bilibili:
     my_comments: true
   comments_fetch_limit: 60
   danmaku_max_lines: 800
+  # ai_first（默认）| cc_first（优先人工/CC 字幕）
+  subtitle_prefer: ai_first
   search:
     types: [video, article, bili_user]   # 还可加 topic, media_bangumi, media_ft
     order_video: totalrank               # totalrank|click|pubdate|dm|stow|scores
@@ -90,6 +102,9 @@ zhihu:
     merge_search_v3: true     # aggressive 模式下 openapi 结果不足时合并 search_v3
     search_count: 10          # 单次站内搜索上限（官方 max 10）
     hot_list_count: 30
+    min_request_interval_sec: 1.0   # 全局限流，避免 Code=30001 second limit exceeded
+    rate_limit_retry_max: 4        # 触发限流时的最大重试次数
+    rate_limit_retry_base_sec: 1.5
     features:
       search: true
       hot_list: true
@@ -129,14 +144,43 @@ ingest:
 
 # 搜索引擎（搜罗 web 源 + 知乎/B站 site: 回退）
 search:
+  max_concurrent_searches: 2      # 同时运行的搜罗数；超出进入队列
+  max_queued_searches: 20          # 排队任务上限，超出返回 429
+  sse_max_lifetime_sec: 3600       # 搜罗 SSE 最长保活（含 AI 摘要/报告阶段）
+  zhihu_global_collect_sem: 2      # 全进程知乎采集并发（多任务共享）
+  discover_aliases: true           # 联网发现关联词（关闭可加速）
   comment_mine_top: 12
+  strict_mode: false
+  max_expanded_queries: 5
+  max_expanded_queries_strict: 3
+  max_expanded_queries_narrow: 4
+  skip_alias_discover_narrow: true
+  max_collect_tasks: 18
+  collect_timeout_sec: 900
+  collect_early_stop_items: 45
+  min_summarize_relevance: 0.25
   zhihu_aggressive: true
   zhihu_search_types: [general, content]
   zhihu_search_per_type: 40
   zhihu_search_pages: 5
   zhihu_expand_answers: true
   zhihu_expand_question_top: 15
-  zhihu_answers_per_question: 50
+  zhihu_answers_hot_top: 10      # 每题高赞/高票回答条数
+  zhihu_answers_recent_top: 4    # 每题额外收录的最新/近期回答
+  zhihu_answers_per_question: 14  # 单题回答总上限（hot + recent 去重后）
+  source_auto_route:
+    mode: gentle              # off=仅排序 | gentle=强相关自动启用/弱相关跳过 | aggressive=更少保护
+    strong_threshold: 45      # 达到即自动启用（即使用户未勾选）
+    weak_threshold: 12         # 用户已勾选但低于此分则跳过
+    min_active_sources: 3
+    max_active_sources: 12
+    max_auto_enable: 6        # 单次搜索最多自动新增信源数
+    protect_core: true        # 勾选的核心源（zhihu/web）尽量不跳过
+    core_sources: [zhihu, web]
+    auto_enable_scope: catalog  # catalog=全目录 | user_pool=仅从已勾选里选
+    ai_blend: 0.55              # 常规：综合分 = 规则*(1-blend) + AI*blend
+    ai_blend_cryptic: 0.78      # 隐晦查询时提高 AI 权重
+    cryptic_rule_max: 35        # 规则最高分低于此视为隐晦
   zhihu_comment_limit: 120
   zhihu_comment_mine_top: 12
   serp:
@@ -152,11 +196,57 @@ search:
     duckduckgo_region: cn-zh
     provider_delay_ms: 300
     enabled_providers: []    # 非空时仅启用列出的 provider
-    site_searches: [github.com, bilibili.com, zhihu.com]
+    site_searches:
+      - github.com
+      - bilibili.com
+      - zhihu.com
+      - ithome.com
+      - sspai.com
+      - juejin.cn
+      - solidot.org
+      - 36kr.com
+      - huxiu.com
+      - caixin.com
+      - thepaper.cn
+      - ifeng.com
+      - smzdm.com
+      - chiphell.com
+      - gcores.com
+      - ngabbs.com
+      - weibo.com
+      - okjike.com
+      - tieba.baidu.com
+      - jianshu.com
+      - xiaohongshu.com
+      - maimai.cn
+      - reddit.com
+      - news.ycombinator.com
+      - music.163.com
+      - y.qq.com
+      - kugou.com
+      - music.migu.cn
+      - douban.com
+      - xiaoyuzhoufm.com
+      - ximalaya.com
     web_fetch_content: true
     web_fetch_top: 5
   weixin:
     resolve_mp_urls: true   # 尝试将搜狗跳转链解析为 mp.weixin.qq.com 永久链
     resolve_top: 3
+    fetch_read_count_top: 10  # 对排名前 N 篇拉取阅读量（0=关闭）
+    fetch_read_delay_ms: 400  # 拉取间隔，减轻风控
+    min_read_count: 500       # 低于此阅读量的文章剔除（0=仅加权不过滤）
+    min_snippet_chars: 40     # 搜狗摘要过短则预剔除
+    drop_unknown_read_count: false  # true 时剔除无法解析阅读量的文章
     playwright_on_block: true
     serp_fallback: true      # 搜狗失败时用 site:mp.weixin.qq.com
+
+# 话题监视：Web 启动后按 schedule 自动搜罗，仅持久化相对上次的新增 URL
+watches:
+  - id: example-topic
+    query: "示例话题"
+    sources: [zhihu, web]
+    profile: default
+    schedule: "6h"          # 6h / 30m / 每日 HH:MM（本地时区）
+    enabled: false
+    limit: 10

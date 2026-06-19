@@ -455,13 +455,27 @@ def doctor_cmd() -> None:
     table.add_column("项目")
     table.add_column("状态")
     table.add_column("说明")
-    for item in status.get("auth") or []:
-        ok = item.get("ok")
-        table.add_row(
-            str(item.get("name", "")),
-            "[green]通过[/]" if ok else "[red]失败[/]",
-            str(item.get("detail") or item.get("reason") or ""),
-        )
+    auth = status.get("auth") or {}
+    if isinstance(auth, dict):
+        for name, item in auth.items():
+            if not isinstance(item, dict):
+                continue
+            ok = item.get("ok")
+            table.add_row(
+                str(name),
+                "[green]通过[/]" if ok else "[red]失败[/]",
+                str(item.get("detail") or item.get("reason") or ""),
+            )
+    else:
+        for item in auth:
+            if not isinstance(item, dict):
+                continue
+            ok = item.get("ok")
+            table.add_row(
+                str(item.get("name", "")),
+                "[green]通过[/]" if ok else "[red]失败[/]",
+                str(item.get("detail") or item.get("reason") or ""),
+            )
     preflight = status.get("preflight") or {}
     table.add_row(
         "导入预检",

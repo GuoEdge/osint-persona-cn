@@ -6,8 +6,8 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.services import (
@@ -44,25 +44,32 @@ from osint_toolkit.web.schemas import (
     PersonaRollbackRequest,
     PromptUpdate,
     SaveRequest,
+    SaveRunItemsRequest,
     SearchExpandRequest,
     SearchRequest,
     ImportCookiesRequest,
     SecretSaveRequest,
+    TunablePatchRequest,
     SyncCookiesRequest,
     ResearchTreeCreate,
     ResearchNodeCreate,
     ResearchNodePatch,
     ResearchSuggestRequest,
+    RunsCleanupRequest,
     ResearchInsightRequest,
 )
 from osint_toolkit.utils.config import load_sync_config
+from osint_toolkit.utils.safe_path import PathSecurityError, assert_prompt_name, assert_run_id, assert_safe_id
 from osint_toolkit.web.tasks import (
+    SearchQueueFullError,
     cancel_job,
+    drain_search_queue,
     get_job,
     get_job_result,
     job_public_view,
     list_active_jobs,
     list_active_searches,
+    list_search_tasks,
     start_browser_sync_job,
     start_full_sync_job,
     start_playwright_install_job,
@@ -71,6 +78,7 @@ from osint_toolkit.web.tasks import (
 from osint_toolkit.services.search_fork import build_fork_search_params
 from osint_toolkit.services.run_session import read_manifest, read_progress_disk
 from osint_toolkit.services import research_ai
+from osint_toolkit.services import watch as watch_service
 from osint_toolkit.research.tree import (
     add_node,
     attach_search_node,
@@ -86,6 +94,33 @@ from osint_toolkit.research.tree import (
 router = APIRouter(prefix="/api")
 
 
+@router.get("/health")
+async def api_health() -> dict[str, str]:
+    """轻量探活；同时由中间件写入 Web Token Cookie，供 EventSource 等无法带头部的请求鉴权。"""
+    return {"ok": "true"}
+
+
+def _validated_run_id(run_id: str) -> str:
+    try:
+        return assert_run_id(run_id)
+    except PathSecurityError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
+def _validated_tree_id(tree_id: str) -> str:
+    try:
+        return assert_safe_id(tree_id, label="tree_id")
+    except PathSecurityError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
+def _validated_prompt_name(name: str) -> str:
+    try:
+        return assert_prompt_name(name)
+    except PathSecurityError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
 def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
     items = result.get("items") or []
     qa = result.get("query_analysis") or {}
@@ -95,12 +130,34 @@ def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
         "report": result.get("report", ""),
         "report_path": result.get("report_path"),
         "simulations": result.get("simulations", []),
-        "run_dir": result.get("run_dir"),
         "source_errors": result.get("source_errors") or [],
+        "source_warnings": result.get("source_warnings") or [],
+        "citation_map": result.get("citation_map") or {},
+        "intel_stats": result.get("intel_stats") or {},
         "query_analysis": qa,
+        "source_plan": qa.get("source_plan") or {},
+        "source_routing": qa.get("source_routing") or {},
+        "collect_sources": result.get("collect_sources") or qa.get("active_sources") or [],
         "queries_used": result.get("queries_used") or qa.get("queries_used") or [],
         "discover_meta": result.get("discover_meta") or {},
+        "no_ai": bool(result.get("no_ai")),
     }
+
+
+@router.get("/search/source-catalog")
+async def api_search_source_catalog() -> dict[str, Any]:
+    from osint_toolkit.collectors.source_catalog import get_catalog_grouped, get_source_entries
+
+    return {"groups": get_catalog_grouped(), "entries": get_source_entries()}
+
+
+@router.get("/sources/auth-check")
+async def api_sources_auth_check(sources: str = "") -> dict[str, Any]:
+    from osint_toolkit.collectors.registry import COLLECTORS
+    from osint_toolkit.services.source_preflight import check_sources_auth
+
+    ids = [s.strip() for s in sources.split(",") if s.strip() and s.strip() in COLLECTORS]
+    return check_sources_auth(ids)
 
 
 @router.post("/search/expand")
@@ -110,6 +167,8 @@ async def api_search_expand(body: SearchExpandRequest) -> dict[str, Any]:
         body.sources,
         no_ai=body.no_ai,
         include_slurs=body.include_slurs,
+        profile=body.profile,
+        source_overrides=body.source_overrides,
     )
 
 
@@ -143,6 +202,9 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         "deep_top": body.deep_top,
         "comment_mine_top": comment_mine_top,
         "include_slurs": body.include_slurs,
+        "source_overrides": body.source_overrides,
+        "serp_fallback_accepted": body.serp_fallback_accepted,
+        "comment_mine_sources": body.comment_mine_sources,
         "tree_id": tree_id,
         "parent_node_id": parent_node_id,
     }
@@ -162,7 +224,11 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         search_kwargs["tree_id"] = tree_id
         search_kwargs["parent_node_id"] = parent_node_id
 
-    run_id = start_search_job(**search_kwargs)
+    try:
+        started = start_search_job(**search_kwargs)
+    except SearchQueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    run_id = started["run_id"]
     if tree_id:
         attach_search_node(
             tree_id,
@@ -171,7 +237,14 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
             query=str(search_kwargs.get("query") or body.query),
             meta={"fork_from_run_id": body.fork_from_run_id},
         )
-    return {"run_id": run_id, "status": "running", "tree_id": tree_id}
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "status": started.get("status", "running"),
+        "tree_id": tree_id,
+    }
+    if started.get("queue_position") is not None:
+        payload["queue_position"] = started["queue_position"]
+    return payload
 
 
 @router.get("/search/active")
@@ -179,15 +252,47 @@ async def api_search_active() -> dict[str, Any]:
     return {"searches": list_active_searches()}
 
 
+@router.get("/search/tasks")
+async def api_search_tasks(limit: int = 30) -> dict[str, Any]:
+    safe_limit = max(1, min(100, int(limit)))
+    return {"tasks": list_search_tasks(limit=safe_limit)}
+
+
 @router.get("/jobs/active")
 async def api_jobs_active() -> dict[str, Any]:
     return {"jobs": list_active_jobs()}
+
+
+@router.post("/search/{run_id}/save-items")
+async def api_search_save_items(run_id: str, body: SaveRunItemsRequest) -> dict[str, Any]:
+    run_id = _validated_run_id(run_id)
+    try:
+        return await asyncio.to_thread(
+            save.save_run_items,
+            run_id,
+            item_ids=body.item_ids,
+            min_relevance=body.min_relevance,
+            tags=body.tags,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+
+
+@router.get("/runs/{run_id}/diff")
+async def api_run_diff(run_id: str, since_run: str) -> dict[str, Any]:
+    run_id = _validated_run_id(run_id)
+    since_run = _validated_run_id(since_run)
+    try:
+        return await asyncio.to_thread(runs.diff_run_urls, run_id, since_run)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
 
 
 @router.get("/search/{run_id}/progress")
 async def api_search_progress(run_id: str) -> dict[str, Any]:
     from osint_toolkit.pipeline.progress import get_progress
 
+    run_id = _validated_run_id(run_id)
     progress = get_progress(run_id)
     if not progress:
         progress = read_progress_disk(run_id)
@@ -198,8 +303,18 @@ async def api_search_progress(run_id: str) -> dict[str, Any]:
 
 @router.get("/search/{run_id}")
 async def api_search_result(run_id: str) -> dict[str, Any]:
+    run_id = _validated_run_id(run_id)
     job = get_job(run_id)
     if job:
+        if job["status"] == "queued":
+            payload = {
+                "run_id": run_id,
+                "status": "queued",
+                "query": job.get("query", ""),
+            }
+            if job.get("queue_position") is not None:
+                payload["queue_position"] = job["queue_position"]
+            return payload
         if job["status"] == "running":
             payload: dict[str, Any] = {"run_id": run_id, "status": "running"}
             progress = job_public_view(run_id, job).get("progress")
@@ -210,7 +325,10 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
             return {"run_id": run_id, "status": "cancelled", "error": job.get("error") or "已取消"}
         if job["status"] == "error":
             raise HTTPException(500, detail=job["error"])
-        return {"run_id": run_id, "status": "done", **_serialize_search_result(job["result"])}
+        result = job.get("result") or get_job_result(run_id)
+        if not result:
+            raise HTTPException(404, detail="run not found")
+        return {"run_id": run_id, "status": "done", **_serialize_search_result(result)}
     disk = get_job_result(run_id)
     if disk:
         manifest = disk.get("manifest") or {}
@@ -244,6 +362,7 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
 
 @router.post("/search/{run_id}/cancel")
 async def api_search_cancel(run_id: str) -> dict[str, Any]:
+    run_id = _validated_run_id(run_id)
     if not cancel_job(run_id):
         job = get_job(run_id)
         if not job:
@@ -255,24 +374,48 @@ async def api_search_cancel(run_id: str) -> dict[str, Any]:
 
 
 @router.get("/search/{run_id}/events")
-async def api_search_events(run_id: str) -> StreamingResponse:
+async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
     from osint_toolkit.pipeline.progress import get_progress
+    from osint_toolkit.services.run_session import run_dir as get_run_dir
 
-    run_dir = get_data_dir() / "runs" / run_id
+    run_id = _validated_run_id(run_id)
+    run_dir_path = get_run_dir(run_id)
 
     async def event_stream():
+        from osint_toolkit.utils.config import get_search_config
+
+        search_cfg = get_search_config()
+        collect_timeout = float(search_cfg.get("collect_timeout_sec", 900))
+        sse_max_lifetime = float(search_cfg.get("sse_max_lifetime_sec", 3600))
+        sse_ticks = max(1200, int(sse_max_lifetime / 0.5), int(collect_timeout * 4 / 0.5))
+
         seen: set[str] = set()
         last_progress: str | None = None
-        for _ in range(600):
+        tick = 0
+        while tick < sse_ticks:
+            tick += 1
+            if await request.is_disconnected():
+                break
             job = get_job(run_id)
+            manifest = read_manifest(run_id) if not job else None
+            terminal_status: str | None = None
+            if job and job.get("status") in ("done", "cancelled", "error"):
+                terminal_status = str(job["status"])
+            elif manifest and manifest.get("status") in (
+                "done",
+                "cancelled",
+                "error",
+                "interrupted",
+            ):
+                terminal_status = str(manifest["status"])
             progress = get_progress(run_id)
             if progress:
                 progress_key = json.dumps(progress, ensure_ascii=False, sort_keys=True)
                 if progress_key != last_progress:
                     last_progress = progress_key
                     yield f"data: {json.dumps({'type': 'progress', 'progress': progress}, ensure_ascii=False)}\n\n"
-            if run_dir.exists():
-                for path in sorted(run_dir.glob("*_*.json")):
+            if run_dir_path.exists():
+                for path in sorted(run_dir_path.glob("*_*.json")):
                     if path.name == "manifest.json" or path.name in seen:
                         continue
                     seen.add(path.name)
@@ -287,17 +430,53 @@ async def api_search_events(run_id: str) -> StreamingResponse:
                                 ensure_ascii=False,
                             )
                             yield f"data: {err_payload}\n\n"
+                        if isinstance(step_data, dict) and step_data.get("source_warnings"):
+                            warn_payload = json.dumps(
+                                {"type": "source_warning", "warnings": step_data["source_warnings"]},
+                                ensure_ascii=False,
+                            )
+                            yield f"data: {warn_payload}\n\n"
+                        plan_payload = None
+                        if isinstance(step_data, dict):
+                            if step_data.get("source_plan") or step_data.get("source_routing"):
+                                plan_payload = {
+                                    "source_plan": step_data.get("source_plan") or {},
+                                    "source_routing": step_data.get("source_routing") or {},
+                                    "collect_sources": step_data.get("active_sources") or [],
+                                }
+                        elif isinstance(data, dict) and data.get("step") == "ai_source_plan":
+                            inner = data.get("data") if isinstance(data.get("data"), dict) else data
+                            if isinstance(inner, dict) and (
+                                inner.get("source_plan") or inner.get("source_routing")
+                            ):
+                                plan_payload = {
+                                    "source_plan": inner.get("source_plan") or {},
+                                    "source_routing": inner.get("source_routing") or {},
+                                    "collect_sources": inner.get("active_sources") or [],
+                                }
+                        if plan_payload:
+                            yield f"data: {json.dumps({'type': 'source_plan', **plan_payload}, ensure_ascii=False)}\n\n"
                     except json.JSONDecodeError:
                         continue
             if job and job["status"] == "done":
-                result = _serialize_search_result(job["result"])
-                yield f"data: {json.dumps({'type': 'done', 'result': result}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'run_id': run_id}, ensure_ascii=False)}\n\n"
+                break
+            if terminal_status == "done":
+                yield f"data: {json.dumps({'type': 'done', 'run_id': run_id}, ensure_ascii=False)}\n\n"
                 break
             if job and job["status"] == "cancelled":
                 yield f"data: {json.dumps({'type': 'cancelled', 'error': job.get('error') or '已取消'}, ensure_ascii=False)}\n\n"
                 break
+            if terminal_status == "cancelled":
+                err = (manifest or {}).get("error") or "已取消"
+                yield f"data: {json.dumps({'type': 'cancelled', 'error': err}, ensure_ascii=False)}\n\n"
+                break
             if job and job["status"] == "error":
                 yield f"data: {json.dumps({'type': 'error', 'error': job['error']}, ensure_ascii=False)}\n\n"
+                break
+            if terminal_status in ("error", "interrupted"):
+                err = (manifest or {}).get("error") or terminal_status
+                yield f"data: {json.dumps({'type': 'error', 'error': err}, ensure_ascii=False)}\n\n"
                 break
             yield f"data: {json.dumps({'type': 'ping'})}\n\n"
             await asyncio.sleep(0.5)
@@ -336,24 +515,37 @@ async def api_knowledge_items(
 
 @router.post("/ask")
 async def api_ask(body: AskRequest) -> dict[str, Any]:
-    result = ask_question(body.question, run_id=body.run_id)
+    history = [
+        {"question": str(h.get("question") or ""), "answer": str(h.get("answer") or "")}
+        for h in (body.history or [])
+        if isinstance(h, dict) and (h.get("question") or h.get("answer"))
+    ][-8:]
+    result = await asyncio.to_thread(
+        ask_question,
+        body.question,
+        run_id=body.run_id,
+        history=history or None,
+    )
     if result.get("ok") is False:
         return result
     if body.tree_id and result.get("answer"):
         parent = body.parent_node_id
         if not parent and body.run_id:
-            for node in (load_tree(body.tree_id).get("nodes") or []):
+            for node in load_tree(body.tree_id).get("nodes") or []:
                 if node.get("run_id") == body.run_id:
                     parent = node.get("id")
                     break
-        add_node(
-            body.tree_id,
-            parent_id=parent,
-            kind="ask",
-            title=body.question[:80],
-            payload=f"Q: {body.question}\n\nA: {result.get('answer', '')}",
-            meta={"run_id": body.run_id},
-        )
+        try:
+            add_node(
+                body.tree_id,
+                parent_id=parent,
+                kind="ask",
+                title=body.question[:80],
+                payload=f"Q: {body.question}\n\nA: {result.get('answer', '')}",
+                meta={"run_id": body.run_id},
+            )
+        except ValueError:
+            pass
     return result
 
 
@@ -384,6 +576,16 @@ async def api_digest_daily(ai: bool = False, no_ai: bool = False, hot_list: bool
 @router.get("/digest/history")
 async def api_digest_history(limit: int = 30) -> dict[str, Any]:
     return {"digests": digest.list_daily_digests(limit=limit)}
+
+
+@router.get("/digest/history/{date}")
+async def api_digest_history_one(date: str) -> dict[str, Any]:
+    try:
+        return digest.load_daily_digest(date)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
 
 
 @router.get("/digest/reports")
@@ -433,7 +635,7 @@ async def api_ingest_capabilities() -> dict[str, Any]:
 
 @router.get("/setup/status")
 async def api_setup_status() -> dict[str, Any]:
-    return setup.get_setup_status()
+    return await asyncio.to_thread(setup.get_setup_status)
 
 
 @router.get("/setup/operations")
@@ -456,7 +658,7 @@ async def api_setup_dismiss() -> dict[str, Any]:
 
 @router.get("/setup/dependencies")
 async def api_setup_dependencies() -> dict[str, Any]:
-    return dependencies.get_dependencies_status()
+    return await asyncio.to_thread(dependencies.get_dependencies_status)
 
 
 @router.post("/setup/install-playwright")
@@ -601,8 +803,8 @@ async def api_extension_ping(body: ExtensionPingRequest) -> dict[str, Any]:
 
 
 @router.get("/extension/status")
-async def api_extension_status() -> dict[str, Any]:
-    return extension.get_extension_status()
+async def api_extension_status(lite: bool = False) -> dict[str, Any]:
+    return await asyncio.to_thread(extension.get_extension_status, include_stats=not lite)
 
 
 @router.get("/events/insights")
@@ -640,8 +842,8 @@ async def api_persona() -> dict[str, Any]:
 
 
 @router.get("/persona/status")
-async def api_persona_status() -> dict[str, Any]:
-    return await persona.refresh_persona_status()
+async def api_persona_status(auto_rebuild: bool = False) -> dict[str, Any]:
+    return await persona.refresh_persona_status(auto_rebuild=auto_rebuild)
 
 
 @router.post("/persona/dismiss-notice")
@@ -660,25 +862,74 @@ async def api_persona_rollback(body: PersonaRollbackRequest) -> dict[str, Any]:
 
 
 @router.get("/runs")
-async def api_runs(limit: int = 20) -> dict[str, Any]:
-    return {"runs": runs.list_runs(limit=limit)}
+async def api_runs(limit: int = 50) -> dict[str, Any]:
+    import asyncio
+
+    safe_limit = max(1, min(int(limit), 100))
+    data = await asyncio.to_thread(runs.list_runs, limit=safe_limit)
+    return {"runs": data}
 
 
 @router.get("/runs/{run_id}")
 async def api_run_detail(run_id: str, step: str | None = None) -> Any:
+    import asyncio
+
+    run_id = _validated_run_id(run_id)
     try:
-        return runs.show_run(run_id, step=step)
+        return await asyncio.to_thread(runs.show_run, run_id, step)
     except FileNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
 
 
 @router.get("/runs/{run_id}/artifacts/{name}")
 async def api_run_artifact(run_id: str, name: str) -> PlainTextResponse:
+    run_id = _validated_run_id(run_id)
     try:
         content, media_type = runs.get_run_artifact(run_id, name)
     except FileNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     return PlainTextResponse(content, media_type=media_type)
+
+
+@router.get("/runs/{run_id}/report/download")
+async def api_run_report_download(run_id: str) -> Response:
+    run_id = _validated_run_id(run_id)
+    try:
+        content, filename = await asyncio.to_thread(runs.get_run_report_export, run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/runs/{run_id}")
+async def api_run_delete(run_id: str) -> dict[str, Any]:
+    from osint_toolkit.web.tasks import cancel_job, get_job
+
+    run_id = _validated_run_id(run_id)
+    job = get_job(run_id)
+    if job and job.get("status") == "running":
+        cancel_job(run_id)
+    try:
+        await asyncio.to_thread(runs.delete_run, run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    return {"run_id": run_id, "deleted": True}
+
+
+@router.post("/runs/cleanup")
+async def api_runs_cleanup(body: RunsCleanupRequest) -> dict[str, Any]:
+    result = await asyncio.to_thread(
+        runs.cleanup_runs,
+        older_than_days=body.older_than_days,
+        keep_latest=body.keep_latest,
+        statuses=body.statuses,
+        dry_run=body.dry_run,
+    )
+    return result
 
 
 @router.get("/ai/directives")
@@ -698,22 +949,27 @@ async def api_prompts_list() -> dict[str, Any]:
 
 @router.get("/ai/prompts/{name}")
 async def api_prompt_get(name: str) -> dict[str, str]:
+    name = _validated_prompt_name(name)
     return ai_config.get_prompt(name)
 
 
 @router.put("/ai/prompts/{name}")
 async def api_prompt_put(name: str, body: PromptUpdate) -> dict[str, str]:
+    name = _validated_prompt_name(name)
     return ai_config.update_prompt(name, body.text)
 
 
 @router.post("/ai/prompts/{name}/reset")
 async def api_prompt_reset(name: str) -> dict[str, Any]:
+    name = _validated_prompt_name(name)
     return ai_config.reset_prompt(name)
 
 
 @router.get("/auth/status")
-async def api_auth_status(target: str = "all") -> dict[str, Any]:
-    return {"items": auth.get_auth_status(target)}
+async def api_auth_status(target: str = "all", live_probe: bool = False) -> dict[str, Any]:
+    return {
+        "items": await asyncio.to_thread(auth.get_auth_status, target, live_probe=live_probe),
+    }
 
 
 @router.get("/config/secrets")
@@ -732,6 +988,26 @@ async def api_config_secrets_save(secret_id: str, body: SecretSaveRequest) -> di
 @router.post("/config/secrets/{secret_id}/test")
 async def api_config_secrets_test(secret_id: str) -> dict[str, Any]:
     return secrets.test_api_secret(secret_id)
+
+
+@router.get("/config/tunables")
+async def api_config_tunables_list() -> dict[str, Any]:
+    from osint_toolkit.services import tunable_config
+
+    return tunable_config.list_tunable_groups()
+
+
+@router.patch("/config/tunables")
+async def api_config_tunables_patch(body: TunablePatchRequest) -> dict[str, Any]:
+    from osint_toolkit.services import tunable_config
+
+    try:
+        result = tunable_config.patch_tunable_values(body.values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if "search.max_concurrent_searches" in (body.values or {}):
+        drain_search_queue()
+    return result
 
 
 @router.post("/auth/sync-cookies")
@@ -783,6 +1059,7 @@ async def api_research_list(limit: int = 30) -> dict[str, Any]:
 
 @router.get("/research/trees/{tree_id}")
 async def api_research_get(tree_id: str) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
     try:
         return {"tree": load_tree(tree_id)}
     except FileNotFoundError:
@@ -791,6 +1068,7 @@ async def api_research_get(tree_id: str) -> dict[str, Any]:
 
 @router.get("/research/trees/{tree_id}/markmap")
 async def api_research_markmap(tree_id: str) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
     try:
         tree = load_tree(tree_id)
     except FileNotFoundError:
@@ -800,6 +1078,7 @@ async def api_research_markmap(tree_id: str) -> dict[str, Any]:
 
 @router.post("/research/trees/{tree_id}/nodes")
 async def api_research_add_node(tree_id: str, body: ResearchNodeCreate) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
     try:
         node = add_node(
             tree_id,
@@ -819,6 +1098,7 @@ async def api_research_add_node(tree_id: str, body: ResearchNodeCreate) -> dict[
 
 @router.patch("/research/trees/{tree_id}/nodes/{node_id}")
 async def api_research_patch_node(tree_id: str, node_id: str, body: ResearchNodePatch) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
     try:
         node = patch_node(
             tree_id,
@@ -836,18 +1116,37 @@ async def api_research_patch_node(tree_id: str, node_id: str, body: ResearchNode
 
 @router.post("/research/suggest-queries")
 async def api_research_suggest(body: ResearchSuggestRequest) -> dict[str, Any]:
-    return research_ai.suggest_queries(run_id=body.run_id, tree_id=body.tree_id)
+    return await asyncio.to_thread(
+        research_ai.suggest_queries,
+        run_id=body.run_id,
+        tree_id=body.tree_id,
+    )
 
 
 @router.post("/research/insight")
 async def api_research_insight(body: ResearchInsightRequest) -> dict[str, Any]:
-    result = research_ai.generate_insight(
+    result = await asyncio.to_thread(
+        research_ai.generate_insight,
         tree_id=body.tree_id,
         run_id=body.run_id,
         parent_node_id=body.parent_node_id,
     )
     if not result.get("ok"):
         raise HTTPException(500, detail=result.get("error") or "insight failed")
+    return result
+
+
+@router.get("/watches")
+async def api_watches_list() -> dict[str, Any]:
+    watches = await asyncio.to_thread(watch_service.load_watches)
+    return {"watches": [watch_service.watch_status(w) for w in watches]}
+
+
+@router.post("/watches/{watch_id}/run")
+async def api_watch_run(watch_id: str) -> dict[str, Any]:
+    result = await watch_service.run_watch(watch_id)
+    if not result.get("ok"):
+        raise HTTPException(400, detail=result.get("error") or "watch run failed")
     return result
 
 

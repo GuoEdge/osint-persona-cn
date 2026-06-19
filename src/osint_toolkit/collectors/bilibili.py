@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import OrderedDict
 from typing import Any
 
 from osint_toolkit.collectors.base import BaseCollector
@@ -17,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 class BilibiliCollector(BaseCollector):
     name = "bilibili"
-    _oid_cache: dict[str, str] = {}
+    _OID_CACHE_MAX = 2000
+    _oid_cache: OrderedDict[str, str] = OrderedDict()
 
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
@@ -468,8 +470,16 @@ class BilibiliCollector(BaseCollector):
             logger.warning("bilibili legacy reply failed: %s", exc)
             return [], 0
 
+    @classmethod
+    def _remember_oid(cls, url: str, oid: str) -> None:
+        cls._oid_cache[url] = oid
+        cls._oid_cache.move_to_end(url)
+        while len(cls._oid_cache) > cls._OID_CACHE_MAX:
+            cls._oid_cache.popitem(last=False)
+
     async def _resolve_oid(self, url: str) -> str | None:
         if url in self._oid_cache:
+            self._oid_cache.move_to_end(url)
             return self._oid_cache[url]
         oid: str | None = None
         cv = re.search(r"(?:/read/)?cv(\d+)", url, re.I)
@@ -486,5 +496,5 @@ class BilibiliCollector(BaseCollector):
             av = re.search(r"av(\d+)", url)
             oid = av.group(1) if av else None
         if oid:
-            self._oid_cache[url] = oid
+            self._remember_oid(url, oid)
         return oid

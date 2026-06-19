@@ -200,19 +200,37 @@ async def ingest_zhihu() -> dict[str, Any]:
         browsing = []
         warnings.append(f"浏览记录: {exc}")
     votes = voteanswers or [a for a in activities if a.get("event_kind") == "answer_vote"]
+    activities_non_vote = [
+        a for a in activities if a.get("event_kind") not in ("answer_vote", None)
+    ]
+    if not activities and voteanswers:
+        warnings.append(
+            "主页动态流(activities)为空，但赞同明细(voteanswers)可用："
+            "动态流通常只含赞/藏/关注/发布类活动，不含独立「发动态」时间线；"
+            "赞同回答已由 voteanswers API 单独抓取。"
+        )
     if not browsing and not activities and not voteanswers:
         warnings.append(
             "知乎浏览/动态 API 为空：同步时会自动打开 recent-viewed 与主页，或请检查隐私设置"
         )
     rows = favorites + activities + voteanswers + followees + browsing
+    breakdown = {
+        "votes": {"label": "赞同回答", "count": len(voteanswers)},
+        "favorites": {"label": "收藏", "count": len(favorites)},
+        "activities_non_vote": {"label": "动态流(非赞同)", "count": len(activities_non_vote)},
+        "followees": {"label": "关注的人", "count": len(followees)},
+        "browsing": {"label": "浏览记录", "count": len(browsing)},
+    }
     return {
         "count": len(rows),
         "favorite_count": len(favorites),
         "activity_count": len(activities),
+        "activity_non_vote_count": len(activities_non_vote),
         "vote_count": len(votes),
         "voteanswer_count": len(voteanswers),
         "followee_count": len(followees),
         "browse_count": len(browsing),
+        "breakdown": breakdown,
         "rows": rows[:20],
         "warnings": warnings,
     }

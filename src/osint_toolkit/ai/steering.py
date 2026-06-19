@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from osint_toolkit.ai.step_registry import normalize_step_id
 from osint_toolkit.auth.paths import get_data_dir
 
 DEFAULT_DIRECTIVES: dict[str, Any] = {
@@ -29,6 +30,7 @@ DEFAULT_DIRECTIVES: dict[str, Any] = {
     ],
     "enabled_steps": {
         "query_analyze": True,
+        "source_plan": True,
         "alias_discover": True,
         "summarize": True,
         "report": True,
@@ -67,11 +69,13 @@ def save_directives(data: dict[str, Any]) -> Path:
 def is_step_enabled(step: str, *, no_ai: bool = False, disabled_steps: list[str] | None = None) -> bool:
     if no_ai:
         return False
-    if disabled_steps and step in disabled_steps:
+    canonical = normalize_step_id(step)
+    disabled = {normalize_step_id(s) for s in (disabled_steps or [])}
+    if canonical in disabled:
         return False
     directives = load_directives()
     enabled = directives.get("enabled_steps", {})
-    return bool(enabled.get(step, True))
+    return bool(enabled.get(canonical, True))
 
 
 def build_system_prompt(

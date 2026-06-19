@@ -1,7 +1,17 @@
 /** 经 chrome.cookies 读取登录态并写入本机 OSINT（绕过 Edge App-Bound 磁盘加密） */
 
 const CookieBridge = {
-  targets: ["bilibili.com", "zhihu.com"],
+  targets: [
+    "bilibili.com",
+    "zhihu.com",
+    "weibo.com",
+    "xiaohongshu.com",
+    "v2ex.com",
+    "tieba.baidu.com",
+    "okjike.com",
+    "maimai.cn",
+    "mp.weixin.qq.com",
+  ],
 
   _listDomain(domain) {
     return new Promise((resolve) => {

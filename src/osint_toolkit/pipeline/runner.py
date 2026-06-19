@@ -94,6 +94,55 @@ class PipelineRunner:
         manifest["steps"] = [s.to_dict() for s in self.steps]
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def _step_index(self) -> int:
+        return len(self.steps) + 1
+
+    def _step_path(self, name: str) -> Path:
+        return self.run_dir / f"{self._step_index():02d}_{name}.json"
+
+    def _write_step_file(self, path: Path, payload: dict[str, Any]) -> None:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def begin_step(self, name: str, *, input_summary: str = "", ai_invoked: bool = False) -> Path:
+        """长耗时步骤开始前落盘 running 状态，便于运行详情页审查。"""
+        path = self._step_path(name)
+        self._write_step_file(
+            path,
+            {
+                "step": name,
+                "status": "running",
+                "duration_ms": 0,
+                "input_summary": input_summary,
+                "output_summary": "",
+                "issues": [],
+                "artifacts": [],
+                "ai_invoked": ai_invoked,
+            },
+        )
+        manifest_path = self.run_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                manifest = {}
+            steps = list(manifest.get("steps") or [])
+            steps = [s for s in steps if not (isinstance(s, dict) and s.get("step") == name)]
+            steps.append(
+                {
+                    "step": name,
+                    "status": "running",
+                    "duration_ms": 0,
+                    "input_summary": input_summary,
+                    "output_summary": "",
+                    "issues": [],
+                    "artifacts": [],
+                    "ai_invoked": ai_invoked,
+                }
+            )
+            manifest["steps"] = steps
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
     def run_step(
         self,
         name: str,
@@ -102,11 +151,27 @@ class PipelineRunner:
         input_summary: str = "",
         artifact_name: str | None = None,
         ai_invoked: bool = False,
+        step_path: Path | None = None,
     ) -> StepResult:
         start = time.perf_counter()
         issues: list[str] = []
         status = "ok"
         data: Any = None
+        path = step_path or self._step_path(name)
+        if not path.exists():
+            self._write_step_file(
+                path,
+                {
+                    "step": name,
+                    "status": "running",
+                    "duration_ms": 0,
+                    "input_summary": input_summary,
+                    "output_summary": "",
+                    "issues": [],
+                    "artifacts": [],
+                    "ai_invoked": ai_invoked,
+                },
+            )
         try:
             data = func()
         except Exception as exc:  # noqa: BLE001
@@ -135,8 +200,7 @@ class PipelineRunner:
             ai_invoked=ai_invoked,
             data=data,
         )
-        step_file = self.run_dir / f"{len(self.steps) + 1:02d}_{name}.json"
-        step_file.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_step_file(path, result.to_dict())
         self._append_trace(result)
         return result
 

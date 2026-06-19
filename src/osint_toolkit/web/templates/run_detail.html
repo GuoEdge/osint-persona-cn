@@ -3,9 +3,11 @@
 {% block content %}
 <div class="page-header">
   <div>
+    <p class="page-desc"><a href="/runs">← 运行记录</a></p>
     <h1>运行详情</h1>
-    <p class="page-desc">Run ID: {{ run_id }}</p>
+    <p class="page-desc run-id-line">Run ID: <code>{{ run_id }}</code></p>
   </div>
+  <div class="page-actions" id="run-detail-actions"></div>
 </div>
 <div id="run-detail">加载中…</div>
 {% endblock %}

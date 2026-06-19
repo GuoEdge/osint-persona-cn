@@ -18,14 +18,16 @@ _LAST_SYNC_FILE = "last_full_sync.txt"
 def _extension_connected() -> bool:
     from osint_toolkit.services import extension
 
-    status = extension.get_extension_status()
+    status = extension.read_extension_ping()
     if not status.get("last_seen"):
         return False
     try:
         last = datetime.fromisoformat(str(status["last_seen"]).replace("Z", "+00:00"))
-        return (datetime.now(UTC) - last).total_seconds() < 86400 * 7
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - last.astimezone(UTC)).total_seconds() < 86400 * 7
     except ValueError:
-        return bool(status.get("extension_event_count", 0) > 0)
+        return False
 
 
 def record_full_sync() -> None:
@@ -44,9 +46,13 @@ def get_last_full_sync_at() -> str | None:
 
 
 def _has_search_run() -> bool:
-    from osint_toolkit.services import runs
-
-    return bool(runs.list_runs(limit=1))
+    runs_dir = get_data_dir() / "runs"
+    if not runs_dir.is_dir():
+        return False
+    for child in runs_dir.iterdir():
+        if (child / "manifest.json").is_file():
+            return True
+    return False
 
 
 def get_setup_status() -> dict[str, Any]:

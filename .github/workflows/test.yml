@@ -14,5 +14,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,web]"
-      - run: pytest -q
+      - run: pytest -q -m "not integration"
       - run: ruff check src tests
+  acceptance:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,web]"
+      - name: Start web server
+        run: |
+          osint web --host 127.0.0.1 --port 8787 &
+          sleep 5
+      - name: Web acceptance
+        run: python scripts/web_acceptance.py
+        env:
+          OSINT_WEB_BASE: http://127.0.0.1:8787

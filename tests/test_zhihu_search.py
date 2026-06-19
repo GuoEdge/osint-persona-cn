@@ -139,7 +139,8 @@ def test_per_query_limit_aggressive_floor(monkeypatch):
     )
     from osint_toolkit.ai.query_expand import per_query_limit
 
-    assert per_query_limit(10, 5) == 20
+    assert per_query_limit(25, 5) >= 20
+    assert per_query_limit(10, 5) == 10
 
 
 @pytest.mark.asyncio
@@ -275,3 +276,72 @@ def test_comment_limits_from_config(monkeypatch):
     )
     col = ZhihuCollector(client=MagicMock())
     assert col._comment_limits() == (80, 5)
+
+
+@pytest.mark.asyncio
+async def test_fetch_question_answers_merges_hot_and_recent(monkeypatch):
+    cfg = {
+        "zhihu_answers_hot_top": 2,
+        "zhihu_answers_recent_top": 1,
+        "zhihu_answers_per_question": 3,
+    }
+    monkeypatch.setattr("osint_toolkit.collectors.zhihu.get_search_config", lambda: cfg)
+    client = MagicMock()
+
+    async def fake_get(url, **kwargs):
+        resp = MagicMock()
+        resp.status_code = 200
+        if "sort_by=vote_num" in url:
+            resp.json = lambda: {
+                "data": [
+                    {
+                        "id": 1,
+                        "question": {"id": 9, "title": "Q"},
+                        "content": "<p>热一</p>",
+                        "voteup_count": 900,
+                        "comment_count": 3,
+                        "author": {"name": "H1"},
+                    },
+                    {
+                        "id": 2,
+                        "question": {"id": 9, "title": "Q"},
+                        "content": "<p>热二</p>",
+                        "voteup_count": 800,
+                        "comment_count": 1,
+                        "author": {"name": "H2"},
+                    },
+                ],
+                "paging": {"is_end": True},
+            }
+        else:
+            resp.json = lambda: {
+                "data": [
+                    {
+                        "id": 2,
+                        "question": {"id": 9, "title": "Q"},
+                        "content": "<p>热二</p>",
+                        "voteup_count": 800,
+                        "comment_count": 1,
+                        "author": {"name": "H2"},
+                    },
+                    {
+                        "id": 99,
+                        "question": {"id": 9, "title": "Q"},
+                        "content": "<p>最新</p>",
+                        "voteup_count": 2,
+                        "comment_count": 0,
+                        "author": {"name": "N"},
+                    },
+                ],
+                "paging": {"is_end": True},
+            }
+        return resp
+
+    client.get = AsyncMock(side_effect=fake_get)
+    col = ZhihuCollector(client=client)
+    answers = await col.fetch_question_answers("https://www.zhihu.com/question/9", limit=3)
+    assert len(answers) == 3
+    buckets = {a.personal.get("answer_bucket") for a in answers}
+    assert buckets == {"hot", "recent"}
+    recent = [a for a in answers if a.personal.get("answer_bucket") == "recent"]
+    assert recent[0].url.endswith("/answer/99")

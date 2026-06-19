@@ -14,16 +14,16 @@ def test_merge_discovered_aliases_appends(tmp_path, monkeypatch):
     assert "小祥" in first["added_aliases"]
     assert "祥处" in first["added_slurs"]
 
-    second = merge_discovered_aliases("丰川祥子", ["小祥", "网络新梗"], [])
+    second = merge_discovered_aliases("丰川祥子", ["小祥", "祥子同人"], [])
     assert second["saved"] is True
-    assert second["added_aliases"] == ["网络新梗"]
+    assert second["added_aliases"] == ["祥子同人"]
     assert "小祥" not in second.get("added_aliases", [])
 
     path = tmp_path / "entities" / "discovered.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     entry = data["entities"]["丰川祥子"]
     assert "小祥" in entry["aliases"]
-    assert "网络新梗" in entry["aliases"]
+    assert "祥子同人" in entry["aliases"]
     assert "祥处" in entry["slurs"]
     assert entry["meta"]["auto_discovered"] is True
 

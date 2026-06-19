@@ -88,9 +88,11 @@ const EventQueue = {
       let batchOk = false;
       for (let attempt = 0; attempt < EventQueue._maxAttempts; attempt += 1) {
         try {
+          const headers = await OSINTConfig.authHeaders({ "Content-Type": "application/json" });
           const resp = await fetch(`${apiBase}/api/extension/events`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers,
+            credentials: "include",
             body: JSON.stringify({
               events: batch,
               version: OSINTConfig.extVersion,

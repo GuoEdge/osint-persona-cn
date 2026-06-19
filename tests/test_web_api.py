@@ -22,6 +22,15 @@ def test_page_workspace(client):
     assert "个人情报" in r.text
 
 
+def test_api_health_sets_cookie(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json().get("ok") == "true"
+    # Cookie may be set when web auth is enabled (default in tests)
+    if "osint_token" in r.cookies:
+        assert len(r.cookies["osint_token"]) > 8
+
+
 def test_page_routes(client):
     for path in ["/save", "/knowledge", "/digest", "/persona", "/ingest", "/behavior", "/runs", "/ai", "/settings"]:
         r = client.get(path)
@@ -63,7 +72,7 @@ def test_knowledge_items(client, tmp_path, monkeypatch):
 
 
 def test_runs_list(client, tmp_path, monkeypatch):
-    monkeypatch.setattr("osint_toolkit.services.runs.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     (tmp_path / "runs").mkdir(parents=True, exist_ok=True)
     r = client.get("/api/runs")
     assert r.status_code == 200
@@ -91,12 +100,12 @@ def test_search_async(client, monkeypatch):
     def fake_start(**kwargs):
         from osint_toolkit.web import tasks
 
-        run_id = "20260101-120000-test1234"
+        run_id = "20260101-120000-abcd1234"
         tasks._jobs[run_id] = {"status": "running", "result": None, "error": None}
         import asyncio
 
         asyncio.get_event_loop().create_task(fake_execute(run_id, **kwargs))
-        return run_id
+        return {"run_id": run_id, "status": "running"}
 
     monkeypatch.setattr("osint_toolkit.web.routes.api.start_search_job", fake_start)
 
@@ -146,16 +155,21 @@ def test_aicu_status(client, monkeypatch):
     assert r.json()["enabled"] is True
 
 
+def test_run_detail_rejects_invalid_run_id(client):
+    r = client.get("/api/runs/not-a-valid-run-id")
+    assert r.status_code == 400
+
+
 def test_run_detail_skips_list_artifacts(client, tmp_path, monkeypatch):
-    monkeypatch.setattr("osint_toolkit.services.runs.get_data_dir", lambda: tmp_path)
-    run_dir = tmp_path / "runs" / "20260101-120000-test1234"
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    run_dir = tmp_path / "runs" / "20260101-120000-abcd1234"
     run_dir.mkdir(parents=True)
     (run_dir / "manifest.json").write_text(
-        '{"run_id":"20260101-120000-test1234","command":"search","query":"x","steps":[]}',
+        '{"run_id":"20260101-120000-abcd1234","command":"search","query":"x","steps":[]}',
         encoding="utf-8",
     )
     (run_dir / "01_collect_all.json").write_text('{"step":"collect_all","status":"ok"}', encoding="utf-8")
     (run_dir / "items_raw.json").write_text("[{}]", encoding="utf-8")
-    r = client.get("/api/runs/20260101-120000-test1234")
+    r = client.get("/api/runs/20260101-120000-abcd1234")
     assert r.status_code == 200
     assert len(r.json()["steps"]) == 1

@@ -1,0 +1,20 @@
+# OSINT Toolkit — Web UI only (bind local data dir for config & knowledge.db)
+services:
+  osint-web:
+    build: .
+    container_name: osint-toolkit-web
+    ports:
+      - "8787:8787"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ZHIHU_ACCESS_SECRET: ${ZHIHU_ACCESS_SECRET:-}
+      BING_SEARCH_API_KEY: ${BING_SEARCH_API_KEY:-}
+      SERPAPI_KEY: ${SERPAPI_KEY:-}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-}
+      OSINT_DATA_DIR: /data
+    volumes:
+      - osint-data:/data
+    restart: unless-stopped
+
+volumes:
+  osint-data:

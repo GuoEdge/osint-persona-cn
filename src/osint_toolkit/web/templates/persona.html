@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}心智画像 — 个人情报工具{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--accent">
   <div>
     <h1>心智画像</h1>
     <p class="page-desc">画像来自行为时间线（含高停留、点赞、收藏）；搜罗时会参考近期高关注内容做模拟。</p>
@@ -13,19 +13,38 @@
 
 <div id="setup-wizard" class="setup-wizard card hidden"></div>
 
-<nav class="pipeline-steps card" aria-label="推荐流程">
-  <a href="/settings#deps" class="pipeline-step">1. 环境检查</a>
-  <span class="pipeline-arrow">→</span>
-  <a href="/ingest" class="pipeline-step">2. 完整同步</a>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step active">3. 构建画像</span>
-  <span class="pipeline-arrow">→</span>
-  <a href="/" class="pipeline-step">4. 搜罗</a>
+<nav class="pipeline-stepper card" aria-label="推荐流程">
+  <ol class="pipeline-stepper-list">
+    <li class="pipeline-stepper-item is-done">
+      <a href="/settings#deps" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">环境检查</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-done">
+      <a href="/ingest" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">完整同步</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-active">
+      <span class="pipeline-stepper-inner">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">构建画像</span>
+      </span>
+    </li>
+    <li class="pipeline-stepper-item">
+      <a href="/" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">搜罗</span>
+      </a>
+    </li>
+  </ol>
 </nav>
 <div id="persona-stale-banner" class="alert alert-warn hidden"></div>
 <div id="persona-notice" class="alert hidden"></div>
 <div id="persona-review-panel" class="card hidden"></div>
-<div id="persona-content" class="mt-1 muted">加载画像中…</div>
+<div id="persona-content" class="mt-1 muted persona-surface">加载画像中…</div>
 {% endblock %}
 {% block scripts %}
 <script>initPersona();</script>

@@ -30,6 +30,18 @@ def list_daily_digests(limit: int = 30) -> list[dict[str, Any]]:
     return results
 
 
+def load_daily_digest(date: str) -> dict[str, Any]:
+    """读取指定日期的简报存档。"""
+    safe = date.strip().replace("/", "-")
+    if not safe or ".." in safe:
+        raise ValueError("invalid digest date")
+    path = get_data_dir() / "digests" / f"{safe}.md"
+    if not path.exists():
+        raise FileNotFoundError(f"digest not found: {date}")
+    content = path.read_text(encoding="utf-8")
+    return {"date": safe, "content": content, "preview": content[:200]}
+
+
 def list_reports(limit: int = 50) -> list[dict[str, Any]]:
     runs_dir = get_data_dir() / "runs"
     if not runs_dir.exists():

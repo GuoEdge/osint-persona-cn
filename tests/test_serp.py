@@ -121,7 +121,39 @@ async def test_serp_auto_strategy_uses_merge_without_api_keys(monkeypatch):
     from osint_toolkit.collectors.serp import engine as serp_engine
 
     assert serp_engine._effective_strategy({"strategy": "auto"}) == "merge_html"
-    assert serp_engine._effective_strategy({"strategy": "auto", "bing_api_key": "x"}) == "fallback"
+    assert serp_engine._effective_strategy({"strategy": "auto", "bing_api_key": "x"}) == "merge_html"
+
+
+@pytest.mark.asyncio
+async def test_serp_merge_prefers_bing_weight(monkeypatch):
+    from osint_toolkit.collectors.serp import engine as serp_engine
+    from osint_toolkit.collectors.serp import providers
+
+    async def html_baidu(client, query, limit, cfg=None):
+        return [SerpHit(title="B", url="https://dup.com", snippet="s", engine="baidu_html", query=query)], None
+
+    async def html_bing(client, query, limit, cfg=None):
+        return [SerpHit(title="A", url="https://dup.com", snippet="s", engine="bing_html", query=query)], None
+
+    monkeypatch.setitem(providers.PROVIDERS, "baidu_html", html_baidu)
+    monkeypatch.setitem(providers.PROVIDERS, "bing_html", html_bing)
+    monkeypatch.setitem(providers.PROVIDERS, "sogou_html", html_baidu)
+    monkeypatch.setitem(providers.PROVIDERS, "duckduckgo_html", html_baidu)
+    monkeypatch.setattr(
+        serp_engine,
+        "get_serp_config",
+        lambda: {
+            "primary": "auto",
+            "strategy": "merge_html",
+            "parallel_html": True,
+            "fallbacks": ["bing_html", "baidu_html", "sogou_html", "duckduckgo_html"],
+            "provider_delay_ms": 0,
+        },
+    )
+
+    hits, _ = await SerpEngine().search("test", limit=5)
+    assert len(hits) == 1
+    assert hits[0].engine == "bing_html"
 
 
 @pytest.mark.asyncio

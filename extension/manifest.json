@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OSINT 个人采集",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "后台采集个人社交浏览与互动，仅写入本机 OSINT Toolkit",
   "permissions": ["storage", "tabs", "alarms", "contextMenus", "scripting", "cookies"],
   "host_permissions": [
@@ -30,12 +30,27 @@
     "https://x.com/*",
     "https://api.aicu.cc/*",
     "https://www.aicu.cc/*",
-    "https://*.aicu.cc/*"
+    "https://*.aicu.cc/*",
+    "https://mp.weixin.qq.com/*",
+    "https://tieba.baidu.com/*",
+    "https://*.tieba.baidu.com/*",
+    "https://web.okjike.com/*",
+    "https://*.okjike.com/*",
+    "https://maimai.cn/*",
+    "https://*.maimai.cn/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:8787/*",
+        "http://localhost:8787/*"
+      ],
+      "js": ["content/osint_web.js"],
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://*.bilibili.com/*",
@@ -57,7 +72,8 @@
         "https://*.weibo.com/*",
         "https://www.douban.com/*",
         "https://twitter.com/*",
-        "https://x.com/*"
+        "https://x.com/*",
+        "https://mp.weixin.qq.com/*"
       ],
       "js": ["lib/platforms.js", "content/collector.js"],
       "run_at": "document_start"

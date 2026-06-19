@@ -9,6 +9,7 @@ from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.json_util import parse_json_object
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
+from osint_toolkit.collectors.source_catalog import get_all_source_ids, merge_source_priority
 from osint_toolkit.persona.context import PersonaContext
 
 
@@ -17,7 +18,8 @@ def _default_result(query: str, sources: list[str]) -> dict[str, Any]:
         "intent": query,
         "expanded_queries": [query],
         "aliases": [],
-        "recommended_sources": list(sources),
+        # 无 AI 时不应把用户勾选池当作「推荐信源」加权，否则会抬高音乐等弱相关源。
+        "recommended_sources": [],
     }
 
 
@@ -37,24 +39,33 @@ def analyze_query(
     brief = (persona_ctx.brief if persona_ctx else "")[:1500]
     hints = (persona_ctx.interest_hints[:5] if persona_ctx else [])
 
-    raw = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(task="查询分析", persona_brief=brief),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"{prompt_tpl}\n\n"
-                    f"用户查询: {query}\n"
-                    f"当前来源: {sources}\n"
-                    f"近期兴趣: {json.dumps(hints, ensure_ascii=False)}\n"
-                    "输出 JSON 对象，字段: intent, expanded_queries(数组), aliases(数组), recommended_sources(数组)"
-                ),
-            },
-        ]
-    )
+    try:
+        raw = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(task="查询分析", persona_brief=brief),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"{prompt_tpl}\n\n"
+                        f"用户查询: {query}\n"
+                        f"当前来源: {sources}\n"
+                        f"可选扩展信源: {get_all_source_ids()}\n"
+                        f"近期兴趣: {json.dumps(hints, ensure_ascii=False)}\n"
+                        "recommended_sources 用于话题相关度加权，可包含你认为强相关的信源（含用户未勾选项），"
+                        "系统会按温和策略自动启用强相关、跳过弱相关。"
+                        "输出 JSON 对象，字段: intent, expanded_queries(数组), aliases(数组), recommended_sources(数组)"
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        out = _default_result(query, sources)
+        out["ai_fallback"] = str(exc)
+        return out
+
     parsed = parse_json_object(raw)
     if not parsed:
         return _default_result(query, sources)
@@ -64,10 +75,10 @@ def analyze_query(
         expanded = [expanded]
     expanded = [str(q).strip() for q in expanded if str(q).strip()]
 
-    rec_sources = parsed.get("recommended_sources") or sources
-    if isinstance(rec_sources, str):
-        rec_sources = [rec_sources]
-    rec_sources = [str(s) for s in rec_sources if str(s) in sources] or list(sources)
+    rec_sources = merge_source_priority(
+        list(sources),
+        [str(s) for s in (parsed.get("recommended_sources") or []) if str(s).strip()],
+    )
 
     aliases = parsed.get("aliases") or []
     if isinstance(aliases, str):

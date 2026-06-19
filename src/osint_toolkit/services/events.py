@@ -3,9 +3,44 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from osint_toolkit.storage.sqlite import connect
+
+_EVENT_COUNT_CACHE: dict[str, Any] = {"total": 0, "at": 0.0}
+_EVENT_COUNT_TTL_SEC = 60.0
+
+
+def prune_old_events(*, older_than_days: int = 90) -> dict[str, int]:
+    """删除过期行为事件与去重键。"""
+    if older_than_days <= 0:
+        return {"events": 0, "dedup": 0}
+    cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+    conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM events WHERE created_at < ?", (cutoff,))
+        events_deleted = int(cur.rowcount or 0)
+        cur2 = conn.execute("DELETE FROM event_dedup WHERE created_at < ?", (cutoff,))
+        dedup_deleted = int(cur2.rowcount or 0)
+        conn.commit()
+    finally:
+        conn.close()
+    _EVENT_COUNT_CACHE["at"] = 0.0
+    return {"events": events_deleted, "dedup": dedup_deleted}
+
+
+def _cached_event_total(conn) -> int:
+    import time
+
+    now = time.monotonic()
+    if now - float(_EVENT_COUNT_CACHE.get("at") or 0) < _EVENT_COUNT_TTL_SEC:
+        return int(_EVENT_COUNT_CACHE.get("total") or 0)
+    row = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()
+    total = int(row["c"]) if row else 0
+    _EVENT_COUNT_CACHE["total"] = total
+    _EVENT_COUNT_CACHE["at"] = now
+    return total
 
 
 def list_recent_events(
@@ -30,7 +65,7 @@ def list_recent_events(
     sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
     params.extend([limit + 200, offset])
     rows = conn.execute(sql, params).fetchall()
-    total_row = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()
+    total = _cached_event_total(conn)
     conn.close()
 
     items: list[dict[str, Any]] = []
@@ -54,4 +89,4 @@ def list_recent_events(
         )
         if len(items) >= limit:
             break
-    return {"items": items, "total": int(total_row["c"]) if total_row else 0, "count": len(items)}
+    return {"items": items, "total": total, "count": len(items)}

@@ -47,6 +47,8 @@ osint web
 
 Windows 也可双击项目根目录 `启动情报台.bat`。
 
+**部署详情**（配置、环境变量、Docker、扩展）：见 **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**。
+
 ---
 
 ## 4. 配置密钥（可选但推荐）

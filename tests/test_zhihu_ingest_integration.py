@@ -48,12 +48,22 @@ async def test_ingest_favorites_normalizes_api_urls(monkeypatch, tmp_path):
             raise AssertionError(url)
 
     logged: list[tuple[str, dict]] = []
+
+    def track_dedup(event_type, entry, _key):
+        logged.append((event_type, entry))
+        from osint_toolkit.storage.knowledge import log_event
+
+        log_event(event_type, entry)
+        return True
+
     async def fake_token(_c):
         return "token"
 
     monkeypatch.setattr(zhihu_account, "_url_token", fake_token)
     monkeypatch.setattr(zhihu_account, "HttpClient", lambda: FakeClient())
-    monkeypatch.setattr(zhihu_account, "log_event", lambda et, entry: logged.append((et, entry)))
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(zhihu_account, "log_event_deduped", track_dedup)
+    monkeypatch.setattr(zhihu_account, "_persist_zhihu", lambda **_k: None)
     monkeypatch.setattr(zhihu_account, "save_endorsement", lambda **_k: None)
 
     rows = await zhihu_account.ingest_favorites(limit=5)

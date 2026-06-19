@@ -4,10 +4,50 @@
 <div class="page-header">
   <div>
     <h1>运行记录</h1>
-    <p class="page-desc">Pipeline 每一步可审计、可展开。</p>
+    <p class="page-desc">历次搜罗的可审计记录：话题、状态、结果数量与 Pipeline 步骤。</p>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn btn-secondary btn-sm" id="btn-runs-refresh">刷新</button>
   </div>
 </div>
+
+<div class="runs-toolbar card ui-inset-group">
+  <div class="inline-field">
+    <label for="runs-filter">状态</label>
+    <select id="runs-filter">
+      <option value="">全部</option>
+      <option value="running">进行中</option>
+      <option value="done">已完成</option>
+      <option value="interrupted">已中断</option>
+      <option value="error">失败</option>
+      <option value="cancelled">已取消</option>
+    </select>
+  </div>
+  <div class="inline-field runs-search-field">
+    <label for="runs-search">搜索话题</label>
+    <input type="search" id="runs-search" placeholder="按关键词筛选…">
+  </div>
+</div>
+
 <div id="runs-list" class="muted">加载中…</div>
+
+<details class="card runs-cleanup-panel mt-1">
+  <summary>清理旧记录</summary>
+  <p class="muted">删除本地 <code>~/.osint/runs/</code> 中的历史搜罗目录，不影响知识库与画像。</p>
+  <div class="runs-cleanup-form">
+    <div class="inline-field">
+      <label for="cleanup-older-days">早于（天）</label>
+      <input type="number" id="cleanup-older-days" value="30" min="0" max="3650">
+    </div>
+    <div class="inline-field">
+      <label for="cleanup-keep-latest">保留最近（条）</label>
+      <input type="number" id="cleanup-keep-latest" value="20" min="0" max="500">
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" id="btn-runs-cleanup-preview">预览将删除</button>
+    <button type="button" class="btn btn-sm" id="btn-runs-cleanup">确认删除</button>
+  </div>
+  <div id="runs-cleanup-result" class="muted mt-1"></div>
+</details>
 {% endblock %}
 {% block scripts %}
 <script>initRuns();</script>

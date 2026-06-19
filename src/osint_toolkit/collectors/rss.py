@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import feedparser
 
 from osint_toolkit.collectors.base import BaseCollector
@@ -17,7 +19,7 @@ class RssCollector(BaseCollector):
         items: list[IntelItem] = []
         q = query.lower()
         for feed_url in feeds:
-            parsed = feedparser.parse(feed_url)
+            parsed = await asyncio.to_thread(feedparser.parse, feed_url)
             for entry in parsed.entries:
                 title = entry.get("title", "")
                 summary = entry.get("summary", "")

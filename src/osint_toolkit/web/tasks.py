@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -15,6 +15,7 @@ from osint_toolkit.pipeline.job_progress import init_full_sync_progress, make_fu
 from osint_toolkit.pipeline.progress import (
     JobCancelled,
     clear_progress,
+    finish_progress,
     get_progress,
     init_progress,
     is_cancelled,
@@ -26,8 +27,82 @@ from osint_toolkit.services.search_params import strip_session_keys
 from osint_toolkit.research.tree import update_search_node_status
 
 _MAX_JOBS = 50
+_TERMINAL_JOB_STATUSES = frozenset({"done", "error", "cancelled"})
 _jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _async_tasks: dict[str, asyncio.Task[Any]] = {}
+_search_queue: deque[tuple[str, dict[str, Any]]] = deque()
+
+
+class SearchQueueFullError(Exception):
+    """排队搜罗任务已达上限。"""
+
+
+def _max_queued_searches() -> int:
+    from osint_toolkit.utils.config import get_search_config
+
+    return max(1, int(get_search_config().get("max_queued_searches", 20)))
+
+
+def _max_concurrent_searches() -> int:
+    from osint_toolkit.utils.config import get_search_config
+
+    return max(1, int(get_search_config().get("max_concurrent_searches", 2)))
+
+
+def _count_running_searches() -> int:
+    return sum(
+        1 for job in _jobs.values() if job.get("kind") == "search" and job.get("status") == "running"
+    )
+
+
+def _queue_position(run_id: str) -> int | None:
+    for index, (queued_id, _) in enumerate(_search_queue):
+        if queued_id == run_id:
+            return index + 1
+    return None
+
+
+def _refresh_queue_positions() -> None:
+    for index, (run_id, _) in enumerate(_search_queue):
+        job = _jobs.get(run_id)
+        if job and job.get("status") == "queued":
+            job["queue_position"] = index + 1
+
+
+def _remove_from_search_queue(run_id: str) -> None:
+    global _search_queue
+    if not _search_queue:
+        return
+    _search_queue = deque((item for item in _search_queue if item[0] != run_id))
+    _refresh_queue_positions()
+
+
+def _launch_search(run_id: str, **kwargs: Any) -> None:
+    job = _jobs.get(run_id)
+    if not job or job.get("status") != "queued":
+        return
+    job["status"] = "running"
+    job["started_at"] = datetime.now(UTC).isoformat()
+    job.pop("queue_position", None)
+    set_run_status(run_id, "running")
+    init_progress(run_id)
+    task = asyncio.create_task(_execute_search(run_id, **kwargs))
+    _async_tasks[run_id] = task
+
+
+def _drain_search_queue() -> None:
+    while _search_queue and _count_running_searches() < _max_concurrent_searches():
+        run_id, kwargs = _search_queue.popleft()
+        job = _jobs.get(run_id)
+        if not job or job.get("status") != "queued":
+            continue
+        _launch_search(run_id, **kwargs)
+    _refresh_queue_positions()
+
+
+def drain_search_queue() -> None:
+    """启动排队中的搜罗任务（例如调高并发上限后）。"""
+    _drain_search_queue()
 
 
 def _search_run_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -40,7 +115,17 @@ def new_run_id() -> str:
 
 def _trim_jobs() -> None:
     while len(_jobs) > _MAX_JOBS:
-        _jobs.popitem(last=False)
+        victim_id: str | None = None
+        for job_id, job in _jobs.items():
+            if job.get("status") in _TERMINAL_JOB_STATUSES:
+                victim_id = job_id
+                break
+        if victim_id is None:
+            break
+        job = _jobs.pop(victim_id)
+        if job.get("kind") == "search" and job.get("status") == "queued":
+            _remove_from_search_queue(victim_id)
+            set_run_status(victim_id, "interrupted", error="任务记录已回收")
 
 
 def get_job(run_id: str) -> dict[str, Any] | None:
@@ -60,8 +145,32 @@ def _job_payload(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
 
 def cancel_job(job_id: str) -> bool:
     """请求取消任务（搜罗 / 完整同步等）。"""
+    from osint_toolkit.services.run_session import read_manifest
+
     job = _jobs.get(job_id)
-    if not job or job.get("status") not in ("running", None):
+    if not job:
+        in_queue = any(rid == job_id for rid, _ in _search_queue)
+        manifest = read_manifest(job_id) if not in_queue else None
+        if in_queue or (manifest and manifest.get("status") == "queued"):
+            _remove_from_search_queue(job_id)
+            set_run_status(job_id, "cancelled", error="已取消")
+            return True
+        return False
+    if job.get("status") == "queued" and job.get("kind") == "search":
+        _remove_from_search_queue(job_id)
+        query = job.get("query", "")
+        _jobs[job_id] = {
+            "status": "cancelled",
+            "kind": "search",
+            "result": None,
+            "error": "已取消",
+            "query": query,
+        }
+        _jobs.move_to_end(job_id)
+        set_run_status(job_id, "cancelled", error="已取消")
+        _trim_jobs()
+        return True
+    if job.get("status") != "running":
         return False
     request_cancel(job_id)
     task = _async_tasks.pop(job_id, None)
@@ -100,23 +209,20 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         except json.JSONDecodeError:
             continue
     source_errors: list[dict] = []
+    source_warnings: list[dict] = []
     for path in sorted(run_dir.glob("*_collect_all.json")):
         try:
             step = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(step.get("data"), dict):
                 source_errors = step["data"].get("source_errors") or []
+                source_warnings = step["data"].get("source_warnings") or []
             break
         except json.JSONDecodeError:
             continue
     query_analysis: dict[str, Any] = {}
-    for path in sorted(run_dir.glob("*query_analysis.json")):
-        try:
-            query_analysis = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(query_analysis, dict) and "data" in query_analysis:
-                query_analysis = query_analysis.get("data") or query_analysis
-            break
-        except json.JSONDecodeError:
-            continue
+    from osint_toolkit.services.run_artifacts import load_query_analysis_from_run
+
+    query_analysis = load_query_analysis_from_run(run_dir)
     discover_meta: dict[str, Any] = {}
     for path in sorted(run_dir.glob("*alias_discover.json")):
         try:
@@ -128,6 +234,16 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         except json.JSONDecodeError:
             continue
     queries_used = query_analysis.get("queries_used") if isinstance(query_analysis, dict) else []
+    citation_map: dict[str, str] = {}
+    for item in items:
+        cid = item.personal.get("citation_id")
+        if cid:
+            citation_map[str(cid)] = item.id
+    intel_stats = {
+        "new_count": sum(1 for i in items if not i.personal.get("already_seen")),
+        "seen_count": sum(1 for i in items if i.personal.get("already_seen")),
+        "total": len(items),
+    }
     return {
         "run_id": run_id,
         "items": items,
@@ -137,69 +253,144 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         "run_dir": str(run_dir),
         "manifest": manifest,
         "source_errors": source_errors,
+        "source_warnings": source_warnings,
+        "citation_map": citation_map,
+        "intel_stats": intel_stats,
         "query_analysis": query_analysis if isinstance(query_analysis, dict) else {},
         "discover_meta": discover_meta,
         "queries_used": queries_used or [],
     }
 
 
-def start_search_job(**kwargs: Any) -> str:
+def start_search_job(**kwargs: Any) -> dict[str, Any]:
     run_id = new_run_id()
     request_snapshot = {k: v for k, v in kwargs.items() if v is not None}
-    set_run_status(run_id, "running", request=request_snapshot)
+    query = str(kwargs.get("query") or "")
+    created_at = datetime.now(UTC).isoformat()
+    can_run_now = _count_running_searches() < _max_concurrent_searches()
+
+    if can_run_now:
+        set_run_status(run_id, "running", request=request_snapshot)
+        _jobs[run_id] = {
+            "status": "running",
+            "kind": "search",
+            "result": None,
+            "error": None,
+            "query": query,
+            "created_at": created_at,
+            "started_at": created_at,
+        }
+        init_progress(run_id)
+        _trim_jobs()
+        task = asyncio.create_task(_execute_search(run_id, **kwargs))
+        _async_tasks[run_id] = task
+        return {"run_id": run_id, "status": "running"}
+
+    set_run_status(run_id, "queued", request=request_snapshot)
+    if len(_search_queue) >= _max_queued_searches():
+        raise SearchQueueFullError(f"排队任务已达上限（{_max_queued_searches()}），请稍后再试或取消旧任务")
     _jobs[run_id] = {
-        "status": "running",
+        "status": "queued",
         "kind": "search",
         "result": None,
         "error": None,
-        "query": kwargs.get("query", ""),
-        "started_at": datetime.now(UTC).isoformat(),
+        "query": query,
+        "created_at": created_at,
     }
-    init_progress(run_id)
+    _search_queue.append((run_id, dict(kwargs)))
     _trim_jobs()
-    task = asyncio.create_task(_execute_search(run_id, **kwargs))
-    _async_tasks[run_id] = task
-    return run_id
+    _refresh_queue_positions()
+    queue_position = _queue_position(run_id)
+    return {"run_id": run_id, "status": "queued", "queue_position": queue_position}
 
 
 async def _execute_search(run_id: str, **kwargs: Any) -> None:
     from osint_toolkit.services import search as search_service
+    from osint_toolkit.services.run_session import patch_manifest
 
     final_status = "error"
     error_msg: str | None = None
+    result: dict[str, Any] | None = None
     try:
         result = await search_service.run_search(**_search_run_kwargs(kwargs), run_id=run_id)
+        prior = _jobs.get(run_id) or {}
+        query = prior.get("query", "")
+        created_at = prior.get("created_at")
+        started_at = prior.get("started_at")
         if is_cancelled(run_id):
             final_status = "cancelled"
             error_msg = "已取消"
-            _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": error_msg}
+            _jobs[run_id] = {
+                "status": "cancelled",
+                "kind": "search",
+                "result": None,
+                "error": error_msg,
+                "query": query,
+                "created_at": created_at,
+                "started_at": started_at,
+            }
         else:
             final_status = "done"
-            _jobs[run_id] = {"status": "done", "kind": "search", "result": result, "error": None}
+            item_count = len(result.get("items") or []) if isinstance(result, dict) else 0
+            _jobs[run_id] = {
+                "status": "done",
+                "kind": "search",
+                "result": None,
+                "error": None,
+                "query": query,
+                "created_at": created_at,
+                "started_at": started_at,
+                "item_count": item_count,
+            }
         _jobs.move_to_end(run_id)
         _trim_jobs()
     except (JobCancelled, asyncio.CancelledError):
         final_status = "cancelled"
         error_msg = "已取消"
-        _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": error_msg}
+        prior = _jobs.get(run_id) or {}
+        _jobs[run_id] = {
+            "status": "cancelled",
+            "kind": "search",
+            "result": None,
+            "error": error_msg,
+            "query": prior.get("query", ""),
+            "created_at": prior.get("created_at"),
+            "started_at": prior.get("started_at"),
+        }
         _jobs.move_to_end(run_id)
         _trim_jobs()
     except Exception as exc:  # noqa: BLE001
         final_status = "error"
         error_msg = str(exc)
-        _jobs[run_id] = {"status": "error", "kind": "search", "result": None, "error": error_msg}
+        prior = _jobs.get(run_id) or {}
+        _jobs[run_id] = {
+            "status": "error",
+            "kind": "search",
+            "result": None,
+            "error": error_msg,
+            "query": prior.get("query", ""),
+            "created_at": prior.get("created_at"),
+            "started_at": prior.get("started_at"),
+        }
         _jobs.move_to_end(run_id)
         _trim_jobs()
     finally:
         from osint_toolkit.services.run_session import read_request
 
+        if isinstance(result, dict):
+            patch_manifest(
+                run_id,
+                item_count=len(result.get("items") or []),
+                source_error_count=len(result.get("source_errors") or []),
+            )
         req = read_request(run_id) or {}
         tree_id = req.get("tree_id")
         if tree_id:
             update_search_node_status(tree_id, run_id, status=final_status)
         set_run_status(run_id, final_status, error=error_msg)
-        clear_progress(run_id)
+        finish_progress(run_id)
         _async_tasks.pop(run_id, None)
+        _drain_search_queue()
 
 
 def get_job_result(run_id: str) -> dict[str, Any] | None:
@@ -279,7 +470,7 @@ async def _execute_full_sync(job_id: str) -> None:
                 "status": "done",
                 "kind": "full_sync",
                 "steps": result.get("steps") or _jobs.get(job_id, {}).get("steps") or [],
-                "result": result,
+                "result": None,
                 "error": None,
             }
         _jobs.move_to_end(job_id)
@@ -418,4 +609,55 @@ def list_active_jobs() -> list[dict[str, Any]]:
 
 
 def list_active_searches() -> list[dict[str, Any]]:
-    return [j for j in list_active_jobs() if j.get("kind") == "search"]
+    return [j for j in list_search_tasks(limit=50) if j.get("status") in ("running", "queued")]
+
+
+def _search_task_entry(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    status = job.get("status")
+    entry: dict[str, Any] = {
+        "job_id": job_id,
+        "run_id": job_id,
+        "kind": "search",
+        "status": status,
+        "query": job.get("query", ""),
+        "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
+        "item_count": job.get("item_count"),
+        "error": job.get("error"),
+    }
+    if status == "queued":
+        entry["queue_position"] = _queue_position(job_id) or job.get("queue_position")
+    if status == "running":
+        progress = get_progress(job_id)
+        if progress:
+            entry["progress"] = {
+                "phase": progress.get("phase"),
+                "detail": progress.get("detail"),
+                "percent": progress.get("percent"),
+            }
+    return entry
+
+
+def list_search_tasks(limit: int = 30) -> list[dict[str, Any]]:
+    """搜罗任务列表：进行中、排队中、近期已完成/失败/取消。"""
+    entries: list[dict[str, Any]] = []
+    for job_id, job in _jobs.items():
+        if job.get("kind") != "search":
+            continue
+        entries.append(_search_task_entry(job_id, job))
+
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+        status = item.get("status")
+        if status == "running":
+            return (0, 0, item.get("started_at") or "")
+        if status == "queued":
+            pos = int(item.get("queue_position") or 9999)
+            return (1, pos, item.get("created_at") or "")
+        return (2, 0, item.get("started_at") or item.get("created_at") or "")
+
+    entries.sort(key=sort_key)
+    active = [e for e in entries if e.get("status") in ("running", "queued")]
+    terminal = [e for e in entries if e.get("status") not in ("running", "queued")]
+    terminal.reverse()
+    ordered = active + terminal
+    return ordered[: max(1, limit)]

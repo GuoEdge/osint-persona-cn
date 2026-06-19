@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from osint_toolkit.ingest import account_sync_state as sync_state
 
 
@@ -52,3 +54,51 @@ def test_update_bilibili_section_persists_signatures(tmp_path, monkeypatch):
     assert loaded["bilibili"]["history"]["last_view_at"] == 5
     assert "BVf" in loaded["bilibili"]["favorite_bvids"]
     assert loaded["bilibili"]["following_mids"] == ["9"]
+
+
+def test_update_bilibili_section_merges_following_mids():
+    state: dict = {
+        "bilibili": {"following_mids": ["1", "2"]},
+    }
+    sync_state.update_bilibili_section(
+        state,
+        following=[{"uid": 2, "url": "https://space.bilibili.com/2"}, {"uid": 3, "url": "https://space.bilibili.com/3"}],
+    )
+    assert state["bilibili"]["following_mids"] == ["1", "2", "3"]
+
+
+def test_filter_new_by_urls_skips_seen():
+    entries = [
+        {"url": "https://www.zhihu.com/question/1/answer/1"},
+        {"url": "https://www.zhihu.com/question/2/answer/2"},
+    ]
+    fresh = sync_state.filter_new_by_urls(entries, {"https://www.zhihu.com/question/1/answer/1"})
+    assert len(fresh) == 1
+    assert fresh[0]["url"].endswith("/answer/2")
+
+
+def test_update_zhihu_section_merges_urls(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    state: dict = {"zhihu": {"favorite_urls": ["https://zhuanlan.zhihu.com/p/1"]}}
+    sync_state.update_zhihu_section(
+        state,
+        favorites=[
+            {"url": "https://zhuanlan.zhihu.com/p/1"},
+            {"url": "https://zhuanlan.zhihu.com/p/2"},
+        ],
+        votes=[{"url": "https://www.zhihu.com/question/1/answer/9"}],
+    )
+    assert "https://zhuanlan.zhihu.com/p/2" in state["zhihu"]["favorite_urls"]
+    assert state["zhihu"]["vote_urls"] == ["https://www.zhihu.com/question/1/answer/9"]
+    sync_state.save_account_sync_state(state)
+    loaded = sync_state.load_account_sync_state()
+    assert loaded["zhihu"]["favorite_urls"] == state["zhihu"]["favorite_urls"]
+
+
+def test_save_account_sync_state_atomic(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    state = {"bilibili": {"history": {"last_view_at": 1}}}
+    sync_state.save_account_sync_state(state)
+    path = tmp_path / "account_sync_state.json"
+    assert path.exists()
+    assert json.loads(path.read_text(encoding="utf-8"))["bilibili"]["history"]["last_view_at"] == 1

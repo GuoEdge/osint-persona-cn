@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +18,9 @@ from osint_toolkit.utils.config import load_config
 _STATUS_FILE = "extension_status.json"
 logger = logging.getLogger(__name__)
 _MAX_AUTO_SAVE_PER_BATCH = 5
+_EVENT_STATS_CACHE_TTL_SEC = 45.0
+_event_stats_cache: dict[str, Any] | None = None
+_event_stats_cache_at: float = 0.0
 
 
 def _status_path():
@@ -62,6 +66,13 @@ async def _save_to_knowledge(urls: list[str]) -> tuple[list[str], list[str]]:
     dwell_no_ai = bool(load_config().get("ai", {}).get("dwell_save_no_ai", True))
     for url in urls:
         if not url.startswith("http"):
+            continue
+        try:
+            from osint_toolkit.http.ssrf import SSRFError, assert_public_http_url
+
+            assert_public_http_url(url)
+        except SSRFError as exc:
+            errors.append(f"{url}: {exc}")
             continue
         conn = connect()
         try:
@@ -180,23 +191,34 @@ def _connected_from_last_seen(last_seen: str | None) -> bool:
         return bool(last_seen)
 
 
-def get_extension_status() -> dict[str, Any]:
+def read_extension_ping() -> dict[str, Any]:
+    """仅读扩展心跳文件，不查库。"""
     path = _status_path()
     base: dict[str, Any] = {
         "connected": False,
         "last_seen": None,
         "api_base": "http://127.0.0.1:8787",
-        "event_totals": {},
         "pending_queue": 0,
         "last_flush_error": "",
+        "extension_version": "",
     }
-    if path.exists():
-        try:
-            stored = json.loads(path.read_text(encoding="utf-8"))
-            base.update(stored)
-            base["connected"] = _connected_from_last_seen(stored.get("last_seen"))
-        except json.JSONDecodeError:
-            pass
+    if not path.exists():
+        return base
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        base.update(stored)
+        base["connected"] = _connected_from_last_seen(stored.get("last_seen"))
+    except json.JSONDecodeError:
+        pass
+    return base
+
+
+def _extension_event_stats() -> tuple[int, dict[str, int]]:
+    global _event_stats_cache, _event_stats_cache_at
+    now = time.monotonic()
+    if _event_stats_cache is not None and now - _event_stats_cache_at < _EVENT_STATS_CACHE_TTL_SEC:
+        cached = _event_stats_cache
+        return int(cached.get("extension_event_count") or 0), dict(cached.get("event_totals") or {})
 
     conn = connect()
     try:
@@ -210,10 +232,24 @@ def get_extension_status() -> dict[str, Any]:
         ext_total = conn.execute(
             "SELECT COUNT(*) AS c FROM events WHERE json_extract(data_json, '$.via') = 'extension'"
         ).fetchone()
-        base["extension_event_count"] = int(ext_total["c"]) if ext_total else 0
-        base["event_totals"] = totals
+        count = int(ext_total["c"]) if ext_total else 0
     finally:
         conn.close()
+    _event_stats_cache = {"extension_event_count": count, "event_totals": totals}
+    _event_stats_cache_at = now
+    return count, totals
+
+
+def get_extension_status(*, include_stats: bool = True) -> dict[str, Any]:
+    base = read_extension_ping()
+    base.setdefault("event_totals", {})
+    base.setdefault("extension_event_count", 0)
+
+    if include_stats:
+        count, totals = _extension_event_stats()
+        base["extension_event_count"] = count
+        base["event_totals"] = totals
+
     try:
         from osint_toolkit.persona.context import is_persona_stale
 

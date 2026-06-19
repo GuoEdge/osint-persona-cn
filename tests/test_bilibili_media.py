@@ -68,7 +68,7 @@ async def test_search_mine_enriches_bilibili_video(monkeypatch):
         async def fetch_comments(self, url, limit=None):
             return []
 
-    async def fake_summary(comments, no_ai=False):
+    async def fake_summary(comments, no_ai=False, disabled_steps=None):
         return "sum"
 
     monkeypatch.setattr(search_mod, "BilibiliCollector", FakeBili)
@@ -86,6 +86,6 @@ async def test_search_mine_enriches_bilibili_video(monkeypatch):
     ]
     items[0].signals.relevance = 1.0
 
-    mined = await search_mod._mine_comments(items, top=1, no_ai=True)
+    mined = await search_mod._mine_comments(items, top=1, no_ai=False)
     assert enriched == ["https://www.bilibili.com/video/BV1"]
     assert mined[0]["danmaku_summary"] == "dm"

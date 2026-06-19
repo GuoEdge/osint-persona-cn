@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.safe_path import assert_safe_id, resolve_under
 
 NODE_KINDS = frozenset({"topic", "search", "note", "insight", "ask"})
 
@@ -19,7 +20,8 @@ def _trees_dir() -> Any:
 
 
 def _tree_path(tree_id: str):
-    return _trees_dir() / f"{tree_id}.json"
+    safe_id = assert_safe_id(tree_id, label="tree_id")
+    return resolve_under(_trees_dir(), f"{safe_id}.json")
 
 
 def _now() -> str:
@@ -178,6 +180,26 @@ def update_search_node_status(tree_id: str, run_id: str, *, status: str) -> None
             node.setdefault("meta", {})["status"] = status
             save_tree(tree)
             return
+
+
+def mark_broken_run_for_trees(run_id: str) -> int:
+    """Mark research tree search nodes referencing run_id as broken."""
+    trees_dir = _trees_dir()
+    updated = 0
+    for path in trees_dir.glob("*.json"):
+        try:
+            tree = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        changed = False
+        for node in tree.get("nodes") or []:
+            if node.get("run_id") == run_id:
+                node.setdefault("meta", {})["broken_run"] = True
+                changed = True
+        if changed:
+            save_tree(tree)
+            updated += 1
+    return updated
 
 
 def tree_to_markmap(tree: dict[str, Any]) -> str:

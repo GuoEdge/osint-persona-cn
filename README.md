@@ -14,7 +14,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| **多源搜罗** | 知乎、B站、微信（搜狗）、Web、V2EX、RSS；可选别名发现与评论/字幕挖掘 |
+| **多源搜罗** | 知乎、B站、微信、Web、V2EX、RSS；扩展信源含微博、即刻、贴吧、小红书、机核、Chiphell、财新、澎湃、Reddit 等（SERP）；可选别名发现与评论/字幕挖掘；**支持多任务排队** |
 | **情报报告** | DeepSeek 生成 markdown 报告，支持追问与每日简报 |
 | **行为导入** | Edge 历史、B站/知乎账号 API、Chrome 扩展被动采集 |
 | **心智画像** | 从行为构建 persona，搜罗时模拟「我会不会点」 |
@@ -87,7 +87,7 @@ osint run list
 [System.Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "你的Key", "User")
 ```
 
-或在 Web **设置 → API 密钥** 填写（写入 `~/.osint/config.yaml`，推荐）。
+或在 Web **设置 → API 密钥** 填写（写入 `~/.osint/config.yaml`，推荐）。**运行参数**（搜罗并发、加速、知乎限流等）亦在设置页在线调整。
 
 **知乎开放平台**（可选，免 Cookie 站内搜索）：
 
@@ -123,6 +123,7 @@ osint run list
 | 文档 | 内容 |
 |------|------|
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | **入门指南**（安装、同步、第一次搜罗） |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **部署指南**（本机/Docker、启动脚本、扩展） |
 | [docs/CAPABILITIES.md](docs/CAPABILITIES.md) | **功能与能力说明**（信源、扩展、AI、限制） |
 | [docs/WEB_UI.md](docs/WEB_UI.md) | Web 控制台与页面说明 |
 | [docs/AI_CONTROL.md](docs/AI_CONTROL.md) | AI 导向与 prompt 覆盖 |

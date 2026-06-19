@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}设置 — 个人情报工具{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header page-header--accent">
   <div>
     <h1>设置</h1>
     <p class="page-desc">初配置时先在下方填写 API 密钥，再完成环境检查、Cookie 同步与搜罗测试。</p>
@@ -10,16 +10,45 @@
 
 <div id="setup-wizard" class="setup-wizard card hidden"></div>
 
+<h2 id="appearance">外观</h2>
+<div class="card ui-inset-group">
+  <div class="theme-appearance-row">
+    <label>主题</label>
+    <div class="ui-segmented" id="theme-appearance-control" role="group" aria-label="主题外观">
+      <button type="button" data-theme-option="light">浅色</button>
+      <button type="button" data-theme-option="dark">深色</button>
+      <button type="button" data-theme-option="system">自动</button>
+    </div>
+  </div>
+</div>
+
 <div class="card onboarding-callout mb-1">
-  <strong>首次使用顺序</strong>：填写 <a href="#api-keys">API 密钥</a> → <a href="#deps">环境检查</a> → 下方 <strong>连接状态 / Cookie</strong> → <a href="/ingest">完整同步</a> → <a href="/persona">构建画像</a> → <a href="/">搜罗</a>
+  <strong>首次使用顺序</strong>：填写 <a href="#api-keys">API 密钥</a> → <a href="#tunables">运行参数</a>（可选）→ <a href="#deps">环境检查</a> → 下方 <strong>连接状态 / Cookie</strong> → <a href="/ingest">完整同步</a> → <a href="/persona">构建画像</a> → <a href="/">搜罗</a>
 </div>
 
 <h2 id="api-keys">API 密钥</h2>
-<div id="api-keys-panel" class="card">加载中…</div>
+<div id="api-keys-panel" class="card ui-inset-group">加载中…</div>
 <p class="muted mb-1">密钥保存在本机 <code>~/.osint/config.yaml</code>，不会上传到 GitHub。也可改用系统环境变量（优先级更高）。</p>
 
+<h2 id="tunables">运行参数</h2>
+<p class="muted mb-1">搜罗并发、知乎 OpenAPI 限流、AI 行为等可调项；保存后写入 <code>~/.osint/config.yaml</code> 并立即生效。</p>
+<div id="tunables-panel" class="card ui-inset-group">加载中…</div>
+
+<dialog id="tunable-settings-modal" class="tunable-settings-modal" aria-labelledby="tunable-settings-modal-title">
+  <form method="dialog" class="tunable-settings-modal-inner">
+    <h3 id="tunable-settings-modal-title">调整参数</h3>
+    <p id="tunable-settings-modal-desc" class="muted"></p>
+    <div id="tunable-settings-fields" class="tunable-settings-fields"></div>
+    <div class="tunable-settings-modal-actions">
+      <button type="submit" class="btn" value="save">保存并生效</button>
+      <button type="button" class="btn btn-secondary" value="cancel">取消</button>
+    </div>
+    <div id="tunable-settings-result" class="muted mt-1"></div>
+  </form>
+</dialog>
+
 <h2 id="deps">新设备环境检查</h2>
-<div id="deps-checklist" class="card">加载中…</div>
+<div id="deps-checklist" class="card ui-inset-group">加载中…</div>
 <div id="deps-actions" class="mt-1"></div>
 
 <h2>推荐流程</h2>
@@ -30,7 +59,7 @@
 <div class="page-actions mb-1">
   <button type="button" class="btn btn-sm btn-secondary" id="btn-refresh-auth">刷新状态</button>
 </div>
-<div id="auth-status" class="card table-scroll">加载中…</div>
+<div id="auth-status" class="card ui-inset-group table-scroll">加载中…</div>
 
 <h2>同步 Cookie</h2>
 <div class="card">
@@ -62,20 +91,12 @@
   <summary>AI 配置说明</summary>
   <div class="card mt-1 muted">
     <p>DeepSeek Key 可在上方「API 密钥」填写，或设用户环境变量 <code>DEEPSEEK_API_KEY</code>。</p>
-    <p>在 <code>~/.osint/config.yaml</code> 的 <code>ai</code> 段可配置：</p>
+    <p>搜罗并发、知乎 OpenAPI 限流、AI 行为等可在上方 <a href="#tunables">运行参数</a> 中图形化调整；其余高级项仍可直接编辑 <code>~/.osint/config.yaml</code>：</p>
     <ul>
-      <li><code>persona_inject: true</code> — 搜罗/追问/简报注入画像</li>
-      <li><code>dwell_save_no_ai: true</code> — 高停留自动收录跳过 AI（省 API）</li>
-      <li><code>auto_persona_rebuild: prompt</code> — 达阈值后横幅提醒（<code>auto</code> 静默重建，<code>off</code> 关闭）</li>
-      <li><code>auto_persona_rebuild_threshold: 50</code> — 自上次构建后新增行为条数达阈值触发</li>
-    </ul>
-    <p>在 <code>search</code> 段可配置：</p>
-    <ul>
-      <li><code>include_slurs: true</code> — 搜罗时默认扩展贬义/黑称关联词</li>
-      <li><code>max_expanded_queries: 8</code> — 单次搜索最多并行查询数</li>
-      <li><code>comment_mine_top: 12</code> — 默认对 top N 条结果拉取热评/字幕/弹幕</li>
-      <li><code>discover_sources: [bilibili, zhihu, web, v2ex]</code> — 联网发现关联词的探针来源</li>
-      <li><code>persist_discovered_aliases: true</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
+      <li><code>persona_inject</code>、<code>auto_persona_rebuild</code> 等 — 见「运行参数 → AI 行为」</li>
+      <li><code>max_expanded_queries</code>、<code>comment_mine_top</code> — 见「运行参数 → 搜罗采集」</li>
+      <li><code>discover_sources</code> — 联网发现关联词的探针来源（仅配置文件）</li>
+      <li><code>persist_discovered_aliases</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
     </ul>
     <p>实体词表：将 YAML 放入 <code>~/.osint/entities/</code>，参见仓库 <code>docs/examples/entities/</code>；联网发现词会自动沉淀到 <code>discovered.yaml</code></p>
   </div>

@@ -24,7 +24,6 @@
     /zhihu\.com\/api\/v4\/.*record_viewed/i,
     /zhihu\.com\/api\/v4\/.*viewed/i,
     /api\.github\.com\/graphql/i,
-    /mp\.weixin\.qq\.com\/s\?/i,
     /github\.com\/.*\/starred/i,
   ];
 

@@ -30,9 +30,9 @@ def test_search_run_kwargs_strips_session_metadata():
 
 
 def test_fork_does_not_inherit_session_keys_from_parent_request(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("osint_toolkit.services.search_fork.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("osint_toolkit.services.run_session.get_data_dir", lambda: tmp_path)
-    run_id = "fork-src"
+    run_id = "20260101-120000-a1b2c3d4"
     run_dir = tmp_path / "runs" / run_id
     run_dir.mkdir(parents=True)
     (run_dir / "request.json").write_text(
@@ -67,8 +67,8 @@ def test_find_search_node_id_for_run(tmp_path, monkeypatch):
 
 
 def test_run_status_and_request_on_disk(tmp_path, monkeypatch):
-    monkeypatch.setattr("osint_toolkit.services.run_session.get_data_dir", lambda: tmp_path)
-    run_id = "test-run-001"
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    run_id = "20260101-120000-b1c2d3e4"
     req = {"query": "MCP", "sources": ["zhihu"]}
     set_run_status(run_id, "running", request=req)
     manifest = read_manifest(run_id)
@@ -82,9 +82,9 @@ def test_run_status_and_request_on_disk(tmp_path, monkeypatch):
 
 
 def test_progress_disk_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr("osint_toolkit.pipeline.progress.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("osint_toolkit.services.run_session.get_data_dir", lambda: tmp_path)
-    run_id = "prog-run"
+    run_id = "20260101-120000-aabbccdd"
     init_progress(run_id)
     update_progress(run_id, "collect_all", detail="采集中", collect_done=2, collect_total=5, force_disk=True)
     disk = read_progress_disk(run_id)

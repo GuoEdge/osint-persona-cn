@@ -16,17 +16,25 @@ async def test_collect_uses_multiple_queries(monkeypatch):
 
     async def fake_collect(source: str, query: str, limit: int):
         calls.append((source, query))
-        return [
-            IntelItem(
-                source=source,
-                type="video",
-                url=f"https://example.com/{source}/{query}",
-                title=f"{query} title",
-                content=query,
-            )
-        ]
+        return (
+            [
+                IntelItem(
+                    source=source,
+                    type="video",
+                    url=f"https://example.com/{source}/{query}",
+                    title=f"{query} title",
+                    content=query,
+                )
+            ],
+            [],
+        )
 
     monkeypatch.setattr(search_mod, "_collect_source", fake_collect)
+    monkeypatch.setattr(
+        search_mod,
+        "discover_aliases",
+        AsyncMock(return_value={"discovered_aliases": [], "probe_count": 0}),
+    )
     monkeypatch.setattr(
         search_mod,
         "expand_query",

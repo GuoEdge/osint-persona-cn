@@ -4,11 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from osint_toolkit.utils.config import load_config
+from osint_toolkit.collectors.profile_catalog import get_search_profile_catalog
+from osint_toolkit.collectors.source_catalog import (
+    get_all_source_ids,
+    get_catalog_grouped,
+    get_default_source_ids,
+)
+from osint_toolkit.utils.config import load_config, load_sync_config
+from osint_toolkit.web.static_assets import static_asset_version
+from osint_toolkit.web.web_token import get_or_create_token
 
 _templates_dir = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_templates_dir))
@@ -51,7 +61,12 @@ def _nav_context(active: str) -> dict:
         ],
         "active": active,
         "profiles": list(load_config().get("profiles", {}).keys()),
-        "sources": ["zhihu", "bilibili", "web", "v2ex", "rss", "weixin"],
+        "profile_catalog": get_search_profile_catalog(),
+        "sources": get_all_source_ids(),
+        "default_sources": get_default_source_ids(),
+        "source_catalog": get_catalog_grouped(),
+        "static_v": static_asset_version(),
+        "web_token": get_or_create_token(),
     }
 
 
@@ -65,7 +80,7 @@ async def page_workspace(request: Request) -> HTMLResponse:
 async def page_save(request: Request, url: str = "") -> HTMLResponse:
     target = "/knowledge?tab=save"
     if url:
-        target += f"&url={url}"
+        target += f"&url={quote(url, safe='')}"
     return RedirectResponse(url=target, status_code=302)
 
 

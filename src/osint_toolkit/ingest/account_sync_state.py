@@ -6,12 +6,12 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from osint_toolkit.auth.paths import get_data_dir
-
 _STATE_FILE = "account_sync_state.json"
 
 
 def _state_path():
+    from osint_toolkit.auth.paths import get_data_dir
+
     return get_data_dir() / _STATE_FILE
 
 
@@ -29,9 +29,15 @@ def load_account_sync_state() -> dict[str, Any]:
 def save_account_sync_state(state: dict[str, Any]) -> None:
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    bilibili = state.setdefault("bilibili", {})
-    bilibili["last_sync_at"] = datetime.now(UTC).isoformat()
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    now = datetime.now(UTC).isoformat()
+    if "bilibili" in state:
+        state.setdefault("bilibili", {})["last_sync_at"] = now
+    if "zhihu" in state:
+        state.setdefault("zhihu", {})["last_sync_at"] = now
+    tmp = path.with_name(path.name + ".tmp")
+    payload = json.dumps(state, ensure_ascii=False, indent=2)
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
 
 
 def _to_int(value: object) -> int:
@@ -245,6 +251,29 @@ def filter_new_following(
     return fresh
 
 
+def _urls_from_entries(entries: list[dict[str, Any]]) -> list[str]:
+    return sorted({str(entry.get("url") or "").strip() for entry in entries if str(entry.get("url") or "").strip()})
+
+
+def url_signature(entries: list[dict[str, Any]]) -> str:
+    return ",".join(_urls_from_entries(entries))
+
+
+def filter_new_by_urls(
+    entries: list[dict[str, Any]],
+    seen_urls: set[str],
+) -> list[dict[str, Any]]:
+    if not seen_urls:
+        return list(entries)
+    fresh: list[dict[str, Any]] = []
+    for entry in entries:
+        url = str(entry.get("url") or "").strip()
+        if url and url in seen_urls:
+            continue
+        fresh.append(entry)
+    return fresh
+
+
 def update_bilibili_section(
     state: dict[str, Any],
     *,
@@ -258,15 +287,52 @@ def update_bilibili_section(
     if history is not None:
         section["history"] = history
     if favorites is not None:
+        merged_bvids = sorted(_string_set(section.get("favorite_bvids", [])) | set(_entries_bvids(favorites)))
+        section["favorite_bvids"] = merged_bvids
         section["favorite_signature"] = favorite_signature(favorites)
-        section["favorite_bvids"] = _entries_bvids(favorites)
     if likes is not None:
+        merged_bvids = sorted(_string_set(section.get("like_bvids", [])) | set(_entries_bvids(likes)))
+        section["like_bvids"] = merged_bvids
         section["like_signature"] = like_signature(likes)
-        section["like_bvids"] = _entries_bvids(likes)
     if following is not None:
-        section["following_signature"] = following_signature(following)
-        section["following_mids"] = [
+        fetched_mids = {
             str(entry.get("uid") or entry.get("mid") or "").strip()
             for entry in following
             if str(entry.get("uid") or entry.get("mid") or "").strip()
-        ]
+        }
+        merged_mids = sorted(_string_set(section.get("following_mids", [])) | fetched_mids)
+        section["following_mids"] = merged_mids
+        section["following_signature"] = ",".join(merged_mids)
+
+
+def update_zhihu_section(
+    state: dict[str, Any],
+    *,
+    favorites: list[dict[str, Any]] | None = None,
+    followees: list[dict[str, Any]] | None = None,
+    votes: list[dict[str, Any]] | None = None,
+    activities: list[dict[str, Any]] | None = None,
+    browsing: list[dict[str, Any]] | None = None,
+) -> None:
+    """Merge one sync pass into persisted zhihu url cursors."""
+    section = state.setdefault("zhihu", {})
+
+    def _merge_urls(key: str, entries: list[dict[str, Any]], *, signature_from_merged: bool = True) -> None:
+        merged = sorted(_string_set(section.get(key, [])) | set(_urls_from_entries(entries)))
+        section[key] = merged
+        sig_key = key.replace("_urls", "_signature")
+        if signature_from_merged:
+            section[sig_key] = ",".join(merged)
+        else:
+            section[sig_key] = url_signature(entries)
+
+    if favorites is not None:
+        _merge_urls("favorite_urls", favorites)
+    if followees is not None:
+        _merge_urls("followee_urls", followees)
+    if votes is not None:
+        _merge_urls("vote_urls", votes)
+    if activities is not None:
+        _merge_urls("activity_urls", activities)
+    if browsing is not None:
+        _merge_urls("browsing_urls", browsing)

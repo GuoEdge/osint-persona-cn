@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
+from osint_toolkit.http.ssrf import SSRFError, assert_public_http_url
 from osint_toolkit.auth.cookie_sync import cookie_header_for_url
 from osint_toolkit.utils.config import load_config
 
@@ -24,6 +25,8 @@ class HttpClient:
         )
         proxy = cfg.get("proxy")
         self._proxy = proxy if proxy else None
+        self._trust_env = bool(cfg.get("trust_env", not self._proxy))
+        self._client: httpx.AsyncClient | None = None
 
     def _headers(self, url: str) -> dict[str, str]:
         headers = {"User-Agent": self.user_agent}
@@ -51,20 +54,31 @@ class HttpClient:
             return "https://www.zhihu.com/search?type=content"
         return "https://www.zhihu.com/"
 
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout,
+                proxy=self._proxy,
+                follow_redirects=True,
+                trust_env=self._trust_env,
+            )
+        return self._client
+
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        assert_public_http_url(url)
         headers = self._headers(url)
         extra = kwargs.pop("headers", None)
         if extra:
             headers = {**headers, **extra}
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            proxy=self._proxy,
-            follow_redirects=True,
-            trust_env=False,
-        ) as client:
-            return await client.get(url, headers=headers, **kwargs)
+        client = await self._get_client()
+        return await client.get(url, headers=headers, **kwargs)
 
     async def get_text(self, url: str) -> str:
         resp = await self.get(url)
         resp.raise_for_status()
         return resp.text
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None

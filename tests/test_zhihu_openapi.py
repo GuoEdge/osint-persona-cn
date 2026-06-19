@@ -57,6 +57,7 @@ def test_openapi_item_to_intel_article():
 
 @pytest.mark.asyncio
 async def test_openapi_search(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
     client = MagicMock()
     client.get = AsyncMock(
         return_value=_mock_response(
@@ -80,7 +81,14 @@ async def test_openapi_search(monkeypatch):
     monkeypatch.setattr(
         zhihu_openapi,
         "get_zhihu_config",
-        lambda: {"openapi": {"search_count": 10, "access_secret": "x", "base_url": "https://developer.zhihu.com"}},
+        lambda: {
+            "openapi": {
+                "search_count": 10,
+                "access_secret": "x",
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0,
+            }
+        },
     )
     monkeypatch.setattr(zhihu_openapi, "access_secret", lambda: "x")
 
@@ -132,7 +140,89 @@ async def test_collector_prefers_openapi(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_openapi_retries_on_second_limit(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
+    client = MagicMock()
+    rate_limited = _mock_response(
+        {"Code": 30001, "Message": "second limit exceeded", "Data": None}
+    )
+    ok = _mock_response(
+        {
+            "Code": 0,
+            "Data": {
+                "Items": [
+                    {
+                        "Title": "重试成功",
+                        "ContentType": "Answer",
+                        "Url": "https://www.zhihu.com/question/1/answer/1",
+                        "ContentText": "ok",
+                    }
+                ]
+            },
+        }
+    )
+    client.get = AsyncMock(side_effect=[rate_limited, ok])
+    monkeypatch.setattr(zhihu_openapi, "openapi_enabled", lambda _f: True)
+    monkeypatch.setattr(zhihu_openapi, "access_secret", lambda: "x")
+    monkeypatch.setattr(
+        zhihu_openapi,
+        "get_zhihu_config",
+        lambda: {
+            "openapi": {
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0,
+                "rate_limit_retry_max": 2,
+                "rate_limit_retry_base_sec": 0.01,
+            }
+        },
+    )
+
+    items = await zhihu_openapi.search("python", limit=1, client=client)
+    assert len(items) == 1
+    assert items[0].title == "重试成功"
+    assert client.get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_openapi_serializes_parallel_calls(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
+    call_times: list[float] = []
+
+    async def tracked_get(*_args, **_kwargs):
+        import time
+
+        call_times.append(time.monotonic())
+        return _mock_response({"Code": 0, "Data": {"Items": []}})
+
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=tracked_get)
+    monkeypatch.setattr(zhihu_openapi, "openapi_enabled", lambda _f: True)
+    monkeypatch.setattr(zhihu_openapi, "access_secret", lambda: "x")
+    monkeypatch.setattr(
+        zhihu_openapi,
+        "get_zhihu_config",
+        lambda: {
+            "openapi": {
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0.05,
+                "rate_limit_retry_max": 0,
+            }
+        },
+    )
+
+    import asyncio
+
+    await asyncio.gather(
+        zhihu_openapi.search("a", limit=1, client=client),
+        zhihu_openapi.search("b", limit=1, client=client),
+    )
+    assert len(call_times) == 2
+    assert call_times[1] - call_times[0] >= 0.04
+
+
+@pytest.mark.asyncio
 async def test_hot_list(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
     client = MagicMock()
     client.get = AsyncMock(
         return_value=_mock_response(
@@ -155,7 +245,13 @@ async def test_hot_list(monkeypatch):
     monkeypatch.setattr(
         zhihu_openapi,
         "get_zhihu_config",
-        lambda: {"openapi": {"hot_list_count": 30, "base_url": "https://developer.zhihu.com"}},
+        lambda: {
+            "openapi": {
+                "hot_list_count": 30,
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0,
+            }
+        },
     )
 
     items = await zhihu_openapi.hot_list(limit=5, client=client)
@@ -165,6 +261,7 @@ async def test_hot_list(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_global_search(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
     client = MagicMock()
     client.get = AsyncMock(
         return_value=_mock_response(
@@ -193,7 +290,12 @@ async def test_global_search(monkeypatch):
     monkeypatch.setattr(
         zhihu_openapi,
         "get_zhihu_config",
-        lambda: {"openapi": {"base_url": "https://developer.zhihu.com"}},
+        lambda: {
+            "openapi": {
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0,
+            }
+        },
     )
 
     items = await zhihu_openapi.global_search("test", limit=5, client=client)

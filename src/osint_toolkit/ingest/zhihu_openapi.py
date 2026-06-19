@@ -22,6 +22,9 @@ _DEFAULT_FEATURES: dict[str, bool] = {
     "global_search": False,
 }
 
+_rate_lock = asyncio.Lock()
+_next_request_at: float = 0.0
+
 
 def get_zhihu_config() -> dict[str, Any]:
     """合并默认与用户配置的 zhihu 段。"""
@@ -34,6 +37,9 @@ def get_zhihu_config() -> dict[str, Any]:
             "merge_search_v3": True,
             "search_count": 10,
             "hot_list_count": 30,
+            "min_request_interval_sec": 1.0,
+            "rate_limit_retry_max": 4,
+            "rate_limit_retry_base_sec": 1.5,
             "features": dict(_DEFAULT_FEATURES),
         }
     }
@@ -159,6 +165,34 @@ def _raise_api_error(payload: dict[str, Any]) -> None:
     raise RuntimeError(f"知乎开放平台 API 错误 Code={code}: {message}")
 
 
+def _is_rate_limit_payload(payload: dict[str, Any]) -> bool:
+    code = payload.get("Code")
+    if code in {30001, 30002}:
+        return True
+    message = str(payload.get("Message") or payload.get("message") or "").lower()
+    return "second limit" in message or "rate limit" in message or "too many request" in message
+
+
+async def _await_rate_slot() -> None:
+    """全局限流：避免多任务/多查询并行时触发开放平台秒级 QPS 上限。"""
+    global _next_request_at
+    interval = float(_openapi_cfg().get("min_request_interval_sec", 1.0))
+    if interval <= 0:
+        return
+    async with _rate_lock:
+        now = time.monotonic()
+        wait = _next_request_at - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+            now = time.monotonic()
+        _next_request_at = now + interval
+
+
+def _reset_rate_limiter_for_tests() -> None:
+    global _next_request_at
+    _next_request_at = 0.0
+
+
 async def _api_get(
     path: str,
     params: dict[str, Any],
@@ -171,22 +205,55 @@ async def _api_get(
     if not secret:
         raise RuntimeError("未配置 ZHIHU_ACCESS_SECRET")
 
+    max_retries = max(0, int(cfg.get("rate_limit_retry_max", 4)))
+    retry_base = max(0.1, float(cfg.get("rate_limit_retry_base_sec", 1.5)))
+
     query = "&".join(f"{quote(str(k))}={quote(str(v))}" for k, v in params.items())
     url = f"{base}{path}?{query}"
     http = client or HttpClient()
-    headers = {
-        "Authorization": f"Bearer {secret}",
-        "X-Request-Timestamp": str(int(time.time())),
-    }
-    resp = await http.get(url, headers=headers)
-    if resp.status_code != 200:
-        raise RuntimeError(f"知乎开放平台 HTTP {resp.status_code}")
-    payload = resp.json()
-    _raise_api_error(payload)
-    data = payload.get("Data")
-    if not isinstance(data, dict):
-        raise RuntimeError("知乎开放平台响应缺少 Data")
-    return data
+
+    last_rate_error: RuntimeError | None = None
+    for attempt in range(max_retries + 1):
+        await _await_rate_slot()
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "X-Request-Timestamp": str(int(time.time())),
+        }
+        resp = await http.get(url, headers=headers)
+        if resp.status_code == 429:
+            if attempt < max_retries:
+                await asyncio.sleep(retry_base * (2**attempt))
+                continue
+            raise RuntimeError("知乎开放平台 HTTP 429（请求过于频繁）")
+        if resp.status_code != 200:
+            raise RuntimeError(f"知乎开放平台 HTTP {resp.status_code}")
+        payload = resp.json()
+        if _is_rate_limit_payload(payload):
+            last_rate_error = RuntimeError(
+                f"知乎开放平台 API 错误 Code={payload.get('Code')}: "
+                f"{payload.get('Message') or payload.get('message') or 'rate limited'}"
+            )
+            if attempt < max_retries:
+                delay = retry_base * (2**attempt)
+                logger.warning(
+                    "知乎 openapi 触发限流，%ss 后重试 (%s/%s): %s",
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                    last_rate_error,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise last_rate_error
+        _raise_api_error(payload)
+        data = payload.get("Data")
+        if not isinstance(data, dict):
+            raise RuntimeError("知乎开放平台响应缺少 Data")
+        return data
+
+    if last_rate_error:
+        raise last_rate_error
+    raise RuntimeError("知乎开放平台请求失败")
 
 
 async def search(

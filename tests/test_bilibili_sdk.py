@@ -80,7 +80,7 @@ async def test_fetch_comments_uses_sdk(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ingest_followings_sdk_path(monkeypatch):
+async def test_ingest_followings_sdk_path(monkeypatch, tmp_path):
     from osint_toolkit.ingest import bilibili_account
 
     async def fake_sdk_followings(limit: int = 500):
@@ -94,9 +94,10 @@ async def test_ingest_followings_sdk_path(monkeypatch):
             }
         ]
 
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr(bilibili_sdk, "sdk_enabled", lambda feature: feature == "ingest_followings")
     monkeypatch.setattr(bilibili_sdk, "ingest_followings", fake_sdk_followings)
-    monkeypatch.setattr(bilibili_account, "log_event", lambda *_a, **_k: None)
+    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda *_a, **_k: True)
 
     rows = await bilibili_account.ingest_followings(limit=5)
     assert len(rows) == 1

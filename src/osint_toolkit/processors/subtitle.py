@@ -3,19 +3,37 @@
 from __future__ import annotations
 
 
-def pick_subtitle_track(subtitles: list[dict]) -> dict | None:
-    """优选字幕轨：AI/自动生成的中文轨优先，其次 CC/中文，最后第一条。"""
+def pick_subtitle_track(subtitles: list[dict], *, prefer: str = "ai_first") -> dict | None:
+    """优选字幕轨。
+
+    prefer:
+      - ai_first（默认）：AI/自动生成中文轨优先
+      - cc_first：人工/CC 中文轨优先，其次 AI
+    """
     if not subtitles:
         return None
 
     def score(track: dict) -> int:
         lan_doc = str(track.get("lan_doc") or "")
         lan = str(track.get("lan") or "").lower()
+        is_ai = any(k in lan_doc for k in ("自动", "AI", "ai", "机翻", "智能")) or track.get("ai_type") in (
+            1,
+            "1",
+        ) or track.get("ai_status") in (1, "1")
+        is_cc = str(track.get("type") or "") in ("1", "cc") or (
+            "中文" in lan_doc and "自动" not in lan_doc and "AI" not in lan_doc
+        )
         points = 0
-        if any(k in lan_doc for k in ("自动", "AI", "ai", "机翻", "智能")):
-            points += 200
-        if track.get("ai_type") in (1, "1") or track.get("ai_status") in (1, "1"):
-            points += 200
+        if prefer == "cc_first":
+            if is_cc:
+                points += 300
+            if is_ai:
+                points += 120
+        else:
+            if is_ai:
+                points += 200
+            if is_cc:
+                points += 160
         if "zh" in lan or "中文" in lan_doc or lan in {"zh-cn", "zh-hans"}:
             points += 80
         if str(track.get("type") or "") in ("1", "cc"):

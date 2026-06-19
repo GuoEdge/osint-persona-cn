@@ -8,7 +8,7 @@ from typing import Any
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest import account_sync_state as sync_state
 from osint_toolkit.ingest.bilibili_wbi import wbi_get
-from osint_toolkit.storage.knowledge import log_event
+from osint_toolkit.storage.knowledge import log_event, log_event_deduped
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,9 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
         return []
     fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
     for entry in fresh:
-        log_event("bilibili_fav", entry)
+        bvid = str(entry.get("bvid") or "").strip() or sync_state._bvid_from_url(str(entry.get("url") or ""))
+        dedup_key = f"bilibili_fav|{bvid or entry.get('url', '')}"
+        log_event_deduped("bilibili_fav", entry, dedup_key)
     _persist_bilibili(favorites=fetched)
     return fresh
 
@@ -356,6 +358,7 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
         return []
     fresh = sync_state.filter_new_following(fetched, seen_mids)
     for entry in fresh:
-        log_event("bilibili_follow", entry)
+        url = str(entry.get("url") or "")
+        log_event_deduped("bilibili_follow", entry, f"bilibili_follow|{url}")
     _persist_bilibili(following=fetched)
     return fresh

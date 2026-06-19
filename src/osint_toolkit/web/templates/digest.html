@@ -1,34 +1,55 @@
 {% extends "base.html" %}
-{% block title %}简报 — 个人情报工具{% endblock %}
+{% block title %}每日简报 — 个人情报工具{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <h1>简报</h1>
-    <p class="page-desc">基于知识库生成每日情报摘要。</p>
+    <h1>每日简报</h1>
+    <p class="page-desc">基于知识库与行为数据生成每日情报摘要（与搜罗页的「本轮情报报告」不同）。</p>
   </div>
 </div>
 
-<nav class="pipeline-steps card" aria-label="数据流">
-  <a href="/ingest" class="pipeline-step">行为同步</a>
-  <span class="pipeline-arrow">→</span>
-  <a href="/knowledge" class="pipeline-step">知识库</a>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step active">简报</span>
-  <span class="pipeline-arrow">→</span>
-  <a href="/runs" class="pipeline-step">搜罗报告</a>
+<nav class="pipeline-stepper card" aria-label="数据流">
+  <ol class="pipeline-stepper-list">
+    <li class="pipeline-stepper-item is-done">
+      <a href="/ingest" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">行为同步</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-done">
+      <a href="/knowledge" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">知识库</span>
+      </a>
+    </li>
+    <li class="pipeline-stepper-item is-active">
+      <span class="pipeline-stepper-inner">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">简报</span>
+      </span>
+    </li>
+    <li class="pipeline-stepper-item">
+      <a href="/runs" class="pipeline-stepper-link">
+        <span class="pipeline-stepper-dot" aria-hidden="true"></span>
+        <span class="pipeline-stepper-label">搜罗报告</span>
+      </a>
+    </li>
+  </ol>
 </nav>
 
-<div class="card">
+<div class="card ui-inset-group">
   <label class="toggle-row"><input type="checkbox" id="opt-digest-ai"> AI 叙事模式（基于今日行为与收录）</label>
   <label class="toggle-row"><input type="checkbox" id="opt-digest-hotlist" checked> 附加知乎热榜（需配置开放平台密钥）</label>
-  <button id="btn-daily" class="btn">生成今日简报</button>
-  <div id="daily-content" class="markdown-body mt-1 muted">点击「生成今日简报」汇总知识库与行为数据；也可在 <a href="/knowledge">知识库</a> 检索已收录条目。</div>
+  <button id="btn-daily" class="btn btn-primary">生成今日简报</button>
+  <div id="daily-content" class="markdown-body reading-surface mt-1 muted">点击「生成今日简报」汇总知识库与行为数据；也可在 <a href="/knowledge">知识库</a> 检索已收录条目。</div>
 </div>
 
 <h2>每日简报存档</h2>
+<p class="muted section-hint">基于知识库与行为的每日摘要，与下方搜罗情报报告无关。</p>
 <div id="digest-history" class="muted mb-1">加载中…</div>
 
-<h2>搜罗情报报告 <a href="/runs" class="btn btn-sm btn-ghost">查看全部 →</a></h2>
+<h2>历次搜罗情报报告（存档）</h2>
+<p class="muted section-hint">下列为搜罗 run 生成的情报报告（非每日简报），数据来自 <code>/api/digest/reports</code>。</p>
 <div id="report-list" class="muted">加载中…</div>
 {% endblock %}
 {% block scripts %}

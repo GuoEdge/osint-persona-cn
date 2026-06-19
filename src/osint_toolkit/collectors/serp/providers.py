@@ -10,6 +10,12 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 
 from osint_toolkit.collectors.serp.detection import is_blocked_response
+from osint_toolkit.collectors.serp.filters import (
+    is_ad_block,
+    is_baidu_non_organic,
+    is_bing_non_organic,
+    is_sogou_ad,
+)
 from osint_toolkit.collectors.serp.headers import serp_headers
 from osint_toolkit.collectors.serp.models import SerpHit
 from osint_toolkit.collectors.serp.urls import normalize_result_url
@@ -78,15 +84,21 @@ async def search_bing_html(client: HttpClient, query: str, limit: int, cfg: dict
         return [], "bing_html: 检测到 CAPTCHA/风控页面"
     soup = BeautifulSoup(text, "html.parser")
     hits: list[SerpHit] = []
-    blocks = soup.select("li.b_algo, li.b_ans, #b_results > .b_algo")
+    blocks = soup.select("li.b_algo, #b_results > .b_algo")
     for li in blocks[: limit * 2]:
+        if is_ad_block(li):
+            continue
         a = li.select_one("h2 a, a[href^='http']")
         if not a or not a.get("href"):
             continue
+        title = a.get_text(strip=True)
+        url = a["href"]
+        if is_bing_non_organic(li, url):
+            continue
         snippet_el = li.select_one("p, .b_caption p, .b_lineclamp2, .b_lineclamp3")
         hit = _hit(
-            title=a.get_text(strip=True),
-            url=a["href"],
+            title=title,
+            url=url,
             snippet=snippet_el.get_text(strip=True) if snippet_el else "",
             engine="bing_html",
             query=query,
@@ -108,15 +120,24 @@ async def search_baidu_html(client: HttpClient, query: str, limit: int, cfg: dic
         return [], "baidu_html: 检测到验证码/风控页面"
     soup = BeautifulSoup(text, "html.parser")
     hits: list[SerpHit] = []
-    containers = soup.select("#content_left .result, #content_left .c-container, .result-op")
-    for block in containers[: limit * 2]:
+    # 仅解析自然搜索结果，排除 .result-op（热搜/知识卡片）与广告
+    containers = soup.select("#content_left .result.c-container, #content_left div.result")
+    for block in containers[: limit * 3]:
+        if is_ad_block(block):
+            continue
+        if "result-op" in " ".join(block.get("class") or []):
+            continue
         a = block.select_one("h3 a, a[href^='http']")
         if not a or not a.get("href"):
             continue
+        title = a.get_text(strip=True)
+        url = a["href"]
+        if is_baidu_non_organic(url, title):
+            continue
         snippet_el = block.select_one(".c-abstract, .content-right_8Zs40, .c-span-last, .c-font-normal")
         hit = _hit(
-            title=a.get_text(strip=True),
-            url=a["href"],
+            title=title,
+            url=url,
             snippet=snippet_el.get_text(strip=True) if snippet_el else "",
             engine="baidu_html",
             query=query,
@@ -139,6 +160,8 @@ async def search_duckduckgo_html(client: HttpClient, query: str, limit: int, cfg
     hits: list[SerpHit] = []
     blocks = soup.select("div.result, div.web-result, table.result")
     for block in blocks[: limit * 2]:
+        if is_ad_block(block):
+            continue
         a = block.select_one("a.result__a, a.result-link, h2 a")
         if not a or not a.get("href"):
             continue
@@ -167,6 +190,8 @@ async def search_sogou_html(client: HttpClient, query: str, limit: int, cfg: dic
     hits: list[SerpHit] = []
     blocks = soup.select("div.vrwrap, div.rb, div.results div.result")
     for block in blocks[: limit * 2]:
+        if is_sogou_ad(block) or is_ad_block(block):
+            continue
         a = block.select_one("h3 a, h4 a, a[data-share-url]")
         if not a or not a.get("href"):
             continue

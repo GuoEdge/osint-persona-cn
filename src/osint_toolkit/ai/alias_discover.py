@@ -11,7 +11,13 @@ from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.json_util import parse_json_object
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
-from osint_toolkit.ai.alias_filter import is_valid_search_term
+from osint_toolkit.ai.alias_filter import (
+    filter_relevant_terms,
+    has_relevance_to_query,
+    is_narrow_product_query,
+    is_valid_search_term,
+    product_variants,
+)
 from osint_toolkit.ai.entity_store import classify_slurs, merge_discovered_aliases
 from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.v2ex import V2exCollector
@@ -123,7 +129,13 @@ def heuristic_aliases(query: str, items: list[IntelItem]) -> list[str]:
             if q in seg and seg != q and len(seg) <= len(q) + 6:
                 candidates.append(seg.replace(q, "").strip() or seg)
 
-    filtered = [c for c in candidates if not _is_noise(c, q) and is_valid_search_term(c, query=q)]
+    filtered = [
+        c
+        for c in candidates
+        if not _is_noise(c, q)
+        and is_valid_search_term(c, query=q, require_relevance=True)
+        and has_relevance_to_query(c, q)
+    ]
     return _dedupe(filtered)
 
 
@@ -192,25 +204,28 @@ def ai_extract_aliases(
     client = DeepSeekClient()
     prompt_tpl, _ = load_prompt("alias_discover")
     slur_hint = "可包含贬义/黑称/梗称" if include_slurs else "不要输出贬义黑称"
-    raw = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(task="关联词发现"),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"{prompt_tpl}\n\n"
-                    f"查询: {query}\n"
-                    f"要求: {slur_hint}；仅能从证据标题/摘要中出现或可明确推断的圈内缩写；"
-                    "优先近期网络叫法；每项给 evidence 引用序号。\n"
-                    f"证据:\n{json.dumps(evidence, ensure_ascii=False)}\n"
-                    '输出 JSON: {"aliases":[{"term":"","type":"nickname|slang|slur|tag","evidence":[1,2]}]}'
-                ),
-            },
-        ]
-    )
+    try:
+        raw = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(task="关联词发现"),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"{prompt_tpl}\n\n"
+                        f"查询: {query}\n"
+                        f"要求: {slur_hint}；仅能从证据标题/摘要中出现或可明确推断的圈内缩写；"
+                        "优先近期网络叫法；每项给 evidence 引用序号。\n"
+                        f"证据:\n{json.dumps(evidence, ensure_ascii=False)}\n"
+                        '输出 JSON: {"aliases":[{"term":"","type":"nickname|slang|slur|tag","evidence":[1,2]}]}'
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        return [], [{"error": str(exc)}]
     parsed = parse_json_object(raw)
     entries = parsed.get("aliases") or []
     if isinstance(entries, dict):
@@ -250,10 +265,25 @@ async def discover_aliases(
     if not cfg.get("discover_aliases", True):
         return {"discovered_aliases": [], "probe_count": 0, "skipped": True}
 
+    if cfg.get("skip_alias_discover_narrow", True) and is_narrow_product_query(query):
+        variants = [v for v in product_variants(query) if v.strip().lower() != query.strip().lower()]
+        return {
+            "discovered_aliases": variants,
+            "heuristic_aliases": [],
+            "ai_discovered_aliases": [],
+            "ai_details": [],
+            "probe_count": 0,
+            "probe_sources": [],
+            "persist": {"saved": False, "reason": "narrow_product_query"},
+            "probe_samples": [],
+            "skipped": "narrow_product",
+        }
+
     limit = int(cfg.get("discover_probe_limit", 5))
     probe_items = await probe_network(query, sources, limit=limit)
     heuristic = heuristic_aliases(query, probe_items)
-    ai_terms, ai_details = ai_extract_aliases(
+    ai_terms, ai_details = await asyncio.to_thread(
+        ai_extract_aliases,
         query,
         probe_items,
         no_ai=no_ai,
@@ -262,7 +292,10 @@ async def discover_aliases(
     )
 
     discovered = _dedupe(ai_terms + heuristic)
-    discovered = [t for t in discovered if t != query.strip()]
+    discovered = filter_relevant_terms(
+        [t for t in discovered if t != query.strip() and is_valid_search_term(t, query=query, require_relevance=True)],
+        query,
+    )
 
     probe_sources = sorted({i.source for i in probe_items})
     alias_terms, slur_terms = classify_slurs(discovered, ai_details, include_slurs=include_slurs)

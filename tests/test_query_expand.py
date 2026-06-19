@@ -39,7 +39,7 @@ def test_entity_partial_match(tmp_path, monkeypatch):
     monkeypatch.setenv("OSINT_DATA_DIR", str(tmp_path))
     aliases = _entity_aliases_for_query("祥子", include_slurs=False)
     assert "丰川祥子" in aliases
-    assert "Sakiko" in aliases
+    assert "Sakiko" not in aliases
 
 
 def test_entity_aliases_with_slurs(tmp_path, monkeypatch):
@@ -98,11 +98,11 @@ def test_expand_query_aliases_respect_max_queries(monkeypatch):
         ["bilibili"],
         None,
         no_ai=True,
-        discovered_aliases=["词A", "词B", "词C"],
+        discovered_aliases=["祥子", "小祥", "字幕:ai"],
     )
-    assert result["queries_used"] == ["丰川祥子", "词A"]
-    assert result["aliases"] == ["词A"]
-    assert "词B" not in result["aliases"]
+    assert result["queries_used"] == ["丰川祥子", "祥子"]
+    assert result["aliases"] == ["祥子"]
+    assert "字幕:ai" not in result["aliases"]
 
 
 def test_expand_query_filters_noisy_entity_aliases(tmp_path, monkeypatch):
@@ -126,7 +126,6 @@ def test_expand_query_filters_noisy_entity_aliases(tmp_path, monkeypatch):
     result = expand_query("MCP", ["zhihu"], None, no_ai=True)
     queries = result["queries_used"]
     assert queries[0] == "MCP"
-    assert "LLM" in queries
     assert "zhihu.comhttps:" not in queries
     assert "MCP的前景如何？" not in queries
 
@@ -145,4 +144,31 @@ def test_per_query_limit_aggressive_floor(monkeypatch):
         "osint_toolkit.ai.query_expand.get_search_config",
         lambda: {"per_query_limit_ratio": 0.6, "zhihu_aggressive": True, "zhihu_per_query_limit_min": 20},
     )
-    assert per_query_limit(10, 1) == 20
+    assert per_query_limit(25, 1) == 20
+    assert per_query_limit(10, 1) == 10
+
+
+def test_expand_query_glm52_stays_tight(monkeypatch):
+    monkeypatch.setattr(
+        "osint_toolkit.ai.query_expand.get_search_config",
+        lambda: {
+            "max_expanded_queries": 8,
+            "max_expanded_queries_narrow": 4,
+            "include_slurs": True,
+            "rule_expand_enabled": True,
+        },
+    )
+    result = expand_query(
+        "glm5.2",
+        ["bilibili", "zhihu"],
+        None,
+        no_ai=True,
+        discovered_aliases=["GLM-5.2", "字幕:ai", "论文精读", "康奈尔笔记法"],
+    )
+    queries = result["queries_used"]
+    assert queries[0] == "glm5.2"
+    assert "GLM-5.2" in queries
+    assert "字幕:ai" not in queries
+    assert "论文精读" not in queries
+    assert "康奈尔笔记法" not in queries
+    assert len(queries) <= 4

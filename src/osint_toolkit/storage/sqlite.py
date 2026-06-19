@@ -3,24 +3,93 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from osint_toolkit.auth.paths import get_data_dir
+
+_POOL_LOCK = threading.Lock()
+_POOL: list[sqlite3.Connection] = []
+_MAX_POOL_SIZE = 5
+_POOL_DB_PATH: Path | None = None
+
+
+def _reset_pool_if_path_changed(path: Path) -> None:
+    global _POOL_DB_PATH
+    with _POOL_LOCK:
+        if _POOL_DB_PATH == path:
+            return
+        for conn in _POOL:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        _POOL.clear()
+        _POOL_DB_PATH = path
 
 
 def get_db_path() -> Path:
     return get_data_dir() / "knowledge.db"
 
 
-def connect() -> sqlite3.Connection:
+class _PooledConnection:
+    """包装连接：close() 归还连接池而非真正关闭。"""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+    def close(self) -> None:
+        _release_connection(self._conn)
+
+
+def _create_connection() -> sqlite3.Connection:
     path = get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30.0)
+    conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     init_schema(conn)
     return conn
+
+
+def _release_connection(conn: sqlite3.Connection) -> None:
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+        return
+    with _POOL_LOCK:
+        if len(_POOL) < _MAX_POOL_SIZE:
+            _POOL.append(conn)
+            return
+    try:
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
+def connect() -> _PooledConnection:
+    path = get_db_path()
+    _reset_pool_if_path_changed(path)
+    with _POOL_LOCK:
+        while _POOL:
+            conn = _POOL.pop()
+            try:
+                conn.execute("SELECT 1")
+                return _PooledConnection(conn)
+            except sqlite3.Error:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+    return _PooledConnection(_create_connection())
 
 
 def _migrate_fts(conn: sqlite3.Connection) -> None:

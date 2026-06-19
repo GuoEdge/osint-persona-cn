@@ -25,8 +25,9 @@ def simulate_items(
     client: DeepSeekClient | None = None,
     no_ai: bool = False,
     no_simulate: bool = False,
+    disabled_steps: list[str] | None = None,
 ) -> list[dict]:
-    if no_simulate or not is_step_enabled("persona_simulate", no_ai=no_ai):
+    if no_simulate or not is_step_enabled("persona_simulate", no_ai=no_ai, disabled_steps=disabled_steps):
         return []
     client = client or DeepSeekClient()
     prompt_tpl, _ = load_prompt("persona_sim")
@@ -46,23 +47,26 @@ def simulate_items(
         }
         for i in items[:20]
     ]
-    raw = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(task="画像兴趣模拟", persona_brief=persona_brief),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"{prompt_tpl}\n{PERSONA_SIM_JSON_HINT}\n\n"
-                    f"用户 persona brief:\n{persona_brief[:2000]}\n"
-                    f"{hints_block}\n"
-                    f"候选条目:\n{json.dumps(payload, ensure_ascii=False)}"
-                ),
-            },
-        ]
-    )
+    try:
+        raw = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(task="画像兴趣模拟", persona_brief=persona_brief),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"{prompt_tpl}\n{PERSONA_SIM_JSON_HINT}\n\n"
+                        f"用户 persona brief:\n{persona_brief[:2000]}\n"
+                        f"{hints_block}\n"
+                        f"候选条目:\n{json.dumps(payload, ensure_ascii=False)}"
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        return [{"error": str(exc)}]
     parsed = parse_json_array(raw)
     if parsed:
         return parsed
