@@ -59,7 +59,7 @@ Web：**设置 → API 密钥 → DeepSeek**
 
 ### 知乎 OpenAPI（可选）
 
-在 [知乎开放平台](https://open.zhihu.com/) 申请后，设置 `ZHIHU_ACCESS_SECRET` 或 Web 设置页。
+在 [知乎开放平台](https://developer.zhihu.com/) 申请后，设置 `ZHIHU_ACCESS_SECRET` 或 Web 设置页。
 
 ---
 

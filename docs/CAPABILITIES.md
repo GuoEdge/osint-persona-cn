@@ -21,7 +21,7 @@
 
 | 信源 | 搜罗内容 | 典型依赖 |
 |------|----------|----------|
-| **知乎** | 问答/文章/视频搜索；可选热榜；深度模式展开高赞回答 | Cookie 和/或 [知乎开放平台](https://open.zhihu.com/) AccessSecret |
+| **知乎** | 问答/文章/视频搜索；可选热榜；深度模式展开高赞回答 | Cookie 和/或 [知乎开放平台](https://developer.zhihu.com/) AccessSecret |
 | **B站** | 视频/专栏等搜索；热评/字幕/弹幕挖掘（top N） | Cookie；部分接口需 WBI |
 | **微信** | 搜狗微信搜索（公众号文章） | 无登录；受搜狗限流影响 |
 | **Web** | Bing / SerpAPI / SearXNG 等 SERP | 对应 API Key 或自建 SearXNG |
