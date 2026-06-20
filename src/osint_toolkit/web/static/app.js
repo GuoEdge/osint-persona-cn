@@ -2598,36 +2598,36 @@ async function refreshResearchTree(selectedNodeId) {
     panel.innerHTML = buildResearchTreeHtml(tree, selectedNodeId || workspaceSession.selectedNodeId);
     const titleEl = panel.querySelector(".research-tree-title");
     if (titleEl) {
-      titleEl.addEventListener("dblclick", () => {
+      titleEl.ondblclick = () => {
         const newTitle = window.prompt("重命名研究树", tree.title || "");
         if (newTitle && newTitle !== tree.title) {
           api("PATCH", `/api/research/trees/${workspaceSession.treeId}`, { title: newTitle })
             .then(() => refreshResearchTree())
             .catch((e) => toast(e.message || "重命名失败", "error"));
         }
-      });
+      };
       titleEl.style.cursor = "pointer";
       titleEl.title = "双击重命名";
     }
     const focusId = selectedNodeId || workspaceSession.selectedNodeId;
     const selectedNode = focusId ? findResearchNode(tree, focusId) : null;
     showResearchNodeDetail(selectedNode);
-    panel.querySelectorAll(".research-tree-node").forEach((el) => {
-      el.addEventListener("click", () => {
-        const runId = el.dataset.runId;
-        const nodeId = el.dataset.nodeId;
-        workspaceSession.selectedNodeId = nodeId;
-        setWorkspaceParentNodeId(nodeId);
-        const node = findResearchNode(workspaceSession.currentTree, nodeId);
-        if (runId) {
-          workspaceSession.selectedRunId = runId;
-          setCurrentRunId(runId);
-        }
-        void refreshResearchTree(nodeId);
-        showResearchNodeDetail(node);
-        if (runId) void loadRunIntoWorkspace(runId);
-      });
-    });
+    panel.onclick = (e) => {
+      const nodeEl = e.target.closest(".research-tree-node");
+      if (!nodeEl) return;
+      const runId = nodeEl.dataset.runId;
+      const nodeId = nodeEl.dataset.nodeId;
+      workspaceSession.selectedNodeId = nodeId;
+      setWorkspaceParentNodeId(nodeId);
+      const node = findResearchNode(workspaceSession.currentTree, nodeId);
+      if (runId) {
+        workspaceSession.selectedRunId = runId;
+        setCurrentRunId(runId);
+      }
+      void refreshResearchTree(nodeId);
+      showResearchNodeDetail(node);
+      if (runId) void loadRunIntoWorkspace(runId);
+    };
     renderResearchActions();
     void loadSuggestedQueries();
     const markmapEl = document.getElementById("research-markmap");
@@ -4397,7 +4397,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
     result.source_routing || result.query_analysis?.source_routing
   );
   updateSourceRoutingHint(result.source_routing || result.query_analysis?.source_routing);
-  const items = (result.items || []).filter((i) => i.signals?.fold_reason !== "扩展词漂移");
+  const items = (result.items || []).filter((i) => !i.signals?.fold_reason);
   const sims = result.simulations || [];
   const simMap = {};
   sims.forEach((s) => { if (s.item_id) simMap[s.item_id] = s; });

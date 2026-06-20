@@ -95,15 +95,18 @@ def delete_items(item_ids: list[str]) -> int:
         return 0
     conn = connect()
     try:
-        deleted = 0
-        for item_id in item_ids:
-            cur = conn.execute("SELECT 1 FROM intel_items WHERE id = ?", (item_id,))
-            if cur.fetchone():
-                conn.execute("DELETE FROM intel_fts WHERE item_id = ?", (item_id,))
-                conn.execute("DELETE FROM intel_items WHERE id = ?", (item_id,))
-                deleted += 1
+        placeholders = ",".join("?" * len(item_ids))
+        existing = conn.execute(
+            f"SELECT id FROM intel_items WHERE id IN ({placeholders})", item_ids
+        ).fetchall()
+        existing_ids = [row["id"] for row in existing]
+        if not existing_ids:
+            return 0
+        placeholders2 = ",".join("?" * len(existing_ids))
+        conn.execute(f"DELETE FROM intel_fts WHERE item_id IN ({placeholders2})", existing_ids)
+        conn.execute(f"DELETE FROM intel_items WHERE id IN ({placeholders2})", existing_ids)
         conn.commit()
-        return deleted
+        return len(existing_ids)
     finally:
         conn.close()
 

@@ -203,7 +203,7 @@ def summarize_tree(tree_id: str) -> dict[str, Any]:
     if search_titles:
         context_parts.append("已完成的搜罗轮次:\n" + "\n".join(f"- {t}" for t in search_titles))
     if insights:
-        context_parts.append("已有要点归纳:\n" + "\n".join(insights[:10]))
+        context_parts.append("已有要点归纳:\n" + "\n".join(p[:500] for p in insights[:10]))
     context = "\n\n".join(context_parts)
     persona_block = _persona_prompt_block()
     if persona_block:

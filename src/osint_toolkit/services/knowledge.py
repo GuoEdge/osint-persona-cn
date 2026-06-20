@@ -122,10 +122,12 @@ def delete_items(item_ids: list[str]) -> int:
 
 
 def list_topics(limit: int = 50) -> list[dict[str, Any]]:
-    """聚合所有知识库条目的 topics 字段，按出现频率排序返回。"""
+    """聚合最近知识库条目的 topics 字段，按出现频率排序返回。"""
     conn = connect()
     try:
-        rows = conn.execute("SELECT data_json FROM intel_items").fetchall()
+        rows = conn.execute(
+            "SELECT data_json FROM intel_items ORDER BY created_at DESC LIMIT 5000"
+        ).fetchall()
     finally:
         conn.close()
     counter: dict[str, int] = {}
