@@ -528,7 +528,7 @@ async def fetch_comments_lazy(
             oid=int(oid),
             type_=resource_type,
             offset=offset,
-            order=OrderType.TIME,
+            order=OrderType.LIKE,
             credential=credential,
         )
         if payload.get("code") not in (0, None):

@@ -384,6 +384,7 @@ class BilibiliCollector(BaseCollector):
             limit = int(bilibili_sdk.get_bilibili_config().get("comments_fetch_limit") or 60)
         oid = await self._resolve_oid(url)
         if not oid:
+            logger.warning("bilibili fetch_comments: could not resolve oid for %s", url)
             return []
         comment_type = self._comment_type_from_url(url)
         if bilibili_sdk.sdk_enabled("comments"):
@@ -494,6 +495,8 @@ class BilibiliCollector(BaseCollector):
 
             aid, _cid = await bilibili_sdk.resolve_video_aid_cid(url, client=self.client)
             oid = str(aid) if aid else None
+            if not oid:
+                logger.warning("bilibili _resolve_oid: resolve_video_aid_cid returned None for %s", url)
         else:
             av = re.search(r"av(\d+)", url)
             oid = av.group(1) if av else None

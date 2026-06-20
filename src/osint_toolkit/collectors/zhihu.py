@@ -175,6 +175,9 @@ class ZhihuCollector(BaseCollector):
                     continue
                 seen.add(item.url)
                 items.append(item)
+
+        await self._enrich_answer_content(items, top=10)
+
         if aggressive:
             return self._attach_search_warnings(items)
         # 非 aggressive 时仍保留已展开的多条回答，仅截断「搜索种子」条数
@@ -190,6 +193,29 @@ class ZhihuCollector(BaseCollector):
         from osint_toolkit.ingest import zhihu_openapi
 
         return await zhihu_openapi.hot_list(limit=limit, client=self.client)
+
+    async def _enrich_answer_content(self, items: list[IntelItem], *, top: int = 10) -> None:
+        """对内容过短（仅 excerpt）的回答条目补充拉取全文。
+
+        search_v3 只返回 excerpt，展开模式覆盖 top N 问题，
+        此方法对未展开的回答种子条目补拉全文。
+        """
+        answer_items = [i for i in items if i.source == "zhihu" and i.type == "answer" and len(i.content or "") < 200]
+        if not answer_items:
+            return
+        enriched = 0
+        for item in answer_items[:top]:
+            try:
+                full = await self._fetch_via_api(item.url)
+                if full and full.content and len(full.content) > len(item.content or ""):
+                    item.content = full.content
+                    if full.metrics:
+                        item.metrics = full.metrics
+                    enriched += 1
+            except Exception:  # noqa: BLE001
+                continue
+        if enriched:
+            logger.info("zhihu _enrich_answer_content: enriched %d/%d items", enriched, len(answer_items[:top]))
 
     async def expand_questions(self, items: list[IntelItem]) -> list[IntelItem]:
         """对搜索到的提问（及回答所属提问）批量拉取高赞回答。"""
@@ -495,7 +521,7 @@ class ZhihuCollector(BaseCollector):
                 type="answer",
                 url=f"https://www.zhihu.com/question/{question.get('id')}/answer/{obj.get('id')}",
                 title=question.get("title", obj.get("title", "")),
-                content=html_to_text(obj.get("excerpt", "") or obj.get("content", "")),
+                content=html_to_text(obj.get("content", "") or obj.get("excerpt", "")),
                 author=obj.get("author", {}).get("name", ""),
                 metrics=IntelMetrics(
                     likes=obj.get("voteup_count", 0),
@@ -508,7 +534,7 @@ class ZhihuCollector(BaseCollector):
                 type=otype,
                 url=public_zhihu_url(str(obj.get("url") or ""), obj),
                 title=obj.get("title", ""),
-                content=html_to_text(obj.get("excerpt", "") or ""),
+                content=html_to_text(obj.get("content", "") or obj.get("excerpt", "")),
                 author=obj.get("author", {}).get("name", ""),
                 metrics=IntelMetrics(likes=obj.get("voteup_count", 0)),
             )

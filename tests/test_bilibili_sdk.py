@@ -151,7 +151,7 @@ async def test_sdk_fetch_comments_parses_lazy_offset(monkeypatch):
 
     fake_module = type(sys)("fake_comment")
     fake_module.get_comments_lazy = FakeComment.get_comments_lazy
-    fake_module.OrderType = type("OrderType", (), {"TIME": 0})
+    fake_module.OrderType = type("OrderType", (), {"LIKE": 1, "TIME": 0})
     monkeypatch.setitem(sys.modules, "bilibili_api", type(sys)("bilibili_api"))
     monkeypatch.setitem(sys.modules, "bilibili_api.comment", fake_module)
 

@@ -412,14 +412,16 @@ async def _mine_comments(
         if collector is None or not hasattr(collector, "fetch_comments"):
             continue
         for item in by_source[src][:quota]:
-            if src == "bilibili" and item.type == "video":
+            if src == "bilibili" and item.type in {"video", "snippet"}:
                 try:
+                    if item.type == "snippet" and "BV" in item.url:
+                        item.type = "video"
                     await collector.enrich_video(item)
                 except Exception:  # noqa: BLE001
                     pass
             if src == "zhihu" and item.type not in {"answer", "article", "question"}:
                 continue
-            if src == "bilibili" and item.type not in {"video", "article"}:
+            if src == "bilibili" and item.type not in {"video", "article", "snippet"}:
                 continue
 
             if src == "zhihu":
