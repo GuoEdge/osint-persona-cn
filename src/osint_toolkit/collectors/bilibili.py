@@ -566,6 +566,7 @@ class BilibiliCollector(BaseCollector):
         self, oid: str, next_offset: int | str, comment_type: int = 1, mode: int = 3
     ) -> tuple[list[dict], int | str]:
         if self._auth_failed:
+            logger.debug("bilibili _fetch_reply_page skipped: _auth_failed=True (oid=%s)", oid)
             return [], 0
         base = "https://api.bilibili.com/x/v2/reply/wbi/main"
         params: dict[str, Any] = {
@@ -583,6 +584,7 @@ class BilibiliCollector(BaseCollector):
             code = data.get("code")
             if code not in (0, None):
                 msg = data.get("message") or "wbi reply failed"
+                logger.debug("bilibili wbi reply failed: code=%s msg=%s oid=%s", code, msg, oid)
                 self._check_reply_auth(code or 0, msg)
                 raise RuntimeError(msg)
             payload = data.get("data") or {}

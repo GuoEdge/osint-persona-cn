@@ -427,6 +427,7 @@ async def _mine_comments(
                 continue
 
             if src == "zhihu":
+                fetch_err = ""
                 prefetched = list(item.personal.get("openapi_comments") or [])
                 plan = item.personal.get("deep_fetch_plan") or heuristic_zhihu_deep_plan(item, search_cfg)
                 fetched: list[dict[str, Any]] = []
@@ -435,12 +436,18 @@ async def _mine_comments(
                         fetched = await collector.fetch_comments(item.url)
                         if fetched:
                             item.personal["comments_deep_fetched"] = True
-                    except Exception:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001
+                        fetch_err = str(exc)
                         fetched = []
                 comments = merge_comment_lists(prefetched, fetched)
                 item.personal["comment_fetch_plan"] = plan.get("reason") or ""
             else:
-                comments = await collector.fetch_comments(item.url)
+                fetch_err = ""
+                try:
+                    comments = await collector.fetch_comments(item.url)
+                except Exception as exc:  # noqa: BLE001
+                    fetch_err = str(exc)
+                    comments = []
 
             item.layers["comments"] = comments
             summary = await summarize_comments(comments, no_ai=no_ai, disabled_steps=disabled_steps)
@@ -458,6 +465,7 @@ async def _mine_comments(
                     "comments_summary": summary,
                     "subtitle_kind": (item.layers.get("subtitle") or {}).get("kind"),
                     "danmaku_summary": item.layers.get("danmaku_summary", ""),
+                    "fetch_error": fetch_err or None,
                 }
             )
 
@@ -790,8 +798,6 @@ async def run_search(
                         )
                         if on_topic >= max(10, early_stop_items // 2):
                             stop_collect = True
-                            for task in pending:
-                                task.cancel()
                             source_warnings.append(
                                 {
                                     "source": "*",
@@ -802,6 +808,25 @@ async def run_search(
                             break
         finally:
             if pending:
+                if stop_collect:
+                    drained_set, pending = await asyncio.wait(
+                        pending, timeout=30.0, return_when=asyncio.ALL_COMPLETED
+                    )
+                    for finished in drained_set:
+                        if finished.cancelled():
+                            continue
+                        try:
+                            source_name, q, group, orphan, err, task_duration = finished.result()
+                        except Exception:  # noqa: BLE001
+                            continue
+                        for w in orphan:
+                            source_warnings.append({"source": source_name, "warning": w, "query": q})
+                        if err is None and isinstance(group, list):
+                            for item in group:
+                                for w in item.personal.pop("collector_warnings", []) or []:
+                                    source_warnings.append({"source": source_name, "warning": w, "query": q})
+                            async with items_lock:
+                                shared_items.extend(group)
                 for task in pending:
                     if not task.done():
                         task.cancel()
