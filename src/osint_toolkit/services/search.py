@@ -13,6 +13,7 @@ from osint_toolkit.ai.persona_sim import simulate_items
 from osint_toolkit.ai.query_expand import expand_query, per_query_limit
 from osint_toolkit.ai.report import generate_report
 from osint_toolkit.ai.steering import is_step_enabled
+from osint_toolkit.ai.step_registry import normalize_step_id
 from osint_toolkit.ai.summarize import summarize_batch
 from osint_toolkit.analyzers.ai_relevance import refine_relevance_with_ai
 from osint_toolkit.analyzers.citations import assign_citation_ids, build_citation_urls
@@ -363,7 +364,8 @@ async def _mine_comments(
     search_cfg: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     search_cfg = search_cfg or get_search_config()
-    if not is_step_enabled("comment_mine", no_ai=no_ai, disabled_steps=disabled_steps):
+    disabled = {normalize_step_id(s) for s in (disabled_steps or [])}
+    if normalize_step_id("comment_mine") in disabled:
         return []
 
     top = _effective_comment_top(top)

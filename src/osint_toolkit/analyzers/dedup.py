@@ -54,7 +54,8 @@ def dedup_items(items: list[IntelItem]) -> list[IntelItem]:
     seen_urls: set[str] = set()
     url_best: dict[str, IntelItem] = {}
     title_best: dict[str, IntelItem] = {}
-    result: list[IntelItem] = []
+    result: list[IntelItem | None] = []
+    result_pos: dict[int, int] = {}
     for item in items:
         url_key = _item_url_key(item)
         if url_key in seen_urls:
@@ -62,8 +63,11 @@ def dedup_items(items: list[IntelItem]) -> list[IntelItem]:
             if existing is not None:
                 _merge_provenance(existing, item)
                 if _relevance(item) > _relevance(existing):
-                    if existing in result:
-                        result[result.index(existing)] = item
+                    pos = result_pos.get(id(existing))
+                    if pos is not None:
+                        result[pos] = item
+                        del result_pos[id(existing)]
+                        result_pos[id(item)] = pos
                     url_best[url_key] = item
             continue
         seen_urls.add(url_key)
@@ -75,10 +79,13 @@ def dedup_items(items: list[IntelItem]) -> list[IntelItem]:
             if existing is not None:
                 if _relevance(item) <= _relevance(existing):
                     continue
-                if existing in result:
-                    result.remove(existing)
+                pos = result_pos.get(id(existing))
+                if pos is not None:
+                    result[pos] = None
+                    del result_pos[id(existing)]
                 title_best[title_key] = item
             else:
                 title_best[title_key] = item
+        result_pos[id(item)] = len(result)
         result.append(item)
-    return result
+    return [r for r in result if r is not None]

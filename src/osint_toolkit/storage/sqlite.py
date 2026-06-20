@@ -172,6 +172,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_intel_source ON intel_items(source);
         CREATE INDEX IF NOT EXISTS idx_intel_url ON intel_items(url);
         CREATE INDEX IF NOT EXISTS idx_intel_created ON intel_items(created_at);
+        CREATE INDEX IF NOT EXISTS idx_intel_source_created ON intel_items(source, created_at);
         CREATE INDEX IF NOT EXISTS idx_endorsements_endorsed ON endorsements(endorsed_at);
         """
     )

@@ -1915,16 +1915,14 @@ function appendResultCardInteractions(container, runId, items) {
 
 function mountIncrementalResultsList(container, items, simMap, runId, feedbackMap) {
   let visible = Math.min(RESULTS_RENDER_BATCH, items.length);
-  const renderSlice = () => items
-    .slice(0, visible)
-    .map((item, idx) => renderItemCard(item, simMap[item.id], runId, feedbackMap, idx === 0, idx))
+  let rendered = 0;
+
+  const renderRange = (start, end) => items
+    .slice(start, end)
+    .map((item, i) => renderItemCard(item, simMap[item.id], runId, feedbackMap, start + i === 0, start + i))
     .join("");
 
-  const update = () => {
-    const list = container.querySelector(".item-card-list");
-    if (!list) return;
-    list.innerHTML = renderSlice();
-    appendResultCardInteractions(container, runId, items.slice(0, visible));
+  const updateMoreBtn = () => {
     const moreBtn = container.querySelector("[data-load-more-results]");
     if (moreBtn) {
       if (visible >= items.length) moreBtn.classList.add("hidden");
@@ -1933,14 +1931,32 @@ function mountIncrementalResultsList(container, items, simMap, runId, feedbackMa
         moreBtn.textContent = `加载更多（还剩 ${items.length - visible} 条）`;
       }
     }
+  };
+
+  const initialRender = () => {
+    const list = container.querySelector(".item-card-list");
+    if (!list) return;
+    list.innerHTML = renderRange(0, visible);
+    rendered = visible;
+    appendResultCardInteractions(container, runId, items.slice(0, visible));
+    updateMoreBtn();
     if (typeof container._applyResultFilters === "function") container._applyResultFilters();
   };
 
   container.querySelector("[data-load-more-results]")?.addEventListener("click", () => {
+    const prevVisible = visible;
     visible = Math.min(items.length, visible + RESULTS_RENDER_BATCH);
-    update();
+    const list = container.querySelector(".item-card-list");
+    if (list && visible > rendered) {
+      const html = renderRange(rendered, visible);
+      list.insertAdjacentHTML("beforeend", html);
+      appendResultCardInteractions(container, runId, items.slice(rendered, visible));
+      rendered = visible;
+    }
+    updateMoreBtn();
+    if (typeof container._applyResultFilters === "function") container._applyResultFilters();
   });
-  update();
+  initialRender();
 }
 
 function formatStepLabel(step) {
