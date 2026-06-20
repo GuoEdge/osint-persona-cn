@@ -189,24 +189,66 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 ## 提交与 PR 规范
 
 - Conventional Commits：`feat:` / `fix:` / `docs:` / `test:` / `refactor:`
-- 运行 `pytest` + `ruff check` 后再 PR
+- **提交粒度要小**：每个 commit 只改一件事（如 `fix: B站 auth 短路` + `docs: 同步文档` 分开），方便 `git revert` 回滚
+- 运行对应层测试 + `ruff check` 后再 PR
 - **绝不提交**：`.env`、`~/.osint` 内容、真实 API Key、Cookie 文件
 - 配置示例只改 `config/config.example.yaml`，用 `${ENV_VAR}` 占位
 
 ## AI 维护时的注意点
 
-1. **最小改动**：搜罗参数泄漏曾导致 `tree_id` 传入 `run_search` 报错；改 API 时检查 `search_params.py` 边界。
-2. **Cookie 与 WBI**：B站/知乎接口常变；失败时优先 WBI 回退、扩展补洞，而非硬爬页面。B站 `code=-101` 用 `_check_bili_auth()` 检测。
-3. **SQLite 并发**：扩展 auto-save 不得在持有 DB 连接时 `await` 长时间 `save_url`；见 `services/extension.py` WAL 模式。
-4. **扩展队列**：`extension/lib/queue.js` 分批 POST（默认 25 条/批），勿恢复单次 500 条上传。
-5. **工作台布局**：搜罗页为分区 Tab（结果/报告/研究树），宽屏可选分屏；勿恢复三列挤版。
-6. **文档同步**：用户可见能力变更时更新 `docs/CAPABILITIES.md` 与 README 功能列表。
-7. **async 端点必须 `asyncio.to_thread`**：`web/routes/api.py` 中所有 `async def` 端点调用同步函数（SQLite、文件 I/O、HTTP）时必须用 `await asyncio.to_thread(fn, ...)` 包裹，否则阻塞事件循环（曾导致行为时间线页超时）。
-8. **事件批量写入**：循环 `log_event_deduped()` 已废弃，改用 `log_events_batch([(type, data, key), ...])` 单次连接批量写入。新代码勿恢复 N+1 模式。
-9. **分页安全上限**：所有分页循环必须加页数上限（如 `if page > 50: break`），防止 API 返回全重复数据时死循环。
-10. **同步状态原子更新**：`_persist_bilibili`/`_persist_zhihu` 用 `sync_state.atomic_update_state(fn)` 做 load→update→save 原子操作；勿恢复裸 `load` + `save` 序列。
-11. **AI 步骤构造 DeepSeekClient 在 try 内**：`DeepSeekClient()` 构造可能因 API Key 缺失而抛异常，必须在 try 块内构造，否则崩溃整条搜索。
-12. **搜索取消清理**：`collect_all` 的 `while pending` 循环用 `try/finally` 包裹，确保 `JobCancelled` 时取消所有子任务。
+> 以下每一行都是踩坑记录，修改前务必扫描一遍，避免踩已修复的坑。
+
+### Pipeline 参数与接口边界
+
+1. **搜罗参数泄漏**：`tree_id`、`parent_node_id`、`fork_from_run_id` 等 session 字段不得传入 `run_search()`。改 `search.py` 入参前先看 `services/search_params.py` 的 `strip_session_keys()`，新字段必须在其中剥离。
+
+2. **分页安全上限**：所有分页循环必须加页数上限（如 `if page > 50: break`），防止 API 返回全重复数据时死循环。B站/知乎收藏/关注、浏览历史等 API 均有实测出现过无限翻页。
+
+### AI 步骤与 Prompt
+
+3. **DeepSeekClient 构造在 try 内**：`DeepSeekClient()` 可能因 API Key 缺失抛异常，必须在 try 块内构造，否则崩溃整条搜索。
+
+4. **AI prompt 必须防幻觉**：所有 AI 摘要/归纳/报告 prompt 必须显式约束模型仅基于提供的正文内容生成，不得引入原文未提及的事件、人物、产品。参见 `prompt_loader.py` 中 `summarize` 和 `report` prompt 的"严格遵守"段落，以及 `steering.py` 的硬约束第 5 条。
+
+5. **AI 返回空内容的兜底**：AI 可能因限流、超时或其他原因返回空字符串或纯空白。存储前必须验证长度（如 `len(summary.strip()) > 10`），空内容不可写入 `item.layers["comments_summary"]` 或 `item.summary`，应回退为原始内容截断或原始评论列表。参见 `analyzers/comments.py` 的 `if not result or not result.strip()` 检查。
+
+6. **注释挖掘的评论归纳必须防幻觉**：评论归纳 prompt 同样需要约束 "仅基于提供的评论内容归纳，不得引入评论中不存在的信息"。AI 返回空时回退到原始评论精选列表，不可造成前端空的"社区观点归纳"区块。
+
+### 外部 API 与网络
+
+7. **Cookie 与 WBI**：B站/知乎接口常变；失败时优先 WBI 回退、扩展补洞，而非硬爬页面。B站 `code=-101` 用 `_check_reply_auth()` 检测。
+
+8. **B站 auth 短路**：首次检测到认证失败（`code=-101/-400/12002` 或含"权限"关键词）后，必须在 class 级别设 `_auth_failed = True` 标记。后续所有评论/弹幕/子回复请求直接返回空，不再发 WBI 或 legacy API。同时用 `_auth_warning_shown` 抑制重复告警，只打一次警告。参见 `collectors/bilibili.py` 的 `_fetch_reply_page` 入口短路和 `_check_reply_auth` 逻辑。
+
+9. **HTTP Referer 反爬**：知乎等平台校验 Referer 头，爬取类请求须附带正确来源。改 `HttpClient` 或 collector 时检查 referer 是否被剥离或错置。参见 `tests/test_http_client_referer.py`。
+
+### 并发与异步
+
+10. **async 端点必须 `asyncio.to_thread`**：`web/routes/api.py` 中所有 `async def` 端点调用同步函数（SQLite、文件 I/O、HTTP）时必须用 `await asyncio.to_thread(fn, ...)` 包裹，否则阻塞事件循环（曾导致行为时间线页超时）。
+
+11. **SQLite 并发**：扩展 auto-save 不得在持有 DB 连接时 `await` 长时间 `save_url`；见 `services/extension.py` WAL 模式。
+
+12. **事件批量写入**：循环 `log_event_deduped()` 已废弃，改用 `log_events_batch([(type, data, key), ...])` 单次连接批量写入。新代码勿恢复 N+1 模式。
+
+13. **搜索取消清理**：`collect_all` 的 `while pending` 循环用 `try/finally` 包裹，确保 `JobCancelled` 时取消所有子任务。
+
+14. **同步状态原子更新**：`_persist_bilibili`/`_persist_zhihu` 用 `sync_state.atomic_update_state(fn)` 做 load→update→save 原子操作；勿恢复裸 `load` + `save` 序列。
+
+### 数据与存储
+
+15. **AI 输出存前验证**：AI 摘要、评论归纳等 AI 输出在存入 `item.layers` 或 `item.summary` 前必须验证非空白且有实际内容长度（如 `> 10` 字符）。空白或过短内容不写入，避免前端渲染空的区块。
+
+16. **扩展队列**：`extension/lib/queue.js` 分批 POST（默认 25 条/批），勿恢复单次 500 条上传。
+
+### 文档与提交
+
+17. **文档同步**：用户可见能力变更（新 prompt 约束、短路逻辑、配置项）必须同步更新 `docs/CAPABILITIES.md` 和 `docs/AI_CONTROL.md`，否则用户不知道功能变了。
+
+18. **AGENTS.md 是活文档**：每次踩到新坑就在本小节加一条，描述具体现象、根因、修复位置。不要只写在 commit message 里，其他人（包括未来的你）看不到。
+
+19. **大改动分多次会话**：不要在一个 session 里改 collector + prompt + API + UI。一次改一个模块，跑完对应层测试再继续。跨越多文件的改动使用 `task` 工具拆分给子 agent。
+
+20. **测试是安全网**：代码改动必须跑对应层测试（见上方的三层测试结构），不能只跑 `ruff check`。改了采集/解析/过滤不跑第二层，线上数据质量会回退且无声。
 
 ## 关键配置段（`config.example.yaml`）
 
