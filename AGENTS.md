@@ -126,10 +126,59 @@ ruff format src tests
 
 ## 测试
 
+测试分三层，AI 修改代码后**必须跑对应层**，不能只跑 lint。
+
+### 第一层：代码健全（任何修改后必跑）
+
+覆盖：系统可导入、pipeline 参数不泄漏、搜索排队、认证门禁、信源路由/规划、信号/去重、AI 客户端/导向、存储/连接池、Web API/鉴权、配置读写、画像构建/注入、搜索端到端产出、HTTP 反爬、画像模拟。
+
+```bash
+pytest tests/test_system_consistency.py tests/test_config.py \
+       tests/test_search_session.py tests/test_search_task_queue.py \
+       tests/test_source_preflight.py tests/test_source_routing.py \
+       tests/test_source_planner.py tests/test_analyzers.py \
+       tests/test_ai_client.py tests/test_steering.py \
+       tests/test_storage.py tests/test_sqlite_pool.py \
+       tests/test_web_api.py tests/test_web_token.py \
+       tests/test_tunable_config.py tests/test_persona_builder.py \
+       tests/test_persona_context.py tests/test_delivery_api_smoke.py \
+       tests/test_http_client_referer.py tests/test_pipeline.py \
+       tests/test_pipeline_integration.py tests/test_persona_sim.py \
+       tests/test_search_service.py -q
+```
+
+### 第二层：数据质量（改了采集/解析/过滤/相关度打分后必跑）
+
+覆盖：去重精度、域名提取、字幕选取、SERP 过滤/解析、知乎 URL 归一化/抓取决策、GitHub 拦截、音乐漂移、微信搜狗解析、别名发现、Composer 路由、AI 相关度精炼、信源规划改进、外文扩展。
+
+```bash
+pytest tests/test_dedup.py tests/test_domain.py \
+       tests/test_subtitle_pick.py tests/test_serp_filters.py \
+       tests/test_serp.py tests/test_zhihu_urls.py \
+       tests/test_zhihu_fetch_gate.py tests/test_github_filters.py \
+       tests/test_music_drift_filter.py tests/test_weixin_sogou.py \
+       tests/test_alias_discover.py tests/test_composer_source_routing.py \
+       tests/test_plan_improvements.py tests/test_ai_relevance.py \
+       tests/test_foreign_expand.py -q
+```
+
+### 第三层：评论抓取 & 行为事件（改了 ingest/扩展/评论/弹幕/微信质量后必跑）
+
+覆盖：知乎评论、B站弹幕、扩展事件解析、行为信号、微信互动。
+
+```bash
+pytest tests/test_zhihu_comments.py tests/test_bilibili_danmaku_legacy.py \
+       tests/test_extension_events.py tests/test_behavior_signals.py \
+       tests/test_weixin_quality.py -q
+```
+
+### 全量 & 集成
+
 ```bash
 pytest                                    # 全量
-pytest tests/test_search_session.py -q    # 会话相关
 pytest tests/test_bilibili_sdk.py -q      # B站 SDK
+pytest tests/test_bilibili_wbi.py -q      # B站 WBI 签名
+pytest tests/test_search_session.py -q    # 会话相关
 pytest tests/test_extension_events.py -q  # 扩展解析
 ```
 
