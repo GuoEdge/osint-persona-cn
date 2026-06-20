@@ -1050,6 +1050,15 @@ async def run_search(
 
     citation_map = assign_citation_ids(items)
 
+    try:
+        final_path = ctx.ensure_run_dir() / "items_final.json"
+        final_path.write_text(
+            json.dumps([i.to_dict() for i in items], ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     if digest:
         update_progress(
             run_id,
@@ -1057,7 +1066,6 @@ async def run_search(
             detail="撰写情报报告…",
             eta_sec=eta_tracker.remaining_sec(current_phase="ai_report"),
         )
-        citation_map = assign_citation_ids(items)
         import time
 
         report_started = time.perf_counter()

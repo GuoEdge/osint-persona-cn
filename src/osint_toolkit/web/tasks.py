@@ -183,7 +183,7 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     items: list[IntelItem] = []
-    for path in sorted(run_dir.glob("*items_dedup.json")) + sorted(run_dir.glob("*items_raw.json")):
+    for path in sorted(run_dir.glob("*items_final.json")) + sorted(run_dir.glob("*items_dedup.json")) + sorted(run_dir.glob("*items_raw.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
