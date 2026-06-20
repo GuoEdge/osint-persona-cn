@@ -18,7 +18,7 @@ def test_zhihu_layer_status_skip_deprecated_apis():
     assert status["browse"]["status"] == "empty"
     assert status["browse"]["layer"] == "edge"
     assert status["activity"]["status"] == "skip"
-    assert status["activity"]["layer"] == "playwright"
+    assert status["activity"]["layer"] == "skip"
 
 
 def test_zhihu_layer_status_synthetic_activity_ok():
@@ -32,7 +32,7 @@ def test_zhihu_layer_status_synthetic_activity_ok():
         synthetic_count=5,
     )
     assert status["activity"]["status"] == "ok"
-    assert status["activity"]["layer"] == "synthetic"
+    assert status["activity"]["layer"] == "moments_api"
 
 
 def test_browser_visit_zhihu_content_scores_higher():

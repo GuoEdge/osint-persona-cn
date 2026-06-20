@@ -22,7 +22,20 @@
 |--------|------|
 | `voteanswers` / `vote_answers` / `answers/voted` | HTTP **404**，接口已废弃（2024-11 对 sankichu 重新实测确认仍 404）|
 | `browsing_histories` / `footprints` 等浏览 API | HTTP **404**（重新实测确认）|
-| `members/{token}/activities` 动态流（HttpClient 直调）| 200 但 **返回空列表**；可能需浏览器 x-zse-96 签名 |
+| `members/{token}/activities` 动态流（v4 端点）| 200 但 **返回空列表**（v4 端点已失效）|
+
+## 动态流与点赞历史 — moments API（v3）
+
+**2024-11 重大发现**：知乎真正的动态流端点是 `/api/v3/moments/{token}/activities`（v3 moments），
+而非已废弃的 v4 `/api/v4/members/{token}/activities`（返回空）。
+
+moments API 返回近期动态，每页 7 条，用 `offset`（毫秒时间戳）翻页，verb 包含：
+- `MEMBER_VOTEUP_ANSWER`：点赞回答 → `zhihu_vote`
+- `MEMBER_VOTE_PIN`：点赞想法 → `zhihu_vote`
+- 其它：收藏/关注/发布等
+
+**HttpClient 可直接调用**（无需 Playwright 签名），翻页可获取数周内的点赞/收藏/关注历史。
+实现：`ingest/zhihu_account.py` `ingest_activities()` → 写入 events 表 + 增量游标去重。
 
 ## 点赞/收藏/关注 — 扩展 POST 拦截（实时记录）
 

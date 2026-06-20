@@ -212,6 +212,8 @@ async def ingest_zhihu() -> dict[str, Any]:
     activities: list[dict] = []
     try:
         activities, _act_key = await ingest_activities()
+        if activities:
+            warnings.append(f"动态流(moments API): 新增 {len(activities)} 条（含点赞/收藏/关注动态）")
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"动态流: {exc}")
 

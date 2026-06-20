@@ -114,21 +114,18 @@ async def ingest_activities(
     *,
     skip_answer_votes: bool = False,
 ) -> tuple[list[dict], str | None]:
-    """尝试拉取知乎动态流 activities。
+    """拉取知乎动态流（含点赞/收藏/关注等近期行为）。
 
-    实测 activities 端点对 HttpClient 常返回空列表（可能需浏览器 x-zse-96 签名）。
-    默认尝试调用，返回空则跳过。Playwright 打开 /people/{token}/activities 页
-    可由浏览器签名后触发 XHR，由 capture_patterns 拦截入库。
+    真正的动态流端点是 ``/api/v3/moments/{token}/activities``（v3 moments），
+    而非已废弃的 ``/api/v4/members/{token}/activities``（v4，返回空）。
+    每页 7 条，用 ``offset``（毫秒时间戳）翻页，verb 包含：
+    - ``MEMBER_VOTEUP_ANSWER``：点赞回答
+    - ``MEMBER_VOTE_PIN``：点赞想法
+    - 其它：收藏/关注/发布等
     """
     from osint_toolkit.ingest.zhihu_activities import activity_entry_from_item, classify_activity
-    from osint_toolkit.utils.config import get_search_config
 
     del skip_answer_votes
-    search_cfg = get_search_config()
-    if not search_cfg.get("zhihu_try_activities", False):
-        logger.debug("zhihu activities skipped (set search.zhihu_try_activities=true to enable)")
-        return [], None
-
     client = HttpClient()
     token = await _url_token(client)
     if not token:
@@ -137,14 +134,16 @@ async def ingest_activities(
     seen_urls = sync_state._string_set(section.get("activity_urls", []))
     results: list[dict] = []
     seen: set[str] = set()
-    offset = 0
+
+    base_url = f"https://www.zhihu.com/api/v3/moments/{token}/activities"
+    referer = f"https://www.zhihu.com/people/{token}/activities"
+    params = "?limit=20&desktop=true&ws_qiangzhisafe=0"
+    next_url = f"{base_url}{params}"
+
     try:
-        while len(results) < limit:
-            resp = await client.get(
-                f"https://www.zhihu.com/api/v4/members/{token}/activities"
-                f"?limit=20&offset={offset}&include=data[*].target,actor",
-                headers={"Referer": f"https://www.zhihu.com/people/{token}/activities"},
-            )
+        page = 0
+        while len(results) < limit and next_url:
+            resp = await client.get(next_url, headers={"Referer": referer})
             if resp.status_code != 200:
                 break
             payload = resp.json()
@@ -152,7 +151,7 @@ async def ingest_activities(
             if not batch:
                 break
             for item in batch:
-                entry = activity_entry_from_item(item, via="activities_api")
+                entry = activity_entry_from_item(item, via="moments_api")
                 if not entry or entry["url"] in seen:
                     continue
                 seen.add(entry["url"])
@@ -160,14 +159,19 @@ async def ingest_activities(
                 if len(results) >= limit:
                     break
             paging = payload.get("paging") or {}
-            if paging.get("is_end") or len(batch) < 20:
+            if paging.get("is_end"):
                 break
-            offset += 20
+            next_url = paging.get("next") or ""
+            page += 1
+            if page > 50:
+                break
     except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu activities ingest failed: %s", exc)
+        logger.warning("zhihu activities (moments) ingest failed: %s", exc)
+
     if not results:
-        logger.debug("zhihu activities returned 0 items (endpoint may require browser signature)")
+        logger.debug("zhihu moments activities returned 0 items")
         return [], None
+
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
     for entry in fresh:
         url = str(entry.get("url") or "")
@@ -177,7 +181,10 @@ async def ingest_activities(
             event_type = classified[0]
         log_event_deduped(event_type, entry, f"{event_type}|{url}")
     _persist_zhihu(activities=results)
-    return fresh, "activities"
+    logger.info("zhihu moments: %d total, %d fresh (votes=%d)",
+                len(results), len(fresh),
+                sum(1 for r in results if "vote" in str(r.get("event_kind", ""))))
+    return fresh, "moments"
 
 
 async def ingest_voteanswers(limit: int = 500) -> tuple[list[dict], str | None]:
@@ -472,7 +479,7 @@ def zhihu_layer_status(
             "count": vote_count,
             "endpoint": None,
             "layer": "extension_post",
-            "note": "voteanswers API 已废弃（404）；点赞由扩展 POST 拦截实时记录，历史无法恢复",
+            "note": "voteanswers API 已废弃（404）；点赞由扩展 POST 拦截实时记录 + moments 动态流获取历史",
         },
         "browse": {
             "status": browse_status,
@@ -488,7 +495,7 @@ def zhihu_layer_status(
             "count": 0,
             "synthetic_count": synthetic_count,
             "endpoint": None,
-            "layer": "synthetic" if synthetic_count else "playwright",
-            "note": "官方动态流需浏览器签名（HttpClient 常空）；Playwright 打开动态页可拦截 XHR",
+            "layer": "moments_api" if synthetic_count else "skip",
+            "note": "动态流通过 /api/v3/moments/{token}/activities 获取（含点赞/收藏/关注历史）",
         },
     }
