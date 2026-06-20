@@ -267,6 +267,7 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 
 ## 延伸阅读
 
+- [docs/ROADMAP.md](docs/ROADMAP.md) — 维护与改进方向（优先级、路线图、不做什么）
 - [docs/CAPABILITIES.md](docs/CAPABILITIES.md) — 功能能力矩阵与限制
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 数据流与模块图
 - [docs/AI_CONTROL.md](docs/AI_CONTROL.md) — AI 导向与 prompt 覆盖
