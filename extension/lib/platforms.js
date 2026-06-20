@@ -26,10 +26,8 @@ const OSINTPlatforms = {
   /** 自动打开的补洞页：触发页面内 API，由 inject 拦截后上传。 */
   scrollOnlyPages: [],
 
-  /** 由 sync.js 按登录用户动态填充（recent-viewed、主页动态） */
+  /** 扩展定时后台同步：仅 B 站补洞页。知乎已改由 Cookie API + 扩展被动采集，见 docs/ZHIHU_PERSONA.md */
   probePageTemplates: [
-    { url: "https://www.zhihu.com/recent-viewed", label: "知乎最近浏览" },
-    { url: "https://www.zhihu.com/people/{zhihu_token}", label: "知乎主页动态" },
     { url: "https://space.bilibili.com/{bilibili_mid}/dynamic", label: "B站动态" },
     { url: "https://space.bilibili.com/{bilibili_mid}/", label: "B站主页" },
     { url: "https://www.bilibili.com/account/history", label: "B站观看历史" },

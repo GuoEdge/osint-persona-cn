@@ -16,13 +16,19 @@ from osint_toolkit.ingest.bilibili_account import (
 )
 from osint_toolkit.ingest.browser import ingest_browser_history
 from osint_toolkit.ingest.likes import list_recognition_records
+from osint_toolkit.storage.knowledge import log_event_deduped
+from osint_toolkit.ingest.zhihu_endpoint_registry import ZHIHU_PERSONA_CAPABILITY_NOTE
 from osint_toolkit.ingest.zhihu_account import (
-    ingest_activities,
     ingest_browsing,
     ingest_followees,
-    ingest_voteanswers,
+    ingest_member_answers,
+    ingest_member_articles,
+    ingest_member_pins,
+    ingest_profile_meta,
+    zhihu_layer_status,
 )
 from osint_toolkit.ingest.zhihu_account import ingest_favorites as ingest_zhihu_favorites
+from osint_toolkit.ingest.zhihu_synthetic import build_synthetic_activities
 
 
 def ingest_browser(*, since_days: int = 90) -> dict[str, Any]:
@@ -149,90 +155,136 @@ async def ingest_bilibili(*, include_favorites: bool = True, include_likes: bool
 
 
 async def ingest_zhihu() -> dict[str, Any]:
-    warnings: list[str] = []
+    warnings: list[str] = [ZHIHU_PERSONA_CAPABILITY_NOTE]
     cookie = validate_domain_cookie("zhihu.com")
     if not cookie["ok"]:
         warnings.append(cookie["reason"])
-        return {
-            "count": 0,
-            "favorite_count": 0,
-            "activity_count": 0,
-            "vote_count": 0,
-            "browse_count": 0,
-            "rows": [],
-            "warnings": warnings,
-        }
+        return _empty_zhihu_result(warnings)
+
     logged_in, detail = await _probe_zhihu_login()
     if not logged_in:
         warnings.append(f"知乎未登录或 Cookie 失效: {detail or '请重新同步 Cookie'}")
-        return {
-            "count": 0,
-            "favorite_count": 0,
-            "activity_count": 0,
-            "vote_count": 0,
-            "browse_count": 0,
-            "rows": [],
-            "warnings": warnings,
-        }
+        return _empty_zhihu_result(warnings)
+
+    profile = {}
+    try:
+        profile = await ingest_profile_meta()
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"账号元数据: {exc}")
+
+    favorites: list[dict] = []
     try:
         favorites = await ingest_zhihu_favorites()
     except Exception as exc:  # noqa: BLE001
-        favorites = []
         warnings.append(f"收藏: {exc}")
-    voteanswers: list[dict] = []
+
+    answers: list[dict] = []
+    articles: list[dict] = []
+    pins: list[dict] = []
     try:
-        voteanswers = await ingest_voteanswers()
+        answers, _ = await ingest_member_answers()
     except Exception as exc:  # noqa: BLE001
-        warnings.append(f"赞同明细: {exc}")
+        warnings.append(f"回答: {exc}")
     try:
-        activities = await ingest_activities(skip_answer_votes=bool(voteanswers))
+        articles, _ = await ingest_member_articles()
     except Exception as exc:  # noqa: BLE001
-        activities = []
-        warnings.append(f"动态: {exc}")
+        warnings.append(f"文章: {exc}")
+    try:
+        pins, _ = await ingest_member_pins()
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"想法: {exc}")
+
     followees: list[dict] = []
     try:
         followees = await ingest_followees()
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"关注: {exc}")
+
+    browsing: list[dict] = []
     try:
-        browsing = await ingest_browsing()
+        browsing, _browse_meta = await ingest_browsing()
     except Exception as exc:  # noqa: BLE001
-        browsing = []
         warnings.append(f"浏览记录: {exc}")
-    votes = voteanswers or [a for a in activities if a.get("event_kind") == "answer_vote"]
-    activities_non_vote = [
-        a for a in activities if a.get("event_kind") not in ("answer_vote", None)
-    ]
-    if not activities and voteanswers:
-        warnings.append(
-            "主页动态流(activities)为空，但赞同明细(voteanswers)可用："
-            "动态流通常只含赞/藏/关注/发布类活动，不含独立「发动态」时间线；"
-            "赞同回答已由 voteanswers API 单独抓取。"
-        )
-    if not browsing and not activities and not voteanswers:
-        warnings.append(
-            "知乎浏览/动态 API 为空：同步时会自动打开 recent-viewed 与主页，或请检查隐私设置"
-        )
-    rows = favorites + activities + voteanswers + followees + browsing
+
+    browse_edge = browsing
+
+    synthetic: list[dict] = []
+    synthetic = build_synthetic_activities(
+        votes=[],
+        favorites=favorites,
+        followees=followees,
+        answers=answers,
+        articles=articles,
+        pins=pins,
+    )
+    if synthetic:
+        warnings.append(f"已用收藏/关注/发布合成 {len(synthetic)} 条时间线事件（非官方动态流）。")
+        for entry in synthetic:
+            event_type = str(entry.pop("_event_type", None) or "zhihu_activity")
+            url = str(entry.get("url") or "")
+            kind = str(entry.get("event_kind") or "")
+            log_event_deduped(event_type, entry, f"{event_type}|{url}|{kind}|synthetic")
+
+    voteanswers: list[dict] = []
+    activities: list[dict] = []
+    activities_non_vote: list[dict] = []
+    activity_total = len(synthetic)
+
+    layer_status = zhihu_layer_status(
+        vote_count=0,
+        browse_count=len(browsing),
+        activity_count=0,
+        browse_edge=len(browse_edge),
+        synthetic_count=len(synthetic),
+    )
+
+    rows = favorites + followees + browsing + answers + articles + pins
     breakdown = {
-        "votes": {"label": "赞同回答", "count": len(voteanswers)},
+        "votes": {"label": "赞同回答", "count": 0},
         "favorites": {"label": "收藏", "count": len(favorites)},
         "activities_non_vote": {"label": "动态流(非赞同)", "count": len(activities_non_vote)},
         "followees": {"label": "关注的人", "count": len(followees)},
         "browsing": {"label": "浏览记录", "count": len(browsing)},
+        "answers": {"label": "我的回答", "count": len(answers)},
+        "articles": {"label": "我的文章", "count": len(articles)},
+        "pins": {"label": "我的想法", "count": len(pins)},
+        "synthetic": {"label": "合成动态", "count": len(synthetic)},
     }
     return {
-        "count": len(rows),
+        "count": len(rows) + len(synthetic),
         "favorite_count": len(favorites),
-        "activity_count": len(activities),
-        "activity_non_vote_count": len(activities_non_vote),
-        "vote_count": len(votes),
-        "voteanswer_count": len(voteanswers),
+        "activity_count": activity_total,
+        "activity_non_vote_count": len(activities_non_vote) + len(synthetic),
+        "vote_count": 0,
+        "voteanswer_count": 0,
         "followee_count": len(followees),
         "browse_count": len(browsing),
+        "answer_count": len(answers),
+        "article_count": len(articles),
+        "pin_count": len(pins),
+        "synthetic_count": len(synthetic),
+        "profile": profile,
+        "layer_status": layer_status,
+        "needs_browser_sync": False,
+        "capability_note": ZHIHU_PERSONA_CAPABILITY_NOTE,
         "breakdown": breakdown,
         "rows": rows[:20],
         "warnings": warnings,
+    }
+
+
+def _empty_zhihu_result(warnings: list[str]) -> dict[str, Any]:
+    return {
+        "count": 0,
+        "favorite_count": 0,
+        "activity_count": 0,
+        "vote_count": 0,
+        "browse_count": 0,
+        "rows": [],
+        "warnings": warnings,
+        "layer_status": {},
+        "needs_browser_sync": False,
+        "capability_note": ZHIHU_PERSONA_CAPABILITY_NOTE,
     }
 
 
@@ -330,7 +382,12 @@ async def ingest_accounts_sync() -> dict[str, Any]:
     from osint_toolkit.utils.config import get_browser_sync_config
 
     bs_cfg = get_browser_sync_config()
-    if bs_cfg.get("browser_sync_enabled", True) and bs_cfg.get("browser_sync_after_api", True):
+    needs_bs = bool(bili.get("needs_browser_sync"))
+    if (
+        bs_cfg.get("browser_sync_enabled", True)
+        and bs_cfg.get("browser_sync_after_api", True)
+        and needs_bs
+    ):
         try:
             from osint_toolkit.services import browser_sync as browser_sync_service
 

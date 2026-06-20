@@ -295,7 +295,7 @@ def _parse_zhihu_api(url: str, body: dict[str, Any]) -> list[tuple[str, dict[str
             out.append(("zhihu_fav", entry, _dedup_key("zhihu_fav", content_url)))
         return out
 
-    if "voteanswers" in url or "vote_answers" in url:
+    if "voteanswers" in url or "vote_answers" in url or "/answers/voted" in url:
         for item in iter_api_data_items(body.get("data")):
             target = item.get("target") or item
             content_url = _zhihu_content_url(target, item)
@@ -311,6 +311,60 @@ def _parse_zhihu_api(url: str, body: dict[str, Any]) -> list[tuple[str, dict[str
             }
             out.append(("zhihu_vote", entry, _dedup_key("zhihu_vote", content_url)))
         return out
+
+    if re.search(r"/members/[^/]+/answers(?:\?|$)", url) and "/answers/voted" not in url:
+        for item in iter_api_data_items(body.get("data")):
+            target = item.get("target") or item
+            content_url = _zhihu_content_url(target, item)
+            if not content_url:
+                continue
+            title = (target.get("question") or {}).get("title") or target.get("title") or ""
+            entry = {
+                "source": "zhihu",
+                "title": title,
+                "url": content_url,
+                "event_kind": "create_answer",
+                "via": "extension",
+            }
+            out.append(("zhihu_answer", entry, _dedup_key("zhihu_answer", content_url)))
+        if out:
+            return out
+
+    if "/members/" in url and "/articles" in url:
+        for item in iter_api_data_items(body.get("data")):
+            target = item.get("target") or item
+            content_url = _zhihu_content_url(target, item)
+            if not content_url:
+                continue
+            title = target.get("title") or ""
+            entry = {
+                "source": "zhihu",
+                "title": title,
+                "url": content_url,
+                "event_kind": "create_article",
+                "via": "extension",
+            }
+            out.append(("zhihu_article", entry, _dedup_key("zhihu_article", content_url)))
+        if out:
+            return out
+
+    if "/members/" in url and "/pins" in url:
+        for item in iter_api_data_items(body.get("data")):
+            target = item.get("target") or item
+            content_url = _zhihu_content_url(target, item)
+            if not content_url:
+                continue
+            title = target.get("title") or target.get("excerpt") or ""
+            entry = {
+                "source": "zhihu",
+                "title": str(title)[:200],
+                "url": content_url,
+                "event_kind": "create_pin",
+                "via": "extension",
+            }
+            out.append(("zhihu_pin", entry, _dedup_key("zhihu_pin", content_url)))
+        if out:
+            return out
 
     if "/activities" in url or "recent" in url or "record_viewed" in url or "viewed" in url:
         from osint_toolkit.ingest.zhihu_activities import activity_entry_from_item, classify_activity

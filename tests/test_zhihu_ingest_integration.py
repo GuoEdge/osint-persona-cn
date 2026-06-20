@@ -40,7 +40,7 @@ async def test_ingest_favorites_normalizes_api_urls(monkeypatch, tmp_path):
     }
 
     class FakeClient:
-        async def get(self, url):
+        async def get(self, url, headers=None):
             if "favlists" in url:
                 return FakeResp(favlists)
             if "/collections/" in url:
@@ -64,6 +64,8 @@ async def test_ingest_favorites_normalizes_api_urls(monkeypatch, tmp_path):
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr(zhihu_account, "log_event_deduped", track_dedup)
     monkeypatch.setattr(zhihu_account, "_persist_zhihu", lambda **_k: None)
+    monkeypatch.setattr(zhihu_account, "_zhihu_section", lambda: {})
+    monkeypatch.setattr(zhihu_account.sync_state, "filter_new_by_urls", lambda rows, _seen: rows)
 
     rows = await zhihu_account.ingest_favorites(limit=5)
     assert len(rows) == 1

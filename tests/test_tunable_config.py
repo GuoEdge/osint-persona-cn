@@ -20,9 +20,14 @@ def test_list_tunable_groups():
     assert "search_concurrency" in ids
     assert "search_fast" in ids
     assert "zhihu_openapi" in ids
+    assert "foreign_expand" in ids
     openapi_group = next(g for g in data["groups"] if g["id"] == "zhihu_openapi")
     keys = {f["key"] for f in openapi_group["fields"]}
     assert "zhihu.openapi.min_request_interval_sec" in keys
+    foreign_group = next(g for g in data["groups"] if g["id"] == "foreign_expand")
+    foreign_keys = {f["key"] for f in foreign_group["fields"]}
+    assert "search.foreign_expand.enabled" in foreign_keys
+    assert "http.proxy" in foreign_keys
 
 
 def test_patch_tunable_values(tmp_path, monkeypatch):
@@ -46,6 +51,47 @@ def test_patch_tunable_values(tmp_path, monkeypatch):
     assert written["search"]["max_concurrent_searches"] == 3
     assert written["zhihu"]["openapi"]["min_request_interval_sec"] == 1.5
     assert written["ai"]["auto_persona_rebuild"] == "prompt"
+
+
+def test_patch_foreign_expand_enabled(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "config.yaml"
+    written: dict = {}
+
+    def fake_save(patch):
+        written.update(patch)
+        return str(cfg_path)
+
+    monkeypatch.setattr("osint_toolkit.services.tunable_config.save_user_config_patch", fake_save)
+
+    result = tunable_config.patch_tunable_values({"search.foreign_expand.enabled": "on"})
+    assert result["applied"]["search.foreign_expand.enabled"] == "on"
+    assert written["search"]["foreign_expand"]["enabled"] == "on"
+
+
+def test_patch_empty_proxy_to_null(tmp_path, monkeypatch):
+    written: dict = {}
+
+    monkeypatch.setattr(
+        "osint_toolkit.services.tunable_config.save_user_config_patch",
+        lambda patch: (written.update(patch), str(tmp_path / "config.yaml"))[1],
+    )
+
+    result = tunable_config.patch_tunable_values({"http.proxy": ""})
+    assert result["applied"]["http.proxy"] is None
+    assert written["http"]["proxy"] is None
+
+
+def test_patch_proxy_value(tmp_path, monkeypatch):
+    written: dict = {}
+
+    monkeypatch.setattr(
+        "osint_toolkit.services.tunable_config.save_user_config_patch",
+        lambda patch: (written.update(patch), str(tmp_path / "config.yaml"))[1],
+    )
+
+    result = tunable_config.patch_tunable_values({"http.proxy": "http://127.0.0.1:7890"})
+    assert result["applied"]["http.proxy"] == "http://127.0.0.1:7890"
+    assert written["http"]["proxy"] == "http://127.0.0.1:7890"
 
 
 def test_patch_rejects_unknown_key():

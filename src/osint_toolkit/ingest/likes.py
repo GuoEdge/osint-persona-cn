@@ -162,7 +162,13 @@ def list_recognition_records(*, limit: int = 50) -> dict[str, Any]:
             hint_parts.append("B站点赞/投币/评论：完成完整同步或扩展被动采集后会出现。")
         zh = by_platform.get("zhihu") or {}
         if not zh.get("vote"):
-            hint_parts.append("知乎赞同：同步时会拉取 voteanswers API；若仍为空请检查 Cookie 或隐私设置。")
+            hint_parts.append(
+                "知乎赞同：Cookie 同步不再拉 voteanswers（接口已废弃）；请安装扩展，日常点赞会自动记入画像。"
+            )
+        if not zh.get("browse"):
+            hint_parts.append(
+                "知乎浏览：完整同步仅导入 Edge 中的知乎链接；更多页面访问请依赖扩展被动采集。"
+            )
         hint_parts.append("「收藏库快照」为账号全量收藏清单，画像中权重低于近期点赞/赞同。")
 
     return {

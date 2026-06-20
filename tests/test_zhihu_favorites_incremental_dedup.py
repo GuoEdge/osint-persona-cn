@@ -48,7 +48,7 @@ async def test_zhihu_favorites_second_sync_logs_nothing_new(monkeypatch, tmp_pat
     }
 
     class FakeClient:
-        async def get(self, url):
+        async def get(self, url, headers=None):
             if "favlists" in url:
                 return FakeResp(favlists)
             if "/collections/" in url:

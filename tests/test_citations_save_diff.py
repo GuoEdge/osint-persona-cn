@@ -7,7 +7,7 @@ import json
 import pytest
 
 from osint_toolkit.ai.report import _build_report_payload, _fallback_report
-from osint_toolkit.analyzers.citations import assign_citation_ids
+from osint_toolkit.analyzers.citations import assign_citation_ids, build_citation_urls
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.services import save as save_svc
 from osint_toolkit.services.runs import diff_run_urls
@@ -33,6 +33,17 @@ def test_report_payload_has_citation_fields():
     assert row["citation_id"] == "c1"
     assert row["matched_queries"] == ["q1", "q2"]
     assert "citation_instruction" in payload
+
+
+def test_build_citation_urls():
+    items = [
+        IntelItem(source="web", type="t", url="https://example.com/a", title="a", content=""),
+        IntelItem(source="web", type="t", url="", title="no url", content=""),
+    ]
+    assign_citation_ids(items)
+    urls = build_citation_urls(items)
+    assert urls == {"c1": "https://example.com/a"}
+    assert "c2" not in urls
 
 
 def test_fallback_report_uses_citation_refs():

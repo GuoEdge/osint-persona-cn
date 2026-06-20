@@ -63,18 +63,17 @@ def build_sync_pages(
     bilibili_mid: str = "",
     zhihu_token: str = "",
 ) -> list[dict[str, str]]:
+    from osint_toolkit.ingest.zhihu_endpoint_registry import ZHihu_PROBE_PAGES
+
     pages: list[dict[str, str]] = []
     if "zhihu" in platforms and zhihu_token:
-        pages.extend(
-            [
-                {"label": "知乎最近浏览", "url": "https://www.zhihu.com/recent-viewed"},
+        for spec in ZHihu_PROBE_PAGES:
+            pages.append(
                 {
-                    "label": "知乎主页动态",
-                    "url": f"https://www.zhihu.com/people/{zhihu_token}",
-                },
-                {"label": "知乎收藏", "url": "https://www.zhihu.com/collections"},
-            ]
-        )
+                    "label": spec["label"],
+                    "url": spec["url"].format(token=zhihu_token),
+                }
+            )
     if "bilibili" in platforms and bilibili_mid:
         pages.extend(
             [

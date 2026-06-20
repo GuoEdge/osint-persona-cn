@@ -140,6 +140,7 @@ def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
         "source_errors": result.get("source_errors") or [],
         "source_warnings": result.get("source_warnings") or [],
         "citation_map": result.get("citation_map") or {},
+        "citation_urls": result.get("citation_urls") or {},
         "intel_stats": result.get("intel_stats") or {},
         "query_analysis": qa,
         "source_plan": qa.get("source_plan") or {},

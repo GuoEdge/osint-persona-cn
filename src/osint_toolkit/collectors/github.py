@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from osint_toolkit.collectors.base import BaseCollector
+from osint_toolkit.collectors.github_filters import is_blocked_github_repo
 from osint_toolkit.collectors.serp.engine import SerpEngine, hits_to_items
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem
@@ -26,7 +27,7 @@ class GithubCollector(BaseCollector):
         items: list[IntelItem] = []
         api = (
             "https://api.github.com/search/repositories"
-            f"?q={quote(query)}&sort=stars&order=desc&per_page={min(limit, 30)}"
+            f"?q={quote(query)}&per_page={min(limit, 30)}"
         )
         try:
             resp = await self.client.get(api, headers={"Accept": "application/vnd.github+json"})
@@ -36,7 +37,8 @@ class GithubCollector(BaseCollector):
                     if not isinstance(repo, dict):
                         continue
                     url = str(repo.get("html_url") or "")
-                    if not url:
+                    full_name = str(repo.get("full_name") or "")
+                    if not url or is_blocked_github_repo(url, full_name=full_name):
                         continue
                     desc = str(repo.get("description") or "")
                     stars = repo.get("stargazers_count")
@@ -65,6 +67,8 @@ class GithubCollector(BaseCollector):
             engine = SerpEngine(client=self.client)
             hits, _ = await engine.site_search("github.com", query, limit=limit)
             for item in hits_to_items(hits, source="github"):
+                if is_blocked_github_repo(item.url, full_name=str(item.title or "")):
+                    continue
                 if item.url not in {i.url for i in items}:
                     item.personal["via"] = "serp_fallback"
                     items.append(item)

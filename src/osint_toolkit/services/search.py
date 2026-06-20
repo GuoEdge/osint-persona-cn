@@ -34,7 +34,7 @@ from osint_toolkit.analyzers.zhihu_fetch_gate import (
 )
 
 from osint_toolkit.analyzers.ai_relevance import refine_relevance_with_ai
-from osint_toolkit.analyzers.citations import assign_citation_ids
+from osint_toolkit.analyzers.citations import assign_citation_ids, build_citation_urls
 from osint_toolkit.analyzers.dedup import dedup_items
 
 from osint_toolkit.analyzers.signals import apply_persona_boost, extract_signals
@@ -1297,6 +1297,8 @@ async def run_search(
         "intel_stats": intel_stats,
 
         "citation_map": citation_map,
+
+        "citation_urls": build_citation_urls(items),
 
         "query_analysis": query_analysis,
 

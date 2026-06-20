@@ -1263,6 +1263,32 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
   min-width: 0;
 }
 
+.ask-form.is-busy {
+  opacity: 0.92;
+}
+
+.ask-form.is-busy #ask-question {
+  cursor: wait;
+}
+
+.ask-pending {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  padding: 0.5rem 0.55rem;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  color: var(--muted, #666);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.ask-turn-pending {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #2563eb) 25%, transparent);
+}
+
 #report-panel {
   max-height: min(82vh, 960px);
   overflow: auto;

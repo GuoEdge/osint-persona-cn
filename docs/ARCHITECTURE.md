@@ -57,9 +57,9 @@
 1. **实体词表** `~/.osint/entities/*.yaml`（支持精确/包含匹配，如搜「祥子」可命中「丰川祥子」词条）
 2. **规则兜底**（仅当联网+词表仍不足时：中文名简称、`小X`；`rule_nickname_suffixes` 可开机械后缀）
 3. **AI query_analyze**（意图与信源策略；扩展词优先级低于联网发现）
-4. **外文拓展**（`ai/foreign_expand.py`）：当勾选 GitHub/Reddit/HN 等 `accept_foreign_queries` 信源时，单独生成英文检索词；国内信源（知乎/B站等）不合并拉丁拓展词。配置 `search.foreign_expand.*`、`http.proxy`（国际探针）。
+4. **外文拓展**（`ai/foreign_expand.py`）：当勾选 GitHub/Reddit/HN 等 `accept_foreign_queries` 信源时，单独生成英文检索词；国内信源（知乎/B站等）不合并拉丁拓展词。配置 `search.foreign_expand.*`、`http.proxy`（国际探针）。可在 Web **设置 → 运行参数 → 外文信源** 调整；`GET /api/health/intl-reachability` 可自检国际网络。
 
-配置：`search.discover_aliases`、`discover_probe_limit`、`discover_sources`（含 v2ex）、`persist_discovered_aliases`、`foreign_expand`
+配置：`search.discover_aliases`、`discover_probe_limit`、`discover_sources`（含 v2ex）、`persist_discovered_aliases`、`foreign_expand`（亦可通过 tunables API 写入）
 
 `services/search.py` 按 `queries_by_source` 为各信源分配查询词，公平调度采集任务；合并去重后写入 `item.personal.matched_queries`。
 
@@ -75,14 +75,14 @@
 
 1. Cookie preflight
 2. `POST /api/ingest/accounts-sync`（B站/知乎 Cookie API）
-3. `POST /api/ingest/browser-sync`（Playwright 补洞，可选）
+3. `POST /api/ingest/browser-sync`（Playwright 补洞，**默认仅 B 站**；知乎见 [ZHIHU_PERSONA.md](ZHIHU_PERSONA.md)）
 4. AICU 发评（`sync.aicu_enabled` 或 `ingest.aicu_enabled`，且 probe PASS）
 5. 提示扩展 flush 上报队列
 
 扩展「服务端拉取 + 轻量补洞」：
 
-1. `POST /api/ingest/bilibili`、`POST /api/ingest/zhihu`（历史/收藏/WBI 点赞/voteanswers/关注）
-2. 知乎浏览：服务端 API + browser-sync `recent-viewed` 拦截
+1. `POST /api/ingest/bilibili`、`POST /api/ingest/zhihu`（历史/收藏/WBI 点赞等）
+2. 知乎浏览：完整同步仅 **Edge 历史**中的知乎 URL；赞同与日常浏览依赖 **扩展**（详见 [ZHIHU_PERSONA.md](ZHIHU_PERSONA.md)）
 3. **Playwright 浏览器会话补洞**：打开 space/dynamic/recent-viewed 页，复用 `capture_patterns` + `extension_events.parse_api_capture`
 
 **AICU 策略**：默认关闭；`scripts/probe_aicu.py` 探测 PASS 后再开启。WAF 拦截时改用 space 页 + reply API 补洞。

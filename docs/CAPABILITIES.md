@@ -95,9 +95,9 @@ search:
 |------|------|------|
 | Edge 浏览历史 | 多站访问记录 | `osint ingest browser` / 完整同步 |
 | B站 Cookie API | 观看历史、收藏、点赞、关注 | accounts-sync |
-| 知乎 Cookie API | 收藏、动态、赞同、关注、浏览 | accounts-sync |
-| 浏览器扩展 | 页面访问、停留、API 拦截、右键收录、高停留自动入库 | `POST /api/extension/events` |
-| Playwright 补洞 | B站空间点赞页、知乎动态/最近浏览等 | browser-sync |
+| 知乎 Cookie API | 收藏、关注、我发布的回答/文章/想法、Edge 浏览历史 | accounts-sync |
+| 浏览器扩展 | 页面访问、停留、API 拦截（含知乎赞同）、右键收录、高停留自动入库 | `POST /api/extension/events` |
+| Playwright 补洞 | **仅 B 站**空间点赞页等 | browser-sync（知乎自动补洞已停用，见 [ZHIHU_PERSONA.md](ZHIHU_PERSONA.md)） |
 | AICU（可选） | 本账号 B站 **发过** 的评论历史 | 需 probe 通过且显式开启 |
 
 ### 3.2 推荐流程
@@ -221,7 +221,7 @@ search:
 | 情报报告 | `--digest` / Web 勾选「本轮情报报告」 | 基于去重条目 + 评论挖掘；正文含 `[cN]` 可点击溯源 |
 | 画像模拟 | `--no-simulate` 关闭 | 需已有 persona |
 | 别名发现 | `search.discover_aliases` | 联网 + AI，可禁 `--no-ai-step alias_discover` |
-| 外文拓展 | `search.foreign_expand` | 国际信源英文检索词；`http.proxy` 可扩大探针范围 |
+| 外文拓展 | `search.foreign_expand` | 国际信源英文检索词；`http.proxy` 可扩大探针范围。**设置 → 运行参数 → 外文信源** 可图形化配置；支持「检测国际网络」自检 |
 | 研究树归纳/建议 | 研究树按钮 | 需报告或条目标题作上下文 |
 | 追问报告 | 搜罗完成后 | `POST /api/ask` |
 | 每日简报 | 简报页 | 基于近期行为与收录 |

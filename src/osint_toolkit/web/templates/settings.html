@@ -31,7 +31,7 @@
 <p class="muted mb-1">密钥保存在本机 <code>~/.osint/config.yaml</code>，不会上传到 GitHub。也可改用系统环境变量（优先级更高）。</p>
 
 <h2 id="tunables">运行参数</h2>
-<p class="muted mb-1">搜罗并发、知乎 OpenAPI 限流、AI 行为等可调项；保存后写入 <code>~/.osint/config.yaml</code> 并立即生效。</p>
+<p class="muted mb-1">搜罗并发、知乎 OpenAPI 限流、外文信源、AI 行为等可调项；保存后写入 <code>~/.osint/config.yaml</code> 并立即生效。</p>
 <div id="tunables-panel" class="card ui-inset-group">加载中…</div>
 
 <dialog id="tunable-settings-modal" class="tunable-settings-modal" aria-labelledby="tunable-settings-modal-title">
@@ -95,6 +95,7 @@
     <ul>
       <li><code>persona_inject</code>、<code>auto_persona_rebuild</code> 等 — 见「运行参数 → AI 行为」</li>
       <li><code>max_expanded_queries</code>、<code>comment_mine_top</code> — 见「运行参数 → 搜罗采集」</li>
+      <li><code>foreign_expand</code>、<code>http.proxy</code> — 见「运行参数 → 外文信源」</li>
       <li><code>discover_sources</code> — 联网发现关联词的探针来源（仅配置文件）</li>
       <li><code>persist_discovered_aliases</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
     </ul>

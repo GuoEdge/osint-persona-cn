@@ -8,7 +8,7 @@ from typing import Any, Literal
 from osint_toolkit.utils.config import DEFAULT_CONFIG, load_config
 from osint_toolkit.utils.secrets import save_user_config_patch
 
-FieldType = Literal["int", "float", "bool", "select"]
+FieldType = Literal["int", "float", "bool", "select", "text"]
 
 
 @dataclass(frozen=True)
@@ -258,6 +258,53 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
             ),
         ),
     ),
+    TunableGroupSpec(
+        id="foreign_expand",
+        title="外文信源",
+        description="国际信源英文检索词拓展与网络探针；勾选 GitHub/Reddit 等信源时生效。",
+        fields=(
+            _field(
+                "search.foreign_expand.enabled",
+                ("search", "foreign_expand", "enabled"),
+                "外文拓展",
+                "select",
+                description="控制是否生成英文检索词供国际信源使用。",
+                options=(
+                    ("off", "关闭"),
+                    ("auto", "自动（勾选国际信源时）"),
+                    ("on", "始终开启"),
+                ),
+            ),
+            _field(
+                "search.foreign_expand.max_foreign_queries",
+                ("search", "foreign_expand", "max_foreign_queries"),
+                "外文检索词上限",
+                "int",
+                description="单次搜罗最多使用的英文扩展词数量。",
+                min_value=0,
+                max_value=10,
+            ),
+            _field(
+                "search.foreign_expand.intl_probe_enabled",
+                ("search", "foreign_expand", "intl_probe_enabled"),
+                "国际网络探针",
+                "select",
+                description="alias_discover 前探测 GitHub 等是否可达；无代理时 auto 会跳过以加速。",
+                options=(
+                    ("off", "关闭（不探测）"),
+                    ("auto", "自动（已配置代理或可达时探测）"),
+                    ("on", "始终开启（直连测试，无代理可能较慢）"),
+                ),
+            ),
+            _field(
+                "http.proxy",
+                ("http", "proxy"),
+                "HTTP 代理",
+                "text",
+                description="科学上网代理，如 http://127.0.0.1:7890；留空表示不使用。配置后国际探针与 GitHub 等信源将走代理。",
+            ),
+        ),
+    ),
 )
 
 _FIELD_BY_KEY: dict[str, TunableFieldSpec] = {
@@ -309,6 +356,11 @@ def _coerce_value(spec: TunableFieldSpec, raw: Any) -> Any:
         if text not in allowed:
             raise ValueError(f"{spec.label} 无效选项")
         return text
+    if spec.field_type == "text":
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        return text or None
     raise ValueError(f"未知字段类型: {spec.field_type}")
 
 
@@ -341,6 +393,8 @@ def _format_summary_value(spec: TunableFieldSpec, value: Any) -> str:
         for opt_val, opt_label in spec.options:
             if opt_val == value:
                 return opt_label
+    if spec.field_type == "text":
+        return str(value) if value else "未配置"
     return str(value)
 
 

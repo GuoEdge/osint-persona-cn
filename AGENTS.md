@@ -73,13 +73,14 @@ ruff format src tests
 典型步骤顺序：
 
 1. `alias_discover` — 联网探针 + AI 归纳别名（可 `--no-ai-step` 禁用）
-2. `ai_query_analyze` — 意图与信源策略
-3. `collect_all` — 各 collector 并行，多 `queries_used` 合并去重
-4. `dedup` — `analyzers/dedup.py`
-5. `mine_comments` — B站字幕/弹幕/热评、知乎评论（`comment_mine_top`）
-6. `ai_summarize` — 条目摘要
-7. `persona_simulate` — 画像模拟点击（需已构建 persona）
-8. `ai_report` — 情报报告（需 `--digest` / Web 勾选）
+2. `foreign_expand` — 国际信源英文检索词拓展与国际网络探针（`search.foreign_expand.*`、`http.proxy`；可在 **设置 → 运行参数 → 外文信源** 调整）
+3. `ai_query_analyze` — 意图与信源策略（含外文词合并进 `queries_by_source`）
+4. `collect_all` — 各 collector 并行，多 `queries_used` 合并去重
+5. `dedup` — `analyzers/dedup.py`
+6. `mine_comments` — B站字幕/弹幕/热评、知乎评论（`comment_mine_top`）
+7. `ai_summarize` — 条目摘要
+8. `persona_simulate` — 画像模拟点击（需已构建 persona）
+9. `ai_report` — 情报报告（需 `--digest` / Web 勾选）
 
 **会话字段与 pipeline 参数分离**：`tree_id`、`parent_node_id`、`fork_from_run_id` 等属于 session，不得传入 `run_search()`。边界在 `services/search_params.py` 的 `strip_session_keys()`。
 
@@ -159,12 +160,13 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 | `ai` | DeepSeek provider、model、`auto_persona_rebuild` |
 | `cookie_sync` | 搜罗前自动 sync、`auto_sync_before_search` |
 | `sync` | 完整同步、Playwright、AICU、`browser_sync_after_api` |
-| `search` | `comment_mine_top`、知乎 aggressive、SERP、别名发现 |
+| `search` | `comment_mine_top`、知乎 aggressive、SERP、别名发现、`foreign_expand` |
+| `http` | `proxy`（国际信源代理；设置页「外文信源」可调） |
 | `bilibili` | SDK 开关、字幕/弹幕/评论、WBI 搜索回退 |
 | `zhihu` | OpenAPI `access_secret`、热榜、搜索链 |
 | `profiles` | default / research / zhihu_deep 信源包 |
 
-用户配置覆盖：`~/.osint/config.yaml`（Web 设置页写入）。
+用户配置覆盖：`~/.osint/config.yaml`（Web **设置 → 运行参数** 图形化写入，含搜罗并发、知乎 OpenAPI、外文信源、AI 行为等；API `GET/PATCH /api/config/tunables`）。
 
 ## 延伸阅读
 

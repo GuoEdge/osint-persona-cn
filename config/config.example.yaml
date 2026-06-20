@@ -58,7 +58,7 @@ source_packs:
 http:
   timeout: 30
   user_agent: "OSINT-Toolkit/0.1.0"
-  proxy: null              # 科学上网代理，如 http://127.0.0.1:7890（扩大 GitHub/Reddit 等国外信源）
+  proxy: null              # 科学上网代理，如 http://127.0.0.1:7890（可在设置 → 运行参数 → 外文信源 配置）
 
 # bilibili-api-python 折中集成：搜索/评论/账号深采走 SDK，失败回退自研 WBI + SERP
 bilibili:
@@ -152,9 +152,9 @@ search:
   discover_probe_limit: 5
   discover_sources: [bilibili, zhihu, web, v2ex, weixin]
   foreign_expand:
-    enabled: auto                  # off | on | auto
+    enabled: auto                  # off | on | auto（设置 → 运行参数 → 外文信源）
     max_foreign_queries: 3
-    intl_probe_enabled: auto       # 无代理时跳过国际探针
+    intl_probe_enabled: auto       # 无代理时跳过国际探针（同上设置页）
     discover_sources_intl: [github, web]
   comment_mine_top: 12
   strict_mode: false

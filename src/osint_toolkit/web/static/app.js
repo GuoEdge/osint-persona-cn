@@ -496,13 +496,55 @@ function renderMarkdown(el, text) {
   }
 }
 
-function buildCitationUrlMap(items) {
+function buildCitationUrlMap(items, citationUrls = {}) {
   const map = {};
+  if (citationUrls && typeof citationUrls === "object") {
+    for (const [cid, url] of Object.entries(citationUrls)) {
+      const safe = safeHref(url);
+      if (safe) map[cid] = safe;
+    }
+  }
   for (const item of items || []) {
     const cid = item?.personal?.citation_id;
-    if (cid && item.url) map[cid] = item.url;
+    if (!cid) continue;
+    const url = safeHref(item.url);
+    if (url) map[cid] = url;
   }
   return map;
+}
+
+function citationUrlFromCard(card) {
+  if (!card) return "";
+  const dataUrl = card.getAttribute("data-item-url");
+  if (dataUrl) return safeHref(dataUrl);
+  const a = card.querySelector(
+    ".item-card-quick-actions a[href], .item-card-body .actions a[href][target='_blank']"
+  );
+  return safeHref(a?.getAttribute("href") || a?.href || "");
+}
+
+function resolveCitationUrl(cid, citationMap = {}) {
+  const map =
+    citationMap && Object.keys(citationMap).length ? citationMap : mergedCitationMap();
+  if (map[cid]) return map[cid];
+  const item = (workspaceSession.searchItems || []).find(
+    (i) => String(i?.personal?.citation_id || "") === cid
+  );
+  const fromItem = safeHref(item?.url);
+  if (fromItem) return fromItem;
+  return citationUrlFromCard(findCitationCard(cid));
+}
+
+function highlightCitationCard(card) {
+  if (!card) return;
+  requestAnimationFrame(() => {
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("is-expanded", "citation-highlight");
+    card.classList.remove("is-collapsed");
+    const header = card.querySelector(".item-card-header");
+    if (header) header.setAttribute("aria-expanded", "true");
+    setTimeout(() => card.classList.remove("citation-highlight"), 2200);
+  });
 }
 
 function anchorReportReadingList(reportEl) {
@@ -555,37 +597,31 @@ function revealCitationInResults(cid, resultsRoot) {
 }
 
 function scrollToCitationTarget(cid, { reportEl, resultsRoot, citationMap = {} } = {}) {
-  if (!cid) return false;
-  const map = citationMap && Object.keys(citationMap).length ? citationMap : workspaceSession.citationMap || {};
+  if (!cid) return { ok: false, mode: "missing" };
+  const map =
+    citationMap && Object.keys(citationMap).length ? citationMap : mergedCitationMap();
   ensureResultsVisibleForCitation();
   const root = resultsRoot || document.getElementById("search-results");
-  let card = revealCitationInResults(cid, root);
+  const url = resolveCitationUrl(cid, map);
+
+  const card = revealCitationInResults(cid, root);
   if (card) {
-    requestAnimationFrame(() => {
-      card.scrollIntoView({ behavior: "smooth", block: "center" });
-      card.classList.add("is-expanded");
-      card.classList.remove("is-collapsed");
-      card.classList.add("citation-highlight");
-      const header = card.querySelector(".item-card-header");
-      if (header) header.setAttribute("aria-expanded", "true");
-      setTimeout(() => card.classList.remove("citation-highlight"), 2200);
-    });
-    return true;
+    highlightCitationCard(card);
+    return { ok: true, mode: "card", url: url || citationUrlFromCard(card) };
   }
+
   const readingAnchor = reportEl?.querySelector(`#citation-${cid}`);
   if (readingAnchor) {
     readingAnchor.scrollIntoView({ behavior: "smooth", block: "center" });
     readingAnchor.classList.add("citation-highlight");
     setTimeout(() => readingAnchor.classList.remove("citation-highlight"), 2200);
-    return true;
+    return { ok: true, mode: "reading_list", url };
   }
-  const url = map[cid];
+
   if (url) {
-    window.open(url, "_blank", "noopener");
-    return true;
+    return { ok: true, mode: "url_only", url };
   }
-  showToast(`未找到引用 ${cid} 对应条目`, "warn");
-  return false;
+  return { ok: false, mode: "not_found" };
 }
 
 function handleCitationClick(ev) {
@@ -593,21 +629,39 @@ function handleCitationClick(ev) {
   if (!link) return;
   const cid = link.dataset.citationRef;
   if (!cid) return;
-  const map = mergedCitationMap();
-  const url = map[cid];
-  if (ev.metaKey || ev.ctrlKey || ev.shiftKey) {
-    ev.preventDefault();
-    if (url) window.open(url, "_blank", "noopener");
-    else showToast(`引用 ${cid} 暂无原文链接`, "warn");
-    return;
-  }
   ev.preventDefault();
+  const map = mergedCitationMap();
   const reportEl = link.closest("#report-panel, .ask-turn") || document.getElementById("report-panel");
-  scrollToCitationTarget(cid, {
+  const opts = {
     reportEl,
     resultsRoot: document.getElementById("search-results"),
     citationMap: map,
-  });
+  };
+  const modifier = ev.metaKey || ev.ctrlKey || ev.shiftKey;
+
+  if (modifier) {
+    const url = resolveCitationUrl(cid, map);
+    if (url) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    const result = scrollToCitationTarget(cid, opts);
+    if (result.ok) {
+      showToast(`已定位到 ${cid}（该条暂无外链）`, "info");
+      return;
+    }
+    showToast(`未找到引用 ${cid} 对应条目或原文`, "warn");
+    return;
+  }
+
+  const result = scrollToCitationTarget(cid, opts);
+  if (!result.ok) {
+    showToast(`未找到引用 ${cid} 对应条目或原文`, "warn");
+    return;
+  }
+  if (result.mode === "url_only" && result.url) {
+    window.open(result.url, "_blank", "noopener");
+  }
 }
 
 function wireCitationLinks(reportEl, resultsRoot, citationMap = {}) {
@@ -631,10 +685,11 @@ function wireCitationLinks(reportEl, resultsRoot, citationMap = {}) {
       if (match.index > last) frag.appendChild(document.createTextNode(raw.slice(last, match.index)));
       const cid = `c${match[1]}`;
       const link = document.createElement("a");
-      link.href = citationMap[cid] || `#citation-${cid}`;
+      link.href = `#citation-${cid}`;
       link.className = "citation-ref";
       link.dataset.citationRef = cid;
-      link.title = citationLinkTitle(citationMap[cid]);
+      const linkUrl = resolveCitationUrl(cid, citationMap);
+      link.title = citationLinkTitle(linkUrl);
       link.textContent = match[0];
       link.addEventListener("click", handleCitationClick);
       frag.appendChild(link);
@@ -1353,6 +1408,7 @@ const workspaceSession = {
   currentRunId: sessionStorage.getItem("workspaceCurrentRunId") || null,
   currentTree: null,
   citationMap: {},
+  citationUrlExtras: {},
   searchItems: [],
 };
 
@@ -3458,11 +3514,14 @@ async function refreshExpandedQueries() {
     }
     if (foreignHint) {
       const fe = data.foreign_expand || {};
-      foreignHint.textContent = fe.degraded
-        ? "未配置代理：国际信源可能降级，可在设置页配置 http.proxy。"
-        : fe.reason === "intl_degraded_no_proxy"
-          ? "国外信源已降级（无代理）。"
-          : "";
+      if (fe.degraded) {
+        foreignHint.innerHTML =
+          '未配置代理：国际信源可能降级，可在<a href="/settings#tunables">设置页 → 运行参数 → 外文信源</a>配置 HTTP 代理。';
+      } else if (fe.reason === "intl_degraded_no_proxy") {
+        foreignHint.textContent = "国外信源已降级（无代理）。";
+      } else {
+        foreignHint.textContent = "";
+      }
     }
     updateSourceRoutingHint(data.source_routing);
     renderSourcePlanPanel(data.source_plan, data.source_routing);
@@ -3723,6 +3782,7 @@ function resetFocusedSearchWorkspace({ reportPlaceholder = true } = {}) {
   askSession.history = [];
   askSession.citationMap = {};
   workspaceSession.citationMap = {};
+  workspaceSession.citationUrlExtras = {};
   workspaceSession.searchItems = [];
 }
 
@@ -4149,8 +4209,9 @@ const askSession = { runId: null, history: [], citationMap: {} };
 function renderReportPanel(result, reportEl, askSection, runId, resultsEl) {
   const hasItems = (result.items || []).length > 0;
   const resultsRoot = resultsEl || document.getElementById("search-results");
-  const citationMap = buildCitationUrlMap(result.items || []);
+  const citationMap = buildCitationUrlMap(result.items || [], result.citation_urls || {});
   workspaceSession.citationMap = citationMap;
+  workspaceSession.citationUrlExtras = result.citation_urls || {};
   workspaceSession.searchItems = result.items || [];
   askSession.citationMap = citationMap;
   if (reportEl && result.report) {
@@ -4442,7 +4503,7 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
   const enterClass = cardIndex != null && cardIndex < 20 ? " card-enter" : "";
   const staggerStyle = cardIndex != null && cardIndex < 20 ? ` style="--card-i: ${cardIndex}"` : "";
 
-  return `<article class="card item-card item-source-${escapeHtml(src)} ${expandedClass}${enterClass}"${staggerStyle} data-item-id="${escapeHtml(item.id)}" data-item-source="${escapeHtml(src)}" data-citation-id="${escapeHtml(item.personal?.citation_id || "")}" data-already-seen="${item.personal?.already_seen ? "1" : "0"}">
+  return `<article class="card item-card item-source-${escapeHtml(src)} ${expandedClass}${enterClass}"${staggerStyle} data-item-id="${escapeHtml(item.id)}" data-item-source="${escapeHtml(src)}" data-citation-id="${escapeHtml(item.personal?.citation_id || "")}" data-item-url="${escapeHtml(itemHref || "")}" data-already-seen="${item.personal?.already_seen ? "1" : "0"}">
     <div class="item-card-header" role="button" tabindex="0" aria-expanded="${ariaExpanded}">
       <span class="item-card-chevron" aria-hidden="true"></span>
       <div class="item-card-head-content">
@@ -4544,6 +4605,29 @@ async function saveFromCard(url) {
   }
 }
 
+function setAskFormBusy(form, busy) {
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const input = document.getElementById("ask-question");
+  form.classList.toggle("is-busy", busy);
+  form.setAttribute("aria-busy", busy ? "true" : "false");
+  if (submitBtn) {
+    submitBtn.disabled = busy;
+    submitBtn.textContent = busy ? "发送中…" : "发送";
+  }
+  if (input) input.disabled = busy;
+}
+
+function renderAskPendingBlock(question) {
+  const block = document.createElement("div");
+  block.className = "card ask-turn ask-turn-pending";
+  block.innerHTML = `<p><strong>问:</strong> ${escapeHtml(question)}</p>
+    <div class="ask-pending" role="status" aria-live="polite">
+      <span class="search-progress-spinner" aria-hidden="true"></span>
+      <span>正在生成回答…通常需 10–30 秒，请勿关闭页面</span>
+    </div>`;
+  return block;
+}
+
 function initAskPanel(runId, items = [], hasReport = false) {
   const form = document.getElementById("ask-form");
   const history = document.getElementById("ask-history");
@@ -4553,7 +4637,7 @@ function initAskPanel(runId, items = [], hasReport = false) {
     askSession.history = [];
     if (history) history.innerHTML = "";
   }
-  askSession.citationMap = buildCitationUrlMap(items);
+  askSession.citationMap = buildCitationUrlMap(items, workspaceSession.citationUrlExtras || {});
   const itemHint = items.length
     ? `（报告 + ${items.length} 条结果）`
     : "";
@@ -4570,42 +4654,51 @@ function initAskPanel(runId, items = [], hasReport = false) {
     e.preventDefault();
     const input = document.getElementById("ask-question");
     const q = input.value.trim();
-    if (!q) return;
-    const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn) submitBtn.disabled = true;
+    if (!q || form.classList.contains("is-busy")) return;
+    if (!history) return;
+
+    setAskFormBusy(form, true);
+    const pending = renderAskPendingBlock(q);
+    history.appendChild(pending);
+    history.scrollTop = history.scrollHeight;
+    input.value = "";
+
     try {
-      const data = await api("POST", "/api/ask", {
-        question: q,
-        run_id: runId,
-        history: askSession.history,
-        tree_id: workspaceSession.treeId,
-        parent_node_id: insightParentNodeId(runId),
-      });
-      const block = document.createElement("div");
-      block.className = "card ask-turn";
+      const data = await api(
+        "POST",
+        "/api/ask",
+        {
+          question: q,
+          run_id: runId,
+          history: askSession.history,
+          tree_id: workspaceSession.treeId,
+          parent_node_id: insightParentNodeId(runId),
+        },
+        { timeoutMs: 120000 }
+      );
       if (data.ok === false) {
-        block.innerHTML = `<p><strong>问:</strong> ${escapeHtml(q)}</p><p class="alert alert-error">${escapeHtml(data.error || "追问失败")}</p>`;
-        history.appendChild(block);
-        input.value = "";
+        pending.classList.remove("ask-turn-pending");
+        pending.innerHTML = `<p><strong>问:</strong> ${escapeHtml(q)}</p><p class="alert alert-error">${escapeHtml(data.error || "追问失败")}</p>`;
         return;
       }
-      block.innerHTML = `<p><strong>问:</strong> ${escapeHtml(q)}</p><div class="markdown-body"></div>`;
-      const answerEl = block.querySelector(".markdown-body");
+      pending.classList.remove("ask-turn-pending");
+      pending.innerHTML = `<p><strong>问:</strong> ${escapeHtml(q)}</p><div class="markdown-body"></div>`;
+      const answerEl = pending.querySelector(".markdown-body");
       renderMarkdown(answerEl, data.answer);
       const resultsRoot = document.getElementById("search-results");
       const reportEl = document.getElementById("report-panel");
       wireCitationLinks(answerEl, resultsRoot, askSession.citationMap);
       anchorReportReadingList(answerEl);
       updateAskInteractionHint(true);
-      history.appendChild(block);
       history.scrollTop = history.scrollHeight;
       askSession.history.push({ question: q, answer: data.answer || "" });
-      input.value = "";
       void refreshResearchTree(insightParentNodeId(runId));
     } catch (err) {
-      showToast(err.message, "error");
+      pending.classList.remove("ask-turn-pending");
+      pending.innerHTML = `<p><strong>问:</strong> ${escapeHtml(q)}</p><p class="alert alert-error">${escapeHtml(err.message || "追问失败")}</p>`;
+      showToast(err.message || "追问失败", "error");
     } finally {
-      if (submitBtn) submitBtn.disabled = false;
+      setAskFormBusy(form, false);
     }
   };
 }
@@ -5485,7 +5578,20 @@ function initIngest() {
       const z = data.zhihu || {};
       const ok = (data.count || 0) > 0;
       el.className = ok ? "alert alert-success mt-1" : "alert alert-warn mt-1";
-      let msg = `共 ${data.count || 0} 条：B站 ${b.count || 0}（观看 ${b.watch_count || 0} / 收藏 ${b.favorite_count || 0} / 点赞 ${b.like_count || 0} / 关注 ${b.following_count || 0}），知乎 ${z.count || 0}（收藏 ${z.favorite_count || 0} / 动态 ${z.activity_count || 0} / 赞同 ${z.vote_count || 0} / 浏览 ${z.browse_count || 0}）`;
+      let msg = `共 ${data.count || 0} 条：B站 ${b.count || 0}（观看 ${b.watch_count || 0} / 收藏 ${b.favorite_count || 0} / 点赞 ${b.like_count || 0} / 关注 ${b.following_count || 0}），知乎 ${z.count || 0}（收藏 ${z.favorite_count || 0} / 动态 ${z.activity_count || 0} / 赞同 ${z.vote_count || 0} / 浏览 ${z.browse_count || 0} / 回答 ${z.answer_count || 0}）`;
+      const layers = z.layer_status;
+      if (layers) {
+        const layerLine = ["votes", "browse", "activity"]
+          .map((k) => {
+            const block = layers[k];
+            if (!block) return "";
+            const label = k === "votes" ? "赞同" : k === "browse" ? "浏览" : "动态";
+            return `${label}:${block.status || "?"}`;
+          })
+          .filter(Boolean)
+          .join(" · ");
+        if (layerLine) msg += `<br><span class="muted">画像三要素 ${escapeHtml(layerLine)}</span>`;
+      }
       if (data.python) msg += ` · Python ${escapeHtml(data.python)}`;
       msg += ` · ${formatPersonaRebuildHint(data.persona_rebuild)}`;
       if (data.warnings?.length) {
@@ -5534,7 +5640,7 @@ function initIngest() {
       progressUi?.update({ phase: "browser-sync", detail: "启动浏览器补洞…", percent: 10 });
       el.textContent = "浏览器会话同步中…（约 2–5 分钟）";
       const start = await api("POST", "/api/ingest/browser-sync", {
-        platforms: ["bilibili", "zhihu"],
+        platforms: ["bilibili"],
       });
       const jobId = start.job_id;
       if (!jobId) throw new Error("未返回 job_id");
@@ -6573,6 +6679,13 @@ function renderTunableFieldInput(field) {
       <select id="${id}" data-field-key="${escapeHtml(field.key)}">${opts}</select>
     </div>`;
   }
+  if (field.type === "text") {
+    return `<div class="tunable-field" data-field-key="${escapeHtml(field.key)}">
+      <label for="${id}">${escapeHtml(field.label)}</label>
+      ${desc}
+      <input type="text" id="${id}" data-field-key="${escapeHtml(field.key)}" value="${escapeHtml(String(field.value ?? ""))}" autocomplete="off" spellcheck="false">
+    </div>`;
+  }
   const inputType = field.type === "float" ? "number" : "number";
   const step = field.step != null ? ` step="${field.step}"` : field.type === "float" ? ' step="0.1"' : "";
   const min = field.min != null ? ` min="${field.min}"` : "";
@@ -6596,11 +6709,42 @@ function openTunableSettingsGroup(groupId) {
   if (titleEl) titleEl.textContent = group.title || "调整参数";
   if (descEl) descEl.textContent = group.description || "";
   if (resultEl) resultEl.textContent = "";
-  fieldsEl.innerHTML = (group.fields || []).map(renderTunableFieldInput).join("");
+  let extraHtml = "";
+  if (groupId === "foreign_expand") {
+    extraHtml = `<div class="tunable-intl-check mt-1">
+      <button type="button" class="btn btn-sm btn-secondary" id="btn-intl-reachability-check">检测国际网络</button>
+      <div id="intl-reachability-result" class="muted mt-1"></div>
+    </div>`;
+  }
+  fieldsEl.innerHTML = (group.fields || []).map(renderTunableFieldInput).join("") + extraHtml;
+  if (groupId === "foreign_expand") {
+    document.getElementById("btn-intl-reachability-check")?.addEventListener("click", runIntlReachabilityCheck);
+  }
   if (!dialog.hasAttribute("aria-labelledby")) {
     dialog.setAttribute("aria-labelledby", "tunable-settings-modal-title");
   }
   dialog.showModal();
+}
+
+async function runIntlReachabilityCheck() {
+  const resultEl = document.getElementById("intl-reachability-result");
+  const btn = document.getElementById("btn-intl-reachability-check");
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.textContent = "检测中…";
+  try {
+    const data = await api("GET", "/api/health/intl-reachability?force=true");
+    const ok = data.reachable || data.proxy_configured;
+    const parts = [];
+    if (data.proxy_configured) parts.push("已配置代理");
+    if (data.github_ok) parts.push("GitHub 可达");
+    if (data.detail) parts.push(data.detail);
+    resultEl.innerHTML = `<span class="${ok ? "status-ok" : "status-fail"}">${escapeHtml(parts.join(" · ") || (ok ? "国际网络可用" : "国际网络不可用"))}</span>`;
+  } catch (err) {
+    resultEl.innerHTML = `<span class="status-fail">${escapeHtml(err.message)}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function validateTunableFormValues(groupId) {
@@ -6641,6 +6785,8 @@ function collectTunableFormValues(groupId) {
       values[field.key] = parseInt(input.value, 10);
     } else if (field.type === "float") {
       values[field.key] = parseFloat(input.value);
+    } else if (field.type === "text") {
+      values[field.key] = input.value;
     } else {
       values[field.key] = input.value;
     }

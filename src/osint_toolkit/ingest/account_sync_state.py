@@ -313,6 +313,9 @@ def update_zhihu_section(
     votes: list[dict[str, Any]] | None = None,
     activities: list[dict[str, Any]] | None = None,
     browsing: list[dict[str, Any]] | None = None,
+    answers: list[dict[str, Any]] | None = None,
+    articles: list[dict[str, Any]] | None = None,
+    pins: list[dict[str, Any]] | None = None,
 ) -> None:
     """Merge one sync pass into persisted zhihu url cursors."""
     section = state.setdefault("zhihu", {})
@@ -336,3 +339,9 @@ def update_zhihu_section(
         _merge_urls("activity_urls", activities)
     if browsing is not None:
         _merge_urls("browsing_urls", browsing)
+    if answers is not None:
+        _merge_urls("answer_urls", answers)
+    if articles is not None:
+        _merge_urls("article_urls", articles)
+    if pins is not None:
+        _merge_urls("pin_urls", pins)

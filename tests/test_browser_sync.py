@@ -32,8 +32,8 @@ def test_build_sync_pages_requires_ids():
     pages = build_sync_pages(platforms=("bilibili", "zhihu"), bilibili_mid="123", zhihu_token="abc")
     urls = [p["url"] for p in pages]
     assert any("space.bilibili.com/123" in u for u in urls)
-    assert any("people/abc" in u for u in urls)
-    assert "https://www.zhihu.com/recent-viewed" in urls
+    assert not any("people/abc" in u for u in urls)
+    assert "https://www.zhihu.com/recent-viewed" not in urls
 
 
 def test_capture_accumulator_dedup(tmp_path, monkeypatch):

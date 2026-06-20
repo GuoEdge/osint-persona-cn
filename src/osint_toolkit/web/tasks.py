@@ -239,6 +239,9 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         cid = item.personal.get("citation_id")
         if cid:
             citation_map[str(cid)] = item.id
+    from osint_toolkit.analyzers.citations import build_citation_urls
+
+    citation_urls = build_citation_urls(items)
     intel_stats = {
         "new_count": sum(1 for i in items if not i.personal.get("already_seen")),
         "seen_count": sum(1 for i in items if i.personal.get("already_seen")),
@@ -255,6 +258,7 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         "source_errors": source_errors,
         "source_warnings": source_warnings,
         "citation_map": citation_map,
+        "citation_urls": citation_urls,
         "intel_stats": intel_stats,
         "query_analysis": query_analysis if isinstance(query_analysis, dict) else {},
         "discover_meta": discover_meta,

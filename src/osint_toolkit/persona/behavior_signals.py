@@ -42,6 +42,14 @@ _INTEREST_HOSTS = (
 )
 
 
+def _is_zhihu_content_url(url: str) -> bool:
+    lower = url.lower()
+    return any(
+        frag in lower
+        for frag in ("/question/", "/answer/", "zhuanlan.zhihu.com/p/", "/p/")
+    )
+
+
 def score_event(event_type: str, data: dict[str, Any]) -> int:
     if event_type in INVENTORY_SNAPSHOT_TYPES:
         return 0
@@ -65,13 +73,22 @@ def score_event(event_type: str, data: dict[str, Any]) -> int:
         score += min(ms // 15_000, 40)
     if event_type == "ext_page_visit":
         score += 10
+        url = str(data.get("url") or "")
+        if "zhihu.com" in url and _is_zhihu_content_url(url):
+            score += 35
     if event_type == "browser_visit":
         score += 12
         url = str(data.get("url") or "")
         if any(host in url for host in _INTEREST_HOSTS):
             score += 10
+        if "zhihu.com" in url and _is_zhihu_content_url(url):
+            score += 45
     if data.get("via") == "extension" and data.get("event_kind") in ("like", "favorite", "comment_like"):
         score += 20
+    if data.get("via") in ("edge_history", "recent_viewed_bootstrap", "browse_api") and event_type == "zhihu_browse":
+        score += 15
+    if data.get("via") == "synthetic_timeline":
+        score += 10
     if data.get("event_kind") == "comment_post":
         score += 15
     message = str(data.get("message") or data.get("title") or "")

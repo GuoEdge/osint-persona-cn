@@ -5,8 +5,7 @@ from osint_toolkit.ingest.browser_sync import build_sync_pages
 
 def test_zhihu_only_pages():
     pages = build_sync_pages(platforms=("zhihu",), zhihu_token="sankichu")
-    assert len(pages) == 3
-    assert pages[0]["url"] == "https://www.zhihu.com/recent-viewed"
+    assert pages == []
 
 
 def test_bilibili_only_pages():
