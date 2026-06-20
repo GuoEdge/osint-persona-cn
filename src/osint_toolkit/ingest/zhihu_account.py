@@ -17,7 +17,7 @@ from osint_toolkit.ingest.zhihu_endpoint_registry import (
     layer_status_from_count,
     paginate_member_api,
 )
-from osint_toolkit.storage.knowledge import log_event, log_event_deduped
+from osint_toolkit.storage.knowledge import log_event, log_events_batch
 from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 _ZHIHU_CONTENT_URL = re.compile(
@@ -173,13 +173,16 @@ async def ingest_activities(
         return [], None
 
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        event_type = "zhihu_activity"
-        classified = classify_activity({"verb": entry.get("verb", ""), "type": entry.get("activity_type", "")})
-        if classified:
-            event_type = classified[0]
-        log_event_deduped(event_type, entry, f"{event_type}|{url}")
+    if fresh:
+        batch = []
+        for entry in fresh:
+            url = str(entry.get("url") or "")
+            et = "zhihu_activity"
+            classified = classify_activity({"verb": entry.get("verb", ""), "type": entry.get("activity_type", "")})
+            if classified:
+                et = classified[0]
+            batch.append((et, entry, f"{et}|{url}"))
+        log_events_batch(batch)
     _persist_zhihu(activities=results)
     logger.info("zhihu moments: %d total, %d fresh (votes=%d)",
                 len(results), len(fresh),
@@ -225,9 +228,11 @@ async def _ingest_member_list(
         seen.add(entry["url"])
         results.append(entry)
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped(event_type, entry, f"{event_type}|{url}")
+    if fresh:
+        log_events_batch([
+            (event_type, e, f"{event_type}|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     if state_key == "answer_urls":
         _persist_zhihu(answers=results)
     elif state_key == "article_urls":
@@ -325,9 +330,11 @@ async def ingest_followees(limit: int = 500) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("zhihu followees ingest failed: %s", exc)
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped("zhihu_follow", entry, f"zhihu_follow|{url}")
+    if fresh:
+        log_events_batch([
+            ("zhihu_follow", e, f"zhihu_follow|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     _persist_zhihu(followees=results)
     return fresh
 
@@ -396,9 +403,11 @@ async def _ingest_browsing_via_api(limit: int = 500) -> tuple[list[dict], dict[s
     if not results:
         return [], {"source": "empty"}
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped("zhihu_browse", entry, f"zhihu_browse|{url}")
+    if fresh:
+        log_events_batch([
+            ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     _persist_zhihu(browsing=results)
     logger.info("zhihu read_history: %d total, %d fresh (api_total=%d)", len(results), len(fresh), total_count)
     return fresh, {"source": "read_history_api", "api_total": total_count, "fetched": len(results)}
@@ -468,9 +477,11 @@ def ingest_zhihu_browse_from_edge(*, since_days: int = 90, limit: int = 200) -> 
         if len(candidates) >= limit:
             break
     fresh = sync_state.filter_new_by_urls(candidates, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped("zhihu_browse", entry, f"zhihu_browse|{url}")
+    if fresh:
+        log_events_batch([
+            ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     if candidates:
         _persist_zhihu(browsing=candidates)
     return fresh
@@ -563,9 +574,11 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("zhihu_account: ingest_favorites failed: %s", exc)
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped("zhihu_fav", entry, f"zhihu_fav|{url}")
+    if fresh:
+        log_events_batch([
+            ("zhihu_fav", e, f"zhihu_fav|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     _persist_zhihu(favorites=results)
     return fresh
 

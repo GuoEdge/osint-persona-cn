@@ -30,7 +30,7 @@ async def test_ingest_likes_sdk_first(monkeypatch):
         "osint_toolkit.ingest.bilibili_sdk.ingest_likes",
         fake_sdk_likes,
     )
-    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda et, entry, key: logged.append((et, entry)))
+    monkeypatch.setattr(bilibili_account, "log_events_batch", lambda entries: logged.extend([(et, entry) for et, entry, _ in entries]))
     monkeypatch.setattr(bilibili_account, "_bilibili_section", lambda: {})
     monkeypatch.setattr(bilibili_account, "_persist_bilibili", lambda **_k: None)
     monkeypatch.setattr(

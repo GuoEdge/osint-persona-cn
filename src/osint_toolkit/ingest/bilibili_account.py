@@ -8,7 +8,7 @@ from typing import Any
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest import account_sync_state as sync_state
 from osint_toolkit.ingest.bilibili_wbi import wbi_get
-from osint_toolkit.storage.knowledge import log_event_deduped
+from osint_toolkit.storage.knowledge import log_events_batch
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +116,11 @@ async def ingest_history(limit: int = 500) -> list[dict]:
     if not fetched:
         return []
     fresh, updated_cursor = sync_state.filter_new_history_entries(fetched, cursor)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        view_at = str(entry.get("view_at") or 0)
-        log_event_deduped("bilibili_watch", entry, f"bilibili_watch|{url}|{view_at}")
+    if fresh:
+        log_events_batch([
+            ("bilibili_watch", e, f"bilibili_watch|{str(e.get('url') or '')}|{str(e.get('view_at') or 0)}")
+            for e in fresh
+        ])
     _persist_bilibili(history=updated_cursor)
     return fresh
 
@@ -197,10 +198,12 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
     if not fetched:
         return []
     fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
-    for entry in fresh:
-        bvid = str(entry.get("bvid") or "").strip() or sync_state._bvid_from_url(str(entry.get("url") or ""))
-        dedup_key = f"bilibili_fav|{bvid or entry.get('url', '')}"
-        log_event_deduped("bilibili_fav", entry, dedup_key)
+    if fresh:
+        batch = []
+        for e in fresh:
+            bvid = str(e.get("bvid") or "").strip() or sync_state._bvid_from_url(str(e.get("url") or ""))
+            batch.append(("bilibili_fav", e, f"bilibili_fav|{bvid or e.get('url', '')}"))
+        log_events_batch(batch)
     _persist_bilibili(favorites=fetched)
     return fresh
 
@@ -292,9 +295,12 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
     if not fetched:
         return []
     fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
-    for entry in fresh:
-        bvid = str(entry.get("bvid") or sync_state._bvid_from_url(str(entry.get("url") or "")))
-        log_event_deduped("bilibili_like", entry, f"bilibili_like|{bvid}")
+    if fresh:
+        batch = []
+        for e in fresh:
+            bvid = str(e.get("bvid") or sync_state._bvid_from_url(str(e.get("url") or "")))
+            batch.append(("bilibili_like", e, f"bilibili_like|{bvid}"))
+        log_events_batch(batch)
     _persist_bilibili(likes=fetched)
     return fresh
 
@@ -364,8 +370,10 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     if not fetched:
         return []
     fresh = sync_state.filter_new_following(fetched, seen_mids)
-    for entry in fresh:
-        url = str(entry.get("url") or "")
-        log_event_deduped("bilibili_follow", entry, f"bilibili_follow|{url}")
+    if fresh:
+        log_events_batch([
+            ("bilibili_follow", e, f"bilibili_follow|{str(e.get('url') or '')}")
+            for e in fresh
+        ])
     _persist_bilibili(following=fetched)
     return fresh

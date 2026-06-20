@@ -30,7 +30,7 @@ async def test_ingest_followings_parses_list(monkeypatch):
         return 99
 
     monkeypatch.setattr(bilibili_account, "_nav_mid", _fake_mid)
-    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda *_a, **_k: None)
+    monkeypatch.setattr(bilibili_account, "log_events_batch", lambda *_a, **_k: None)
     monkeypatch.setattr(
         bilibili_account.sync_state,
         "load_account_sync_state",
@@ -78,7 +78,7 @@ async def test_ingest_followings_incremental_skips_known(monkeypatch, tmp_path):
         "osint_toolkit.ingest.bilibili_sdk.sdk_enabled",
         lambda _k: False,
     )
-    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda *_a, **_k: None)
+    monkeypatch.setattr(bilibili_account, "log_events_batch", lambda *_a, **_k: None)
     monkeypatch.setattr(
         bilibili_account.sync_state,
         "load_account_sync_state",

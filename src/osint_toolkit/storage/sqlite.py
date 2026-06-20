@@ -167,6 +167,12 @@ def init_schema(conn: sqlite3.Connection) -> None:
             event_type TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+        CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+        CREATE INDEX IF NOT EXISTS idx_intel_source ON intel_items(source);
+        CREATE INDEX IF NOT EXISTS idx_intel_url ON intel_items(url);
+        CREATE INDEX IF NOT EXISTS idx_intel_created ON intel_items(created_at);
+        CREATE INDEX IF NOT EXISTS idx_endorsements_endorsed ON endorsements(endorsed_at);
         """
     )
     conn.commit()

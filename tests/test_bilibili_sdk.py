@@ -96,7 +96,7 @@ async def test_ingest_followings_sdk_path(monkeypatch, tmp_path):
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
     monkeypatch.setattr(bilibili_sdk, "sdk_enabled", lambda feature: feature == "ingest_followings")
     monkeypatch.setattr(bilibili_sdk, "ingest_followings", fake_sdk_followings)
-    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda *_a, **_k: True)
+    monkeypatch.setattr(bilibili_account, "log_events_batch", lambda *_a, **_k: 1)
 
     rows = await bilibili_account.ingest_followings(limit=5)
     assert len(rows) == 1

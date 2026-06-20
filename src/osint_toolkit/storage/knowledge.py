@@ -92,3 +92,32 @@ def log_event_deduped(event_type: str, data: dict[str, Any], dedup_key: str) -> 
     conn.commit()
     conn.close()
     return True
+
+
+def log_events_batch(entries: list[tuple[str, dict[str, Any], str]]) -> int:
+    """批量写入带去重的事件。entries 为 (event_type, data, dedup_key) 列表。
+
+    单次 connect → executemany → commit → close，替代循环调用 log_event_deduped。
+    返回新写入条数。
+    """
+    if not entries:
+        return 0
+    conn = connect()
+    try:
+        new_rows: list[tuple[str, str, str]] = []
+        for event_type, data, dedup_key in entries:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO event_dedup (dedup_key, event_type) VALUES (?, ?)",
+                (dedup_key, event_type),
+            )
+            if cur.rowcount > 0:
+                new_rows.append((event_type, json.dumps(data, ensure_ascii=False), dedup_key))
+        if new_rows:
+            conn.executemany(
+                "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
+                [(r[0], r[1]) for r in new_rows],
+            )
+        conn.commit()
+        return len(new_rows)
+    finally:
+        conn.close()
