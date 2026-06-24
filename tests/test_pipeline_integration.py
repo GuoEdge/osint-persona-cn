@@ -198,3 +198,11 @@ def test_bilibili_check_reply_auth_codes():
     BilibiliCollector._auth_failed = False
     BilibiliCollector._check_reply_auth(-404, "not found")
     assert BilibiliCollector._auth_failed is False
+
+    BilibiliCollector._auth_failed = False
+    BilibiliCollector._check_reply_auth(-400, "请求错误")
+    assert BilibiliCollector._auth_failed is True
+
+    BilibiliCollector._auth_failed = False
+    BilibiliCollector._check_reply_auth(12002, "包含不含权限的视频")
+    assert BilibiliCollector._auth_failed is True

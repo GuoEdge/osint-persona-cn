@@ -30,7 +30,7 @@ class BilibiliCollector(BaseCollector):
 
     @classmethod
     def _check_reply_auth(cls, code: int, message: str) -> None:
-        if code in (-101, -403) or any(kw in message for kw in ("权限", "denied", "forbidden", "login")):
+        if code in (-101, -400, -403, 12002) or any(kw in message for kw in ("权限", "denied", "forbidden", "login")):
             cls._auth_failed = True
             if not cls._auth_warning_shown:
                 logger.warning(
