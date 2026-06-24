@@ -24,6 +24,7 @@ class BilibiliCollector(BaseCollector):
     _auth_failed: bool = False
  
     def __init__(self, client: HttpClient | None = None) -> None:
+        self._owns_client = client is None
         self.client = client or HttpClient()
         type(self)._auth_failed = False
         type(self)._auth_warning_shown = False

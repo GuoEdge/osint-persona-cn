@@ -15,6 +15,7 @@ class GithubCollector(BaseCollector):
     name = "github"
 
     def __init__(self, client: HttpClient | None = None) -> None:
+        self._owns_client = client is None
         self.client = client or HttpClient()
         self._warnings: list[str] = []
 

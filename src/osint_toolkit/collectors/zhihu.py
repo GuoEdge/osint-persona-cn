@@ -24,6 +24,7 @@ class ZhihuCollector(BaseCollector):
     name = "zhihu"
 
     def __init__(self, client: HttpClient | None = None) -> None:
+        self._owns_client = client is None
         self.client = client or HttpClient()
         self._search_warnings: list[str] = []
 

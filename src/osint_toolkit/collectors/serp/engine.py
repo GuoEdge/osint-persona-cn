@@ -163,6 +163,7 @@ def _rank_hits_by_weight(hits: list[SerpHit], weights: dict[str, int], limit: in
 class SerpEngine:
     def __init__(self, client: HttpClient | None = None) -> None:
 
+        self._owns_client = client is None
         self.client = client or HttpClient()
 
         self.cfg = get_serp_config()
