@@ -51,6 +51,8 @@ async def _probe_bilibili_login() -> tuple[bool, str | None]:
         return False, None
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+    finally:
+        await client.aclose()
 
 
 async def _probe_zhihu_login() -> tuple[bool, str | None]:
@@ -63,6 +65,8 @@ async def _probe_zhihu_login() -> tuple[bool, str | None]:
         return bool(token), token or None
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+    finally:
+        await client.aclose()
 
 
 async def ingest_preflight() -> dict[str, Any]:

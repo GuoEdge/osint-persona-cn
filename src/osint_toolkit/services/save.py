@@ -72,34 +72,40 @@ async def save_url(
     except SSRFError as exc:
         raise ValueError(str(exc)) from exc
     host = urlparse(url).hostname or ""
-    if "zhihu.com" in host:
-        collector = ZhihuCollector()
-        item = await collector.fetch(url)
-        if with_comments:
-            comments = await collector.fetch_comments(url)
-            item.layers["comments"] = comments
-            summary = await summarize_comments(comments, no_ai=no_ai)
-            if summary and summary.strip():
-                item.layers["comments_summary"] = summary
-    elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
-        collector = WeixinCollector()
-        item = await collector.fetch(url)
-    elif "bilibili.com" in host:
-        collector = BilibiliCollector()
-        item = await collector.fetch(url)
-        if item.type == "video":
-            try:
-                await collector.enrich_video(item)
-            except Exception:  # noqa: BLE001
-                pass
-        if with_comments:
-            comments = await collector.fetch_comments(url)
-            item.layers["comments"] = comments
-            summary = await summarize_comments(comments, no_ai=no_ai)
-            if summary and summary.strip():
-                item.layers["comments_summary"] = summary
-    else:
-        item = await WebCollector().fetch(url)
-    save_item(item)
-    card_path = export_card(item, get_data_dir() / "cards")
-    return {"item": item, "card_path": str(card_path)}
+    collector = None
+    try:
+        if "zhihu.com" in host:
+            collector = ZhihuCollector()
+            item = await collector.fetch(url)
+            if with_comments:
+                comments = await collector.fetch_comments(url)
+                item.layers["comments"] = comments
+                summary = await summarize_comments(comments, no_ai=no_ai)
+                if summary and summary.strip():
+                    item.layers["comments_summary"] = summary
+        elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
+            collector = WeixinCollector()
+            item = await collector.fetch(url)
+        elif "bilibili.com" in host:
+            collector = BilibiliCollector()
+            item = await collector.fetch(url)
+            if item.type == "video":
+                try:
+                    await collector.enrich_video(item)
+                except Exception:  # noqa: BLE001
+                    pass
+            if with_comments:
+                comments = await collector.fetch_comments(url)
+                item.layers["comments"] = comments
+                summary = await summarize_comments(comments, no_ai=no_ai)
+                if summary and summary.strip():
+                    item.layers["comments_summary"] = summary
+        else:
+            collector = WebCollector()
+            item = await collector.fetch(url)
+        save_item(item)
+        card_path = export_card(item, get_data_dir() / "cards")
+        return {"item": item, "card_path": str(card_path)}
+    finally:
+        if collector is not None and hasattr(collector, "aclose"):
+            await collector.aclose()

@@ -17,24 +17,29 @@ async def enrich_forum_threads(
     min_snippet: int = 80,
 ) -> list[IntelItem]:
     """对论坛类 SERP 摘要过短的条目抓取正文前几段。"""
+    owns = client is None
     client = client or HttpClient()
     web = WebCollector(client)
-    count = 0
-    for item in items:
-        if count >= top:
-            break
-        if item.source not in FORUM_SOURCES:
-            continue
-        if len((item.content or "").strip()) >= min_snippet:
-            continue
-        if not item.url:
-            continue
-        try:
-            full = await web.fetch(item.url)
-            if full.content and len(full.content) > len(item.content or ""):
-                item.content = full.content[:8000]
-                item.personal["forum_enriched"] = True
-                count += 1
-        except Exception:  # noqa: BLE001
-            continue
-    return items
+    try:
+        count = 0
+        for item in items:
+            if count >= top:
+                break
+            if item.source not in FORUM_SOURCES:
+                continue
+            if len((item.content or "").strip()) >= min_snippet:
+                continue
+            if not item.url:
+                continue
+            try:
+                full = await web.fetch(item.url)
+                if full.content and len(full.content) > len(item.content or ""):
+                    item.content = full.content[:8000]
+                    item.personal["forum_enriched"] = True
+                    count += 1
+            except Exception:  # noqa: BLE001
+                continue
+        return items
+    finally:
+        if owns:
+            await client.aclose()

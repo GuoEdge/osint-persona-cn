@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -26,10 +27,23 @@ _ZHIHU_CONTENT_URL = re.compile(
 )
 
 
+async def _aclose_if_real(client: Any) -> None:
+    aclose = getattr(client, "aclose", None)
+    if asyncio.iscoroutinefunction(aclose):
+        await aclose()
+
+
 async def _url_token(client: HttpClient | None = None) -> str:
+    owns = client is None
     c = client or HttpClient()
-    resp = await c.get("https://www.zhihu.com/api/v4/me")
-    return str(resp.json().get("url_token") or "")
+    try:
+        resp = await c.get("https://www.zhihu.com/api/v4/me")
+        return str(resp.json().get("url_token") or "")
+    finally:
+        if owns:
+            aclose = getattr(c, "aclose", None)
+            if asyncio.iscoroutinefunction(aclose):
+                await aclose()
 
 
 def _zhihu_section() -> dict[str, Any]:
@@ -86,27 +100,30 @@ def _publish_entry_from_item(item: dict, *, event_kind: str, via: str) -> dict |
 async def ingest_profile_meta() -> dict[str, Any]:
     """拉取知乎账号统计，写入 events。"""
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return {}
-    resp = await client.get(f"https://www.zhihu.com/api/v4/members/{token}")
-    if resp.status_code != 200:
-        resp = await client.get("https://www.zhihu.com/api/v4/me")
-    if resp.status_code != 200:
-        return {}
-    data = resp.json()
-    meta = {
-        "source": "zhihu",
-        "url_token": token,
-        "vote_to_count": data.get("vote_to_count", 0),
-        "voteup_count": data.get("voteup_count", 0),
-        "favorited_count": data.get("favorited_count", 0),
-        "answer_count": data.get("answer_count", 0),
-        "articles_count": data.get("articles_count", 0),
-        "pins_count": data.get("pins_count", 0),
-    }
-    log_event("zhihu_profile", meta)
-    return meta
+    try:
+        token = await _url_token(client)
+        if not token:
+            return {}
+        resp = await client.get(f"https://www.zhihu.com/api/v4/members/{token}")
+        if resp.status_code != 200:
+            resp = await client.get("https://www.zhihu.com/api/v4/me")
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        meta = {
+            "source": "zhihu",
+            "url_token": token,
+            "vote_to_count": data.get("vote_to_count", 0),
+            "voteup_count": data.get("voteup_count", 0),
+            "favorited_count": data.get("favorited_count", 0),
+            "answer_count": data.get("answer_count", 0),
+            "articles_count": data.get("articles_count", 0),
+            "pins_count": data.get("pins_count", 0),
+        }
+        log_event("zhihu_profile", meta)
+        return meta
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_activities(
@@ -127,67 +144,70 @@ async def ingest_activities(
 
     del skip_answer_votes
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return [], None
-    section = _zhihu_section()
-    seen_urls = sync_state._string_set(section.get("activity_urls", []))
-    results: list[dict] = []
-    seen: set[str] = set()
-
-    base_url = f"https://www.zhihu.com/api/v3/moments/{token}/activities"
-    referer = f"https://www.zhihu.com/people/{token}/activities"
-    params = "?limit=20&desktop=true&ws_qiangzhisafe=0"
-    next_url = f"{base_url}{params}"
-
     try:
-        page = 0
-        while len(results) < limit and next_url:
-            resp = await client.get(next_url, headers={"Referer": referer})
-            if resp.status_code != 200:
-                break
-            payload = resp.json()
-            batch = iter_api_data_items(payload.get("data"))
-            if not batch:
-                break
-            for item in batch:
-                entry = activity_entry_from_item(item, via="moments_api")
-                if not entry or entry["url"] in seen:
-                    continue
-                seen.add(entry["url"])
-                results.append(entry)
-                if len(results) >= limit:
+        token = await _url_token(client)
+        if not token:
+            return [], None
+        section = _zhihu_section()
+        seen_urls = sync_state._string_set(section.get("activity_urls", []))
+        results: list[dict] = []
+        seen: set[str] = set()
+
+        base_url = f"https://www.zhihu.com/api/v3/moments/{token}/activities"
+        referer = f"https://www.zhihu.com/people/{token}/activities"
+        params = "?limit=20&desktop=true&ws_qiangzhisafe=0"
+        next_url = f"{base_url}{params}"
+
+        try:
+            page = 0
+            while len(results) < limit and next_url:
+                resp = await client.get(next_url, headers={"Referer": referer})
+                if resp.status_code != 200:
                     break
-            paging = payload.get("paging") or {}
-            if paging.get("is_end"):
-                break
-            next_url = paging.get("next") or ""
-            page += 1
-            if page > 50:
-                break
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu activities (moments) ingest failed: %s", exc)
+                payload = resp.json()
+                batch = iter_api_data_items(payload.get("data"))
+                if not batch:
+                    break
+                for item in batch:
+                    entry = activity_entry_from_item(item, via="moments_api")
+                    if not entry or entry["url"] in seen:
+                        continue
+                    seen.add(entry["url"])
+                    results.append(entry)
+                    if len(results) >= limit:
+                        break
+                paging = payload.get("paging") or {}
+                if paging.get("is_end"):
+                    break
+                next_url = paging.get("next") or ""
+                page += 1
+                if page > 50:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("zhihu activities (moments) ingest failed: %s", exc)
 
-    if not results:
-        logger.debug("zhihu moments activities returned 0 items")
-        return [], None
+        if not results:
+            logger.debug("zhihu moments activities returned 0 items")
+            return [], None
 
-    fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    if fresh:
-        batch = []
-        for entry in fresh:
-            url = str(entry.get("url") or "")
-            et = "zhihu_activity"
-            classified = classify_activity({"verb": entry.get("verb", ""), "type": entry.get("activity_type", "")})
-            if classified:
-                et = classified[0]
-            batch.append((et, entry, f"{et}|{url}"))
-        log_events_batch(batch)
-    _persist_zhihu(activities=results)
-    logger.info("zhihu moments: %d total, %d fresh (votes=%d)",
-                len(results), len(fresh),
-                sum(1 for r in results if "vote" in str(r.get("event_kind", ""))))
-    return fresh, "moments"
+        fresh = sync_state.filter_new_by_urls(results, seen_urls)
+        if fresh:
+            batch = []
+            for entry in fresh:
+                url = str(entry.get("url") or "")
+                et = "zhihu_activity"
+                classified = classify_activity({"verb": entry.get("verb", ""), "type": entry.get("activity_type", "")})
+                if classified:
+                    et = classified[0]
+                batch.append((et, entry, f"{et}|{url}"))
+            log_events_batch(batch)
+        _persist_zhihu(activities=results)
+        logger.info("zhihu moments: %d total, %d fresh (votes=%d)",
+                    len(results), len(fresh),
+                    sum(1 for r in results if "vote" in str(r.get("event_kind", ""))))
+        return fresh, "moments"
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_voteanswers(limit: int = 500) -> tuple[list[dict], str | None]:
@@ -213,33 +233,36 @@ async def _ingest_member_list(
     limit: int = 500,
 ) -> tuple[list[dict], str | None]:
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return [], None
-    section = _zhihu_section()
-    seen_urls = sync_state._string_set(section.get(state_key, []))
-    raw_items, endpoint_key = await paginate_member_api(client, token, specs, limit=limit)
-    results: list[dict] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        entry = _publish_entry_from_item(item, event_kind=event_kind, via=via)
-        if not entry or entry["url"] in seen:
-            continue
-        seen.add(entry["url"])
-        results.append(entry)
-    fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    if fresh:
-        log_events_batch([
-            (event_type, e, f"{event_type}|{str(e.get('url') or '')}")
-            for e in fresh
-        ])
-    if state_key == "answer_urls":
-        _persist_zhihu(answers=results)
-    elif state_key == "article_urls":
-        _persist_zhihu(articles=results)
-    elif state_key == "pin_urls":
-        _persist_zhihu(pins=results)
-    return fresh, endpoint_key
+    try:
+        token = await _url_token(client)
+        if not token:
+            return [], None
+        section = _zhihu_section()
+        seen_urls = sync_state._string_set(section.get(state_key, []))
+        raw_items, endpoint_key = await paginate_member_api(client, token, specs, limit=limit)
+        results: list[dict] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            entry = _publish_entry_from_item(item, event_kind=event_kind, via=via)
+            if not entry or entry["url"] in seen:
+                continue
+            seen.add(entry["url"])
+            results.append(entry)
+        fresh = sync_state.filter_new_by_urls(results, seen_urls)
+        if fresh:
+            log_events_batch([
+                (event_type, e, f"{event_type}|{str(e.get('url') or '')}")
+                for e in fresh
+            ])
+        if state_key == "answer_urls":
+            _persist_zhihu(answers=results)
+        elif state_key == "article_urls":
+            _persist_zhihu(articles=results)
+        elif state_key == "pin_urls":
+            _persist_zhihu(pins=results)
+        return fresh, endpoint_key
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_member_answers(limit: int = 500) -> tuple[list[dict], str | None]:
@@ -280,63 +303,66 @@ async def ingest_member_pins(limit: int = 500) -> tuple[list[dict], str | None]:
 
 async def ingest_followees(limit: int = 500) -> list[dict]:
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return []
-    section = _zhihu_section()
-    seen_urls = sync_state._string_set(section.get("followee_urls", []))
-    results: list[dict] = []
-    seen: set[str] = set()
-    offset = 0
-    _page = 0
     try:
-        while len(results) < limit:
-            _page += 1
-            if _page > 50:
-                break
-            resp = await client.get(
-                f"https://www.zhihu.com/api/v4/members/{token}/followees"
-                f"?offset={offset}&limit=20",
-                headers={"Referer": f"https://www.zhihu.com/people/{token}"},
-            )
-            if resp.status_code != 200:
-                break
-            payload = resp.json()
-            batch = iter_api_data_items(payload.get("data"))
-            if not batch:
-                break
-            for member in batch:
-                url_token = str(member.get("url_token") or "")
-                if not url_token:
-                    continue
-                url_ = f"https://www.zhihu.com/people/{url_token}"
-                if url_ in seen:
-                    continue
-                seen.add(url_)
-                entry = {
-                    "source": "zhihu",
-                    "title": member.get("name", "") or url_token,
-                    "url": url_,
-                    "event_kind": "follow",
-                    "via": "followees_api",
-                }
-                results.append(entry)
-                if len(results) >= limit:
+        token = await _url_token(client)
+        if not token:
+            return []
+        section = _zhihu_section()
+        seen_urls = sync_state._string_set(section.get("followee_urls", []))
+        results: list[dict] = []
+        seen: set[str] = set()
+        offset = 0
+        _page = 0
+        try:
+            while len(results) < limit:
+                _page += 1
+                if _page > 50:
                     break
-            paging = payload.get("paging") or {}
-            if paging.get("is_end") or len(batch) < 20:
-                break
-            offset += 20
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu followees ingest failed: %s", exc)
-    fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    if fresh:
-        log_events_batch([
-            ("zhihu_follow", e, f"zhihu_follow|{str(e.get('url') or '')}")
-            for e in fresh
-        ])
-    _persist_zhihu(followees=results)
-    return fresh
+                resp = await client.get(
+                    f"https://www.zhihu.com/api/v4/members/{token}/followees"
+                    f"?offset={offset}&limit=20",
+                    headers={"Referer": f"https://www.zhihu.com/people/{token}"},
+                )
+                if resp.status_code != 200:
+                    break
+                payload = resp.json()
+                batch = iter_api_data_items(payload.get("data"))
+                if not batch:
+                    break
+                for member in batch:
+                    url_token = str(member.get("url_token") or "")
+                    if not url_token:
+                        continue
+                    url_ = f"https://www.zhihu.com/people/{url_token}"
+                    if url_ in seen:
+                        continue
+                    seen.add(url_)
+                    entry = {
+                        "source": "zhihu",
+                        "title": member.get("name", "") or url_token,
+                        "url": url_,
+                        "event_kind": "follow",
+                        "via": "followees_api",
+                    }
+                    results.append(entry)
+                    if len(results) >= limit:
+                        break
+                paging = payload.get("paging") or {}
+                if paging.get("is_end") or len(batch) < 20:
+                    break
+                offset += 20
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("zhihu followees ingest failed: %s", exc)
+        fresh = sync_state.filter_new_by_urls(results, seen_urls)
+        if fresh:
+            log_events_batch([
+                ("zhihu_follow", e, f"zhihu_follow|{str(e.get('url') or '')}")
+                for e in fresh
+            ])
+        _persist_zhihu(followees=results)
+        return fresh
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_browsing(limit: int = 500) -> tuple[list[dict], dict[str, Any]]:
@@ -360,66 +386,69 @@ async def ingest_browsing(limit: int = 500) -> tuple[list[dict], dict[str, Any]]
 async def _ingest_browsing_via_api(limit: int = 500) -> tuple[list[dict], dict[str, Any]]:
     """通过 /api/v4/unify-consumption/read_history 拉取浏览历史。"""
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return [], {"source": "no_token"}
-    section = _zhihu_section()
-    seen_urls = sync_state._string_set(section.get("browsing_urls", []))
-    results: list[dict] = []
-    seen: set[str] = set()
-    offset = 0
-    total_count = 0
     try:
-        while len(results) < limit:
-            url = (
-                f"https://www.zhihu.com/api/v4/unify-consumption/read_history"
-                f"?offset={offset}&limit=20"
-            )
-            resp = await client.get(url, headers={"Referer": "https://www.zhihu.com/recent-viewed"})
-            if resp.status_code != 200:
-                break
-            payload = resp.json()
-            batch = iter_api_data_items(payload.get("data"))
-            if not batch:
-                break
-            for item in batch:
-                entry = _parse_read_history_item(item)
-                if not entry or entry["url"] in seen:
-                    continue
-                seen.add(entry["url"])
-                results.append(entry)
-                if len(results) >= limit:
+        token = await _url_token(client)
+        if not token:
+            return [], {"source": "no_token"}
+        section = _zhihu_section()
+        seen_urls = sync_state._string_set(section.get("browsing_urls", []))
+        results: list[dict] = []
+        seen: set[str] = set()
+        offset = 0
+        total_count = 0
+        try:
+            while len(results) < limit:
+                url = (
+                    f"https://www.zhihu.com/api/v4/unify-consumption/read_history"
+                    f"?offset={offset}&limit=20"
+                )
+                resp = await client.get(url, headers={"Referer": "https://www.zhihu.com/recent-viewed"})
+                if resp.status_code != 200:
                     break
-            paging = payload.get("paging") or {}
-            if paging.get("is_end"):
-                break
-            total_count = int(paging.get("totals") or total_count)
-            offset += 20
-            if offset > 1000:
-                break
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu read_history API failed (partial %d items): %s", len(results), exc)
-        if results:
-            fresh = sync_state.filter_new_by_urls(results, seen_urls)
-            if fresh:
-                log_events_batch([
-                    ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
-                    for e in fresh
-                ])
-            _persist_zhihu(browsing=results)
-            return fresh, {"source": "read_history_api_partial", "error": str(exc), "fetched": len(results)}
-        return [], {"source": "error", "error": str(exc)}
-    if not results:
-        return [], {"source": "empty"}
-    fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    if fresh:
-        log_events_batch([
-            ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
-            for e in fresh
-        ])
-    _persist_zhihu(browsing=results)
-    logger.info("zhihu read_history: %d total, %d fresh (api_total=%d)", len(results), len(fresh), total_count)
-    return fresh, {"source": "read_history_api", "api_total": total_count, "fetched": len(results)}
+                payload = resp.json()
+                batch = iter_api_data_items(payload.get("data"))
+                if not batch:
+                    break
+                for item in batch:
+                    entry = _parse_read_history_item(item)
+                    if not entry or entry["url"] in seen:
+                        continue
+                    seen.add(entry["url"])
+                    results.append(entry)
+                    if len(results) >= limit:
+                        break
+                paging = payload.get("paging") or {}
+                if paging.get("is_end"):
+                    break
+                total_count = int(paging.get("totals") or total_count)
+                offset += 20
+                if offset > 1000:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("zhihu read_history API failed (partial %d items): %s", len(results), exc)
+            if results:
+                fresh = sync_state.filter_new_by_urls(results, seen_urls)
+                if fresh:
+                    log_events_batch([
+                        ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
+                        for e in fresh
+                    ])
+                _persist_zhihu(browsing=results)
+                return fresh, {"source": "read_history_api_partial", "error": str(exc), "fetched": len(results)}
+            return [], {"source": "error", "error": str(exc)}
+        if not results:
+            return [], {"source": "empty"}
+        fresh = sync_state.filter_new_by_urls(results, seen_urls)
+        if fresh:
+            log_events_batch([
+                ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
+                for e in fresh
+            ])
+        _persist_zhihu(browsing=results)
+        logger.info("zhihu read_history: %d total, %d fresh (api_total=%d)", len(results), len(fresh), total_count)
+        return fresh, {"source": "read_history_api", "api_total": total_count, "fetched": len(results)}
+    finally:
+        await _aclose_if_real(client)
 
 
 def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
@@ -507,98 +536,101 @@ def ingest_zhihu_browse_from_edge(*, since_days: int = 90, limit: int = 200) -> 
 
 async def ingest_favorites(limit: int = 500) -> list[dict]:
     client = HttpClient()
-    token = await _url_token(client)
-    if not token:
-        return []
-    section = _zhihu_section()
-    seen_urls = sync_state._string_set(section.get("favorite_urls", []))
-    results: list[dict] = []
-    seen: set[str] = set()
-    offset = 0
-    _fav_page = 0
     try:
-        while len(results) < limit:
-            _fav_page += 1
-            if _fav_page > 50:
-                break
-            fav_resp = await client.get(
-                f"https://www.zhihu.com/api/v4/members/{token}/favlists"
-                f"?include=answers&offset={offset}&limit=20",
-                headers={"Referer": "https://www.zhihu.com/collections"},
-            )
-            fav_payload = fav_resp.json()
-            collections = iter_api_data_items(fav_payload.get("data"))
-            if not collections:
-                break
-            for coll in collections:
-                cid = coll.get("id")
-                if not cid:
-                    continue
-                item_offset = 0
-                _item_page = 0
-                while len(results) < limit:
-                    _item_page += 1
-                    if _item_page > 50:
-                        break
-                    items_resp = await client.get(
-                        f"https://www.zhihu.com/api/v4/collections/{cid}/items"
-                        f"?offset={item_offset}&limit=20"
-                    )
-                    items_payload = items_resp.json()
-                    items = iter_api_data_items(items_payload.get("data"))
-                    if not items:
-                        break
-                    for raw in items:
-                        content = raw.get("content") or raw
-                        collection_title = str(coll.get("title") or "").strip()
-                        question = (content.get("question") or {}) if isinstance(content, dict) else {}
-                        title = (
-                            str(question.get("title") or "").strip()
-                            or str(content.get("title") or "").strip()
-                            or str(raw.get("title") or "").strip()
-                        )
-                        if not title:
-                            excerpt = str(content.get("excerpt") or "").strip()
-                            if excerpt:
-                                title = excerpt[:120]
-                        if not title and collection_title:
-                            title = f"（收藏夹：{collection_title}）"
-                        if not title:
-                            title = "未命名内容"
-                        url_ = content_url_from_target(content, raw)
-                        if not url_ or url_ in seen:
-                            continue
-                        seen.add(url_)
-                        entry = {
-                            "source": "zhihu",
-                            "title": title,
-                            "url": url_,
-                            "type": "collection_item",
-                            "collection": collection_title,
-                        }
-                        results.append(entry)
-                        if len(results) >= limit:
-                            break
-                    paging = items_payload.get("paging") or {}
-                    if paging.get("is_end"):
-                        break
-                    item_offset += 20
-                if len(results) >= limit:
+        token = await _url_token(client)
+        if not token:
+            return []
+        section = _zhihu_section()
+        seen_urls = sync_state._string_set(section.get("favorite_urls", []))
+        results: list[dict] = []
+        seen: set[str] = set()
+        offset = 0
+        _fav_page = 0
+        try:
+            while len(results) < limit:
+                _fav_page += 1
+                if _fav_page > 50:
                     break
-            paging = fav_payload.get("paging") or {}
-            if paging.get("is_end") or len(collections) < 20:
-                break
-            offset += 20
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu_account: ingest_favorites failed: %s", exc)
-    fresh = sync_state.filter_new_by_urls(results, seen_urls)
-    if fresh:
-        log_events_batch([
-            ("zhihu_fav", e, f"zhihu_fav|{str(e.get('url') or '')}")
-            for e in fresh
-        ])
-    _persist_zhihu(favorites=results)
-    return fresh
+                fav_resp = await client.get(
+                    f"https://www.zhihu.com/api/v4/members/{token}/favlists"
+                    f"?include=answers&offset={offset}&limit=20",
+                    headers={"Referer": "https://www.zhihu.com/collections"},
+                )
+                fav_payload = fav_resp.json()
+                collections = iter_api_data_items(fav_payload.get("data"))
+                if not collections:
+                    break
+                for coll in collections:
+                    cid = coll.get("id")
+                    if not cid:
+                        continue
+                    item_offset = 0
+                    _item_page = 0
+                    while len(results) < limit:
+                        _item_page += 1
+                        if _item_page > 50:
+                            break
+                        items_resp = await client.get(
+                            f"https://www.zhihu.com/api/v4/collections/{cid}/items"
+                            f"?offset={item_offset}&limit=20"
+                        )
+                        items_payload = items_resp.json()
+                        items = iter_api_data_items(items_payload.get("data"))
+                        if not items:
+                            break
+                        for raw in items:
+                            content = raw.get("content") or raw
+                            collection_title = str(coll.get("title") or "").strip()
+                            question = (content.get("question") or {}) if isinstance(content, dict) else {}
+                            title = (
+                                str(question.get("title") or "").strip()
+                                or str(content.get("title") or "").strip()
+                                or str(raw.get("title") or "").strip()
+                            )
+                            if not title:
+                                excerpt = str(content.get("excerpt") or "").strip()
+                                if excerpt:
+                                    title = excerpt[:120]
+                            if not title and collection_title:
+                                title = f"（收藏夹：{collection_title}）"
+                            if not title:
+                                title = "未命名内容"
+                            url_ = content_url_from_target(content, raw)
+                            if not url_ or url_ in seen:
+                                continue
+                            seen.add(url_)
+                            entry = {
+                                "source": "zhihu",
+                                "title": title,
+                                "url": url_,
+                                "type": "collection_item",
+                                "collection": collection_title,
+                            }
+                            results.append(entry)
+                            if len(results) >= limit:
+                                break
+                        paging = items_payload.get("paging") or {}
+                        if paging.get("is_end"):
+                            break
+                        item_offset += 20
+                    if len(results) >= limit:
+                        break
+                paging = fav_payload.get("paging") or {}
+                if paging.get("is_end") or len(collections) < 20:
+                    break
+                offset += 20
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("zhihu_account: ingest_favorites failed: %s", exc)
+        fresh = sync_state.filter_new_by_urls(results, seen_urls)
+        if fresh:
+            log_events_batch([
+                ("zhihu_fav", e, f"zhihu_fav|{str(e.get('url') or '')}")
+                for e in fresh
+            ])
+        _persist_zhihu(favorites=results)
+        return fresh
+    finally:
+        await _aclose_if_real(client)
 
 
 def zhihu_layer_status(
