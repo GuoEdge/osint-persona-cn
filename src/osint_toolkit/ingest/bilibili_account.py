@@ -81,7 +81,12 @@ async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
+        page = 0
         while len(results) < limit:
+            page += 1
+            if page > 100:
+                break
+            before = len(results)
             resp = await client.get(url)
             payload = resp.json()
             if _check_bili_auth(payload):
@@ -114,6 +119,8 @@ async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
                     break
             cursor = data.get("cursor") or {}
             if not cursor.get("max"):
+                break
+            if len(results) == before:
                 break
             url = (
                 "https://api.bilibili.com/x/web-interface/history/cursor"

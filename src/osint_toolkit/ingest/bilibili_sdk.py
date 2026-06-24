@@ -298,8 +298,13 @@ async def ingest_history(limit: int = 500) -> list[dict]:
     seen: set[str] = set()
     view_at: int | None = 0
     max_oid: int | None = 0
+    page = 0
 
     while len(results) < limit:
+        page += 1
+        if page > 100:
+            break
+        before = len(results)
         payload = await user.get_self_history_new(
             credential=credential,
             view_at=view_at,
@@ -336,6 +341,8 @@ async def ingest_history(limit: int = 500) -> list[dict]:
             break
         view_at = cursor.get("view_at")
         max_oid = cursor.get("max")
+        if len(results) == before:
+            break
     return results
 
 
@@ -362,6 +369,9 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
             continue
         page = 1
         while len(results) < limit:
+            if page > 100:
+                break
+            before = len(results)
             content_payload = await favorite_list.get_video_favorite_list_content(
                 int(media_id),
                 page=page,
@@ -388,6 +398,8 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                 )
                 if len(results) >= limit:
                     break
+            if len(results) == before:
+                break
             if len(medias) < 20:
                 break
             page += 1
@@ -413,6 +425,9 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     seen: set[str] = set()
     page = 1
     while len(results) < limit:
+        if page > 100:
+            break
+        before = len(results)
         payload = await u.get_followings(pn=page, ps=50)
         batch = (payload.get("data") or {}).get("list") or []
         if not batch:
@@ -437,6 +452,8 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
             if len(results) >= limit:
                 break
         if len(batch) < 50:
+            break
+        if len(results) == before:
             break
         page += 1
     return results
