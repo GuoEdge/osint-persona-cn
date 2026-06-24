@@ -11,7 +11,12 @@ if (-not $pids) {
 
 foreach ($procId in $pids) {
     try {
-        $proc = Get-Process -Id $procId -ErrorAction Stop
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $proc) { continue }
+        if ($proc.ProcessName -notmatch "python|pythonw") {
+            $yn = Read-Host "端口被 $($proc.ProcessName) 占用，非 osint，是否结束? (y/N)"
+            if ($yn -ne "y") { continue }
+        }
         Write-Host "结束进程 $($proc.ProcessName) (PID $procId)" -ForegroundColor Cyan
         Stop-Process -Id $procId -Force
     } catch {
