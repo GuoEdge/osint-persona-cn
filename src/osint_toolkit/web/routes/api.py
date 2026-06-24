@@ -223,7 +223,10 @@ def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
 async def api_search_source_catalog() -> dict[str, Any]:
     from osint_toolkit.collectors.source_catalog import get_catalog_grouped, get_source_entries
 
-    return {"groups": get_catalog_grouped(), "entries": get_source_entries()}
+    return {
+        "groups": await asyncio.to_thread(get_catalog_grouped),
+        "entries": await asyncio.to_thread(get_source_entries),
+    }
 
 
 @router.get("/sources/auth-check")
@@ -284,7 +287,8 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         "parent_node_id": parent_node_id,
     }
     if body.fork_from_run_id:
-        search_kwargs = build_fork_search_params(
+        search_kwargs = await asyncio.to_thread(
+            build_fork_search_params,
             body.fork_from_run_id,
             {**search_kwargs, "query": body.query or search_kwargs.get("query", "")},
         )
@@ -292,7 +296,7 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
     tree_id = search_kwargs.get("tree_id") or tree_id
     parent_node_id = search_kwargs.get("parent_node_id") or parent_node_id
     if body.fork_from_run_id and tree_id:
-        fork_parent = find_search_node_id_for_run(tree_id, body.fork_from_run_id)
+        fork_parent = await asyncio.to_thread(find_search_node_id_for_run, tree_id, body.fork_from_run_id)
         if fork_parent:
             parent_node_id = fork_parent
     if tree_id:
@@ -305,7 +309,8 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     run_id = started["run_id"]
     if tree_id:
-        attach_search_node(
+        await asyncio.to_thread(
+            attach_search_node,
             tree_id,
             parent_node_id=parent_node_id,
             run_id=run_id,
@@ -438,7 +443,7 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
 @router.post("/search/{run_id}/cancel")
 async def api_search_cancel(run_id: str) -> dict[str, Any]:
     run_id = _validated_run_id(run_id)
-    if not cancel_job(run_id):
+    if not await asyncio.to_thread(cancel_job, run_id):
         job = get_job(run_id)
         if not job:
             raise HTTPException(404, detail="run not found")
@@ -886,7 +891,7 @@ async def api_ingest_full_sync_result(job_id: str) -> dict[str, Any]:
 
 @router.post("/ingest/full-sync/{job_id}/cancel")
 async def api_ingest_full_sync_cancel(job_id: str) -> dict[str, Any]:
-    if not cancel_job(job_id):
+    if not await asyncio.to_thread(cancel_job, job_id):
         job = get_job(job_id)
         if not job:
             raise HTTPException(404, detail="job not found")
@@ -1021,7 +1026,7 @@ async def api_runs_batch_delete(body: RunsBatchDeleteRequest) -> dict[str, Any]:
             continue
         job = get_job(run_id)
         if job and job.get("status") == "running":
-            cancel_job(run_id)
+            await asyncio.to_thread(cancel_job, run_id)
             skipped.append({"run_id": run_id, "reason": "was_running_cancelled"})
         try:
             await asyncio.to_thread(runs.delete_run, run_id)
@@ -1092,7 +1097,7 @@ async def api_run_delete(run_id: str) -> dict[str, Any]:
     run_id = _validated_run_id(run_id)
     job = get_job(run_id)
     if job and job.get("status") == "running":
-        cancel_job(run_id)
+        await asyncio.to_thread(cancel_job, run_id)
     try:
         await asyncio.to_thread(runs.delete_run, run_id)
     except FileNotFoundError as exc:
