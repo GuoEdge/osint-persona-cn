@@ -371,11 +371,11 @@ def run_show(run_id: str, step: str | None) -> None:
 @run.command("open")
 @click.argument("run_id")
 def run_open(run_id: str) -> None:
-    from osint_toolkit.auth.paths import get_data_dir
-
-    path = get_data_dir() / "runs" / run_id
+    path = runs._safe_run_dir(run_id)
+    if not path.exists():
+        raise click.ClickException(f"run 不存在: {run_id}")
     if os.name == "nt":
-        os.startfile(path)  # type: ignore[attr-defined]
+        os.startfile(str(path))  # type: ignore[attr-defined]
     else:
         console.print(str(path))
 
