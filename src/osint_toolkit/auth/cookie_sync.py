@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -140,8 +142,7 @@ def sync_browser_cookies(
     domains = domains or list(cfg.get("domains") or DEFAULT_DOMAINS)
     domains = [_normalize_domain(d) for d in domains]
     output_dir = output_dir or get_cookies_dir()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     result = CookieSyncResult(
         browser=browser,
         output_dir=output_dir,
@@ -180,6 +181,8 @@ def sync_browser_cookies(
         }
         out_file = output_dir / f"{domain}.json"
         out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            os.chmod(out_file, 0o600)
         result.domains_synced.append(domain)
         result.cookie_counts[domain] = len(domain_cookies)
 
@@ -205,6 +208,8 @@ def _write_index(result: CookieSyncResult) -> None:
         ),
         encoding="utf-8",
     )
+    if sys.platform != "win32":
+        os.chmod(index_path, 0o600)
 
 
 def import_cookie_headers(
@@ -215,7 +220,7 @@ def import_cookie_headers(
 ) -> CookieSyncResult:
     """从扩展或手动粘贴写入 Cookie 文件（绕过 Edge App-Bound 加密）。"""
     output_dir = output_dir or get_cookies_dir()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     domains = [_normalize_domain(d) for d in headers_by_domain]
     result = CookieSyncResult(
         browser=browser,
@@ -240,6 +245,8 @@ def import_cookie_headers(
         }
         out_file = output_dir / f"{safe_domain}.json"
         out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            os.chmod(out_file, 0o600)
         result.domains_synced.append(safe_domain)
         result.cookie_counts[safe_domain] = max(1, header.count(";") + 1)
     if not result.domains_synced:
