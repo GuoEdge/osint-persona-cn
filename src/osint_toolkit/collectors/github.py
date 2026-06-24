@@ -67,12 +67,14 @@ class GithubCollector(BaseCollector):
         if len(items) < max(3, limit // 2):
             engine = SerpEngine(client=self.client)
             hits, _ = await engine.site_search("github.com", query, limit=limit)
+            existing_urls = {i.url for i in items}
             for item in hits_to_items(hits, source="github"):
                 if is_blocked_github_repo(item.url, full_name=str(item.title or "")):
                     continue
-                if item.url not in {i.url for i in items}:
+                if item.url not in existing_urls:
                     item.personal["via"] = "serp_fallback"
                     items.append(item)
+                    existing_urls.add(item.url)
                 if len(items) >= limit:
                     break
         return items[:limit]
