@@ -72,7 +72,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "provider": "deepseek",
         "api_key": "${DEEPSEEK_API_KEY}",
         "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-chat",
         "timeout": 120,
         "persona_inject": True,
         "dwell_save_no_ai": True,

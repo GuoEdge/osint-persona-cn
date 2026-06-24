@@ -13,7 +13,7 @@ def test_expand_env():
 def test_default_ai_config():
     cfg = get_ai_config()
     assert cfg["base_url"] == "https://api.deepseek.com"
-    assert cfg["model"] == "deepseek-v4-flash"
+    assert cfg["model"] == "deepseek-chat"
 
 
 def test_load_config_has_cookie_sync():
