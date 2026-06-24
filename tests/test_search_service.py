@@ -10,7 +10,7 @@ from osint_toolkit.services import search as search_service
 async def test_run_search_with_mocked_collectors(tmp_path, monkeypatch):
     monkeypatch.setattr("osint_toolkit.pipeline.context.get_data_dir", lambda: tmp_path)
 
-    async def fake_collect(name, query, limit):
+    async def fake_collect(name, query, limit, **kwargs):
         return (
             [
                 IntelItem(

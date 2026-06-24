@@ -36,6 +36,7 @@ from osint_toolkit.collectors.source_catalog import get_source_labels
 from osint_toolkit.collectors.thread_expand import enrich_forum_threads
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
+from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_context
 from osint_toolkit.pipeline.context import RunContext
@@ -127,11 +128,18 @@ def _recent_url_entries(items: list[Any], existing: list[dict[str, str]], *, lim
     return recent[:limit]
 
 
-async def _collect_source(name: str, query: str, limit: int) -> tuple[list[IntelItem], list[str]]:
+async def _collect_source(
+    name: str, query: str, limit: int, *, client: HttpClient | None = None
+) -> tuple[list[IntelItem], list[str]]:
     cls = COLLECTORS.get(name)
     if not cls:
         return [], []
-    collector = cls()
+    import inspect
+
+    if "client" in inspect.signature(cls).parameters:
+        collector = cls(client=client)
+    else:
+        collector = cls()
     items = await collector.search(query, limit=limit)
     orphan_warnings: list[str] = []
     if hasattr(collector, "consume_warnings"):
@@ -141,6 +149,8 @@ async def _collect_source(name: str, query: str, limit: int) -> tuple[list[Intel
                 items[0].personal.setdefault("collector_warnings", []).extend(warns)
             else:
                 orphan_warnings = list(warns)
+    if hasattr(collector, "aclose"):
+        await collector.aclose()
     return items, orphan_warnings
 
 
@@ -696,6 +706,8 @@ async def run_search(
 
         import time
 
+        shared_http = HttpClient()
+
         async def collect_one(
             source_name: str, q: str
         ) -> tuple[str, str, list[IntelItem] | None, list[str], Exception | None, float]:
@@ -714,9 +726,9 @@ async def run_search(
             try:
                 if source_name == "zhihu":
                     async with zhihu_sem:
-                        group, orphan = await _collect_source(source_name, q, per_limit)
+                        group, orphan = await _collect_source(source_name, q, per_limit, client=shared_http)
                 else:
-                    group, orphan = await _collect_source(source_name, q, per_limit)
+                    group, orphan = await _collect_source(source_name, q, per_limit, client=shared_http)
                 return source_name, q, group, orphan, None, time.perf_counter() - task_started
             except Exception as exc:  # noqa: BLE001
                 return source_name, q, None, [], exc, time.perf_counter() - task_started
@@ -846,6 +858,7 @@ async def run_search(
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
+            await shared_http.aclose()
 
         from osint_toolkit.utils.source_notices import consolidate_source_notices
 

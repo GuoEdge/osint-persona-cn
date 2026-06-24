@@ -23,7 +23,7 @@ async def test_mine_comments_before_summarize(monkeypatch):
     )
     bili_item.signals.relevance = 0.9
 
-    async def fake_collect(source: str, query: str, limit: int):
+    async def fake_collect(source: str, query: str, limit: int, **kwargs):
         return ([bili_item], []) if source == "bilibili" else ([], [])
 
     async def fake_mine(items, *, top, no_ai, disabled_steps=None, comment_mine_sources=None, search_cfg=None):
