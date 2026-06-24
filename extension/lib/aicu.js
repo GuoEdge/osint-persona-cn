@@ -90,46 +90,56 @@ const AicuSync = {
     await this.checkEnabled(apiBase);
     const mid = await this.fetchMid(apiBase);
     const { tabId, opened } = await this.findOrOpenAicuTab();
-    if (opened) {
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-
-    const pages = [];
-    let pn = 1;
-    let allCount = 0;
-    while (pn <= 100) {
-      const body = await this.fetchPageInTab(tabId, mid, pn, 100);
-      if (body.code !== 0 && body.code != null) {
-        throw new Error(`AICU 业务错误 code=${body.code}`);
+    let success = false;
+    try {
+      if (opened) {
+        await new Promise((r) => setTimeout(r, 2000));
       }
-      const data = body.data || {};
-      const cursor = data.cursor || {};
-      allCount = cursor.all_count || allCount;
-      pages.push(body);
-      if (cursor.is_end || !(data.replies || []).length) break;
-      pn += 1;
-      await new Promise((r) => setTimeout(r, 1500));
-    }
 
-    if (!pages.length || !pages.some((p) => (p.data?.replies || []).length)) {
-      throw new Error(`AICU 无发评数据（UID=${mid}）。确认 aicu.cc 能查到该 UID 的评论`);
-    }
-
-    const resp = await fetch(`${apiBase}/api/ingest/aicu-json`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pages }),
-    });
-    const result = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(result.detail || result.error || resp.statusText);
-    }
-    if (result.ok === false) {
-      if (result.error === "aicu_disabled") {
-        throw new Error("服务端 AICU 未开启：config.yaml 设 sync.aicu_enabled: true（或 ingest.aicu_enabled）并重启 Web");
+      const pages = [];
+      let pn = 1;
+      let allCount = 0;
+      while (pn <= 100) {
+        const body = await this.fetchPageInTab(tabId, mid, pn, 100);
+        if (body.code !== 0 && body.code != null) {
+          throw new Error(`AICU 业务错误 code=${body.code}`);
+        }
+        const data = body.data || {};
+        const cursor = data.cursor || {};
+        allCount = cursor.all_count || allCount;
+        pages.push(body);
+        if (cursor.is_end || !(data.replies || []).length) break;
+        pn += 1;
+        await new Promise((r) => setTimeout(r, 1500));
       }
-      throw new Error(result.error || "导入失败");
+
+      if (!pages.length || !pages.some((p) => (p.data?.replies || []).length)) {
+        throw new Error(`AICU 无发评数据（UID=${mid}）。确认 aicu.cc 能查到该 UID 的评论`);
+      }
+
+      const resp = await fetch(`${apiBase}/api/ingest/aicu-json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages }),
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(result.detail || result.error || resp.statusText);
+      }
+      if (result.ok === false) {
+        if (result.error === "aicu_disabled") {
+          throw new Error("服务端 AICU 未开启：config.yaml 设 sync.aicu_enabled: true（或 ingest.aicu_enabled）并重启 Web");
+        }
+        throw new Error(result.error || "导入失败");
+      }
+      success = true;
+      return { mid, pages: pages.length, all_count: allCount, ...result };
+    } finally {
+      if (opened && !success) {
+        try {
+          await chrome.tabs.remove(tabId);
+        } catch (_) {}
+      }
     }
-    return { mid, pages: pages.length, all_count: allCount, ...result };
   },
 };
