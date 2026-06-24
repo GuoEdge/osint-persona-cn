@@ -13,6 +13,7 @@ from osint_toolkit.ingest.dwell_save import collect_dwell_save_urls, knowledge_a
 from osint_toolkit.ingest.extension_events import normalize_extension_payload
 from osint_toolkit.persona.context import refresh_persona_stale_flag
 from osint_toolkit.storage.sqlite import connect
+from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.config import load_config
 
 _STATUS_FILE = "extension_status.json"
@@ -269,7 +270,7 @@ def _write_status(patch: dict[str, Any]) -> None:
         except json.JSONDecodeError:
             current = {}
     current.update(patch)
-    path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(current, ensure_ascii=False, indent=2))
 
 
 def ping_extension(

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +14,7 @@ from urllib.parse import urlparse
 
 from osint_toolkit.auth.paths import get_cookies_dir
 from osint_toolkit.utils.config import get_cookie_sync_config
+from osint_toolkit.utils.safe_path import PathSecurityError, assert_domain
 
 DEFAULT_DOMAINS = [
     "bilibili.com",
@@ -43,6 +46,16 @@ DOMAIN_REQUIRED_KEYS: dict[str, list[str]] = {
     "zhihu.com": ["z_c0"],
 }
 
+_COOKIE_CACHE: dict[str, tuple[float, str | None]] = {}
+_COOKIE_DIR_MTIME: float | None = None
+
+
+def reset_cookie_cache() -> None:
+    """清除 cookie_header_for_url 缓存（同步 / 导入后调用）。"""
+    global _COOKIE_DIR_MTIME
+    _COOKIE_CACHE.clear()
+    _COOKIE_DIR_MTIME = None
+
 
 @dataclass
 class CookieSyncResult:
@@ -53,9 +66,6 @@ class CookieSyncResult:
     cookie_counts: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     synced_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-
-from osint_toolkit.utils.safe_path import PathSecurityError, assert_domain
 
 
 def _normalize_domain(domain: str) -> str:
@@ -132,8 +142,7 @@ def sync_browser_cookies(
     domains = domains or list(cfg.get("domains") or DEFAULT_DOMAINS)
     domains = [_normalize_domain(d) for d in domains]
     output_dir = output_dir or get_cookies_dir()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     result = CookieSyncResult(
         browser=browser,
         output_dir=output_dir,
@@ -156,6 +165,7 @@ def sync_browser_cookies(
             msg += " Edge 130+ 请用扩展弹窗「从浏览器同步 Cookie」，或右键以管理员运行 sync-cookies-admin.bat。"
         result.errors.append(msg)
         _write_index(result)
+        reset_cookie_cache()
         return result
 
     grouped = _group_cookies_by_domain(raw_cookies, domains)
@@ -171,10 +181,13 @@ def sync_browser_cookies(
         }
         out_file = output_dir / f"{domain}.json"
         out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            os.chmod(out_file, 0o600)
         result.domains_synced.append(domain)
         result.cookie_counts[domain] = len(domain_cookies)
 
     _write_index(result)
+    reset_cookie_cache()
     return result
 
 
@@ -195,6 +208,8 @@ def _write_index(result: CookieSyncResult) -> None:
         ),
         encoding="utf-8",
     )
+    if sys.platform != "win32":
+        os.chmod(index_path, 0o600)
 
 
 def import_cookie_headers(
@@ -205,7 +220,7 @@ def import_cookie_headers(
 ) -> CookieSyncResult:
     """从扩展或手动粘贴写入 Cookie 文件（绕过 Edge App-Bound 加密）。"""
     output_dir = output_dir or get_cookies_dir()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     domains = [_normalize_domain(d) for d in headers_by_domain]
     result = CookieSyncResult(
         browser=browser,
@@ -230,11 +245,14 @@ def import_cookie_headers(
         }
         out_file = output_dir / f"{safe_domain}.json"
         out_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            os.chmod(out_file, 0o600)
         result.domains_synced.append(safe_domain)
         result.cookie_counts[safe_domain] = max(1, header.count(";") + 1)
     if not result.domains_synced:
         result.errors.append("未收到任何域名的 Cookie 字符串")
     _write_index(result)
+    reset_cookie_cache()
     return result
 
 
@@ -352,16 +370,32 @@ def validate_domain_cookie(domain: str, cookies_dir: Path | None = None) -> dict
 
 def cookie_header_for_url(url: str, cookies_dir: Path | None = None) -> str | None:
     """根据 URL 自动匹配已同步的 Cookie。"""
+    global _COOKIE_DIR_MTIME
     host = urlparse(url).hostname or ""
     host = host.lower()
     if not host:
         return None
 
     cookies_path = cookies_dir or get_cookies_dir()
+    try:
+        dir_mtime = cookies_path.stat().st_mtime
+    except OSError:
+        dir_mtime = 0.0
+
+    if dir_mtime != _COOKIE_DIR_MTIME:
+        _COOKIE_CACHE.clear()
+        _COOKIE_DIR_MTIME = dir_mtime
+
+    if host in _COOKIE_CACHE:
+        return _COOKIE_CACHE[host][1]
+
+    header: str | None = None
     for domain_file in cookies_path.glob("*.json"):
         if domain_file.name == "_index.json":
             continue
         domain = domain_file.stem
         if host == domain or host.endswith(f".{domain}"):
-            return load_cookie_header(domain, cookies_path)
-    return None
+            header = load_cookie_header(domain, cookies_path)
+            break
+    _COOKIE_CACHE[host] = (dir_mtime, header)
+    return header

@@ -95,5 +95,5 @@ def is_bing_non_organic(block, url: str) -> bool:
 def is_sogou_ad(block) -> bool:
     if block is None:
         return True
-    classes = " ".join(block.get("class") or []).lower()
-    return "ad" in classes or "spread" in classes
+    tokens = set(re.split(r"[\s_\-]+", " ".join(block.get("class") or []).lower()))
+    return "ad" in tokens or "spread" in tokens

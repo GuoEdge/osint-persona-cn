@@ -140,6 +140,8 @@ def generate_report(
     except Exception as exc:  # noqa: BLE001
         base = _fallback_report(query, items, run_id)
         return base + f"\n\n(AI 报告生成失败，已回退规则摘要: {exc})"
+    if not report or not report.strip():
+        return _fallback_report(query, items, run_id) + "\n\n(AI 报告返回空内容，已回退规则摘要)"
     footer = (
         f"\n\n---\n生成时间: {datetime.now(UTC).isoformat()}\nrun_id: `{run_id}`\n"
         "说明: 本报告为AI归纳草稿，请结合 trace 逐步核验。"

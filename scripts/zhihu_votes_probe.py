@@ -25,4 +25,5 @@ async def main():
             data = d.get("data") or []
             print("  items", len(data) if isinstance(data, list) else list(d.keys())[:5])
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -4,7 +4,7 @@ ai:
   provider: deepseek
   api_key: ${DEEPSEEK_API_KEY}
   base_url: https://api.deepseek.com
-  model: deepseek-v4-flash
+  model: deepseek-chat
   timeout: 120
 
 cookie_sync:
@@ -96,7 +96,7 @@ bilibili:
 # 申请: https://developer.zhihu.com/docs?key=authorization
 zhihu:
   openapi:
-    enabled: true
+    enabled: false  # 配置 ZHIHU_ACCESS_SECRET 后设为 true
     base_url: https://developer.zhihu.com
     access_secret: ${ZHIHU_ACCESS_SECRET}
     prefer_search: true       # 优先走 openapi，失败再 search_v3 / Playwright / SERP

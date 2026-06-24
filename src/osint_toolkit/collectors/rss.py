@@ -43,4 +43,8 @@ class RssCollector(BaseCollector):
     async def fetch(self, url: str) -> IntelItem:
         from osint_toolkit.collectors.web import WebCollector
 
-        return await WebCollector().fetch(url)
+        collector = WebCollector()
+        try:
+            return await collector.fetch(url)
+        finally:
+            await collector.aclose()

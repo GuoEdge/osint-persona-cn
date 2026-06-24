@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.behavior_signals import score_event
 from osint_toolkit.storage.sqlite import connect
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 
 def _zhihu_hot_list_lines_sync(*, limit: int = 15) -> list[str]:
@@ -47,7 +48,7 @@ def generate_daily_digest(
         text = generate_ai_daily_digest(maybe_load_persona_context(), no_ai=no_ai)
         out = get_data_dir() / "digests" / f"{datetime.now(UTC).date()}.md"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+        atomic_write_text(out, text)
         return text
 
     conn = connect()
@@ -75,5 +76,5 @@ def generate_daily_digest(
     text = "\n".join(lines)
     out = get_data_dir() / "digests" / f"{datetime.now(UTC).date()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(text, encoding="utf-8")
+    atomic_write_text(out, text)
     return text

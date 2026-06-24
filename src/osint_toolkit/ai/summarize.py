@@ -64,6 +64,8 @@ def summarize_item(
     except Exception as exc:  # noqa: BLE001
         meta["ai_error"] = str(exc)
         return _fallback_summary(item), meta
+    if not summary or not summary.strip() or len(summary.strip()) < 10:
+        summary = _fallback_summary(item)
     item.summary = summary
     return summary, meta
 
@@ -90,7 +92,10 @@ def summarize_batch(
             for item in items
         ]
 
-    shared_client = client or DeepSeekClient()
+    try:
+        shared_client = client or DeepSeekClient()
+    except Exception:  # noqa: BLE001
+        shared_client = None
 
     def _one(item: IntelItem) -> dict:
         summary, meta = summarize_item(

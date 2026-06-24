@@ -12,6 +12,7 @@ _POOL_LOCK = threading.Lock()
 _POOL: list[sqlite3.Connection] = []
 _MAX_POOL_SIZE = 5
 _POOL_DB_PATH: Path | None = None
+_SCHEMA_READY: set[str] = set()
 
 
 def _reset_pool_if_path_changed(path: Path) -> None:
@@ -25,6 +26,7 @@ def _reset_pool_if_path_changed(path: Path) -> None:
             except sqlite3.Error:
                 pass
         _POOL.clear()
+        _SCHEMA_READY.clear()
         _POOL_DB_PATH = path
 
 
@@ -44,6 +46,12 @@ class _PooledConnection:
     def close(self) -> None:
         _release_connection(self._conn)
 
+    def __enter__(self) -> _PooledConnection:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
 
 def _create_connection() -> sqlite3.Connection:
     path = get_db_path()
@@ -52,7 +60,10 @@ def _create_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
-    init_schema(conn)
+    if str(path) not in _SCHEMA_READY:
+        init_schema(conn)
+        with _POOL_LOCK:
+            _SCHEMA_READY.add(str(path))
     return conn
 
 

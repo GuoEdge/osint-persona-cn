@@ -71,6 +71,13 @@ const EventQueue = {
     } catch (_) {}
   },
   async flush() {
+    EventQueue._flushChain = (EventQueue._flushChain || Promise.resolve()).then(() => EventQueue._doFlush()).catch((e) => {
+      EventQueue._flushChain = null;
+      throw e;
+    });
+    return EventQueue._flushChain;
+  },
+  async _doFlush() {
     let remaining = await EventQueue._load();
     if (!remaining.length) {
       EventQueue._updateBadge(0);

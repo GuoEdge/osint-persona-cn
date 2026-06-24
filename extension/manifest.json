@@ -22,6 +22,7 @@
     "https://sspai.com/*",
     "https://www.huxiu.com/*",
     "https://36kr.com/*",
+    "https://*.xiaohongshu.com/*",
     "https://www.xiaohongshu.com/*",
     "https://weibo.com/*",
     "https://*.weibo.com/*",
@@ -66,8 +67,10 @@
         "https://*.juejin.cn/*",
         "https://sspai.com/*",
         "https://www.huxiu.com/*",
-        "https://36kr.com/*",
-        "https://www.xiaohongshu.com/*",
+    "https://36kr.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://*.xiaohongshu.com/*",
         "https://weibo.com/*",
         "https://*.weibo.com/*",
         "https://www.douban.com/*",
@@ -86,7 +89,11 @@
   "web_accessible_resources": [
     {
       "resources": ["content/inject.js"],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "https://*.bilibili.com/*",
+        "https://*.zhihu.com/*",
+        "https://github.com/*"
+      ]
     }
   ]
 }

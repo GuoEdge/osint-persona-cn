@@ -34,12 +34,12 @@ def analyze_query(
     if no_ai or not is_step_enabled("query_analyze", no_ai=no_ai, disabled_steps=disabled_steps):
         return _default_result(query, sources)
 
-    client = DeepSeekClient()
     prompt_tpl, _ = load_prompt("query_analyze")
     brief = (persona_ctx.brief if persona_ctx else "")[:1500]
     hints = (persona_ctx.interest_hints[:5] if persona_ctx else [])
 
     try:
+        client = DeepSeekClient()
         raw = client.chat(
             messages=[
                 {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -11,6 +12,12 @@ from osint_toolkit.ingest.bilibili_wbi import wbi_get
 from osint_toolkit.storage.knowledge import log_events_batch
 
 logger = logging.getLogger(__name__)
+
+
+async def _aclose_if_real(client: Any) -> None:
+    aclose = getattr(client, "aclose", None)
+    if asyncio.iscoroutinefunction(aclose):
+        await aclose()
 
 
 def _video_url(item: dict) -> str:
@@ -81,7 +88,12 @@ async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
+        page = 0
         while len(results) < limit:
+            page += 1
+            if page > 100:
+                break
+            before = len(results)
             resp = await client.get(url)
             payload = resp.json()
             if _check_bili_auth(payload):
@@ -115,12 +127,16 @@ async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
             cursor = data.get("cursor") or {}
             if not cursor.get("max"):
                 break
+            if len(results) == before:
+                break
             url = (
                 "https://api.bilibili.com/x/web-interface/history/cursor"
                 f"?max={cursor['max']}&view_at={cursor['view_at']}&business=archive&ps=20"
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("bilibili history ingest failed: %s", exc)
+    finally:
+        await _aclose_if_real(client)
     return results
 
 
@@ -206,6 +222,8 @@ async def _fetch_favorite_entries(limit: int) -> list[dict[str, Any]]:
                 break
     except Exception as exc:  # noqa: BLE001
         logger.warning("bilibili favorites ingest failed: %s", exc)
+    finally:
+        await _aclose_if_real(client)
     return results
 
 
@@ -258,53 +276,56 @@ async def _fetch_like_entries(limit: int) -> list[dict[str, Any]]:
             logger.warning("bilibili sdk likes failed, fallback to httpx: %s", exc)
 
     client = HttpClient()
-    mid = await _nav_mid(client)
-    if not mid:
-        return []
-    results: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    pn = 1
     try:
-        while len(results) < limit:
-            payload = await wbi_get(
-                client,
-                "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
-                {"pn": pn, "ps": 20},
-            )
-            if _check_bili_auth(payload):
-                break
-            if payload.get("code") not in (0, None):
-                break
-            items = (payload.get("data") or {}).get("list") or []
-            if not items:
-                if pn == 1:
+        mid = await _nav_mid(client)
+        if not mid:
+            return []
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        pn = 1
+        try:
+            while len(results) < limit:
+                payload = await wbi_get(
+                    client,
+                    "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
+                    {"pn": pn, "ps": 20},
+                )
+                if _check_bili_auth(payload):
+                    break
+                if payload.get("code") not in (0, None):
+                    break
+                items = (payload.get("data") or {}).get("list") or []
+                if not items:
+                    if pn == 1:
+                        resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
+                        legacy = resp.json()
+                        if legacy.get("code") in (0, None):
+                            data = legacy.get("data")
+                            legacy_items = data if isinstance(data, list) else (data or {}).get("list") or []
+                            return _like_entries_from_items(legacy_items, seen=seen, limit=limit)
+                    break
+                before = len(results)
+                results.extend(_like_entries_from_items(items, seen=seen, limit=limit))
+                if len(results) >= limit or len(results) == before:
+                    break
+                if len(items) < 20:
+                    break
+                pn += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili likes ingest failed: %s", exc)
+            if not results:
+                try:
                     resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
                     legacy = resp.json()
                     if legacy.get("code") in (0, None):
                         data = legacy.get("data")
                         legacy_items = data if isinstance(data, list) else (data or {}).get("list") or []
                         return _like_entries_from_items(legacy_items, seen=seen, limit=limit)
-                break
-            before = len(results)
-            results.extend(_like_entries_from_items(items, seen=seen, limit=limit))
-            if len(results) >= limit or len(results) == before:
-                break
-            if len(items) < 20:
-                break
-            pn += 1
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("bilibili likes ingest failed: %s", exc)
-        if not results:
-            try:
-                resp = await client.get(f"https://api.bilibili.com/x/space/like/video?vmid={mid}")
-                legacy = resp.json()
-                if legacy.get("code") in (0, None):
-                    data = legacy.get("data")
-                    legacy_items = data if isinstance(data, list) else (data or {}).get("list") or []
-                    return _like_entries_from_items(legacy_items, seen=seen, limit=limit)
-            except Exception as legacy_exc:  # noqa: BLE001
-                logger.warning("bilibili likes legacy fallback failed: %s", legacy_exc)
-    return results
+                except Exception as legacy_exc:  # noqa: BLE001
+                    logger.warning("bilibili likes legacy fallback failed: %s", legacy_exc)
+        return results
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_likes(limit: int = 500) -> list[dict]:
@@ -335,53 +356,56 @@ async def _fetch_following_entries(limit: int) -> list[dict[str, Any]]:
             logger.warning("bilibili sdk followings failed, fallback to httpx: %s", exc)
 
     client = HttpClient()
-    mid = await _nav_mid(client)
-    if not mid:
-        return []
-    results: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    pn = 1
     try:
-        while len(results) < limit:
-            if pn > 100:
-                break
-            resp = await client.get(
-                "https://api.bilibili.com/x/relation/followings"
-                f"?vmid={mid}&pn={pn}&ps=50&order=desc"
-            )
-            payload = resp.json()
-            if _check_bili_auth(payload):
-                break
-            if payload.get("code") not in (0, None):
-                break
-            batch = (payload.get("data") or {}).get("list") or []
-            if not batch:
-                break
-            for user in batch:
-                uid = user.get("mid")
-                if not uid:
-                    continue
-                url = f"https://space.bilibili.com/{uid}"
-                if url in seen:
-                    continue
-                seen.add(url)
-                results.append(
-                    {
-                        "source": "bilibili",
-                        "title": user.get("uname", ""),
-                        "url": url,
-                        "event_kind": "following",
-                        "uid": uid,
-                    }
-                )
-                if len(results) >= limit:
+        mid = await _nav_mid(client)
+        if not mid:
+            return []
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        pn = 1
+        try:
+            while len(results) < limit:
+                if pn > 100:
                     break
-            if len(batch) < 50:
-                break
-            pn += 1
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("bilibili followings ingest failed: %s", exc)
-    return results
+                resp = await client.get(
+                    "https://api.bilibili.com/x/relation/followings"
+                    f"?vmid={mid}&pn={pn}&ps=50&order=desc"
+                )
+                payload = resp.json()
+                if _check_bili_auth(payload):
+                    break
+                if payload.get("code") not in (0, None):
+                    break
+                batch = (payload.get("data") or {}).get("list") or []
+                if not batch:
+                    break
+                for user in batch:
+                    uid = user.get("mid")
+                    if not uid:
+                        continue
+                    url = f"https://space.bilibili.com/{uid}"
+                    if url in seen:
+                        continue
+                    seen.add(url)
+                    results.append(
+                        {
+                            "source": "bilibili",
+                            "title": user.get("uname", ""),
+                            "url": url,
+                            "event_kind": "following",
+                            "uid": uid,
+                        }
+                    )
+                    if len(results) >= limit:
+                        break
+                if len(batch) < 50:
+                    break
+                pn += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili followings ingest failed: %s", exc)
+        return results
+    finally:
+        await _aclose_if_real(client)
 
 
 async def ingest_followings(limit: int = 500) -> list[dict]:

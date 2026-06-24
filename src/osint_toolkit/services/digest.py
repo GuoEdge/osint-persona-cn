@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from osint_toolkit.auth.paths import get_data_dir
@@ -32,9 +33,9 @@ def list_daily_digests(limit: int = 30) -> list[dict[str, Any]]:
 
 def load_daily_digest(date: str) -> dict[str, Any]:
     """读取指定日期的简报存档。"""
-    safe = date.strip().replace("/", "-")
-    if not safe or ".." in safe:
-        raise ValueError("invalid digest date")
+    safe = date.strip()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", safe):
+        raise ValueError("日期格式应为 YYYY-MM-DD")
     path = get_data_dir() / "digests" / f"{safe}.md"
     if not path.exists():
         raise FileNotFoundError(f"digest not found: {date}")

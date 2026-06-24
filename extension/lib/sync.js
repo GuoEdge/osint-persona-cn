@@ -20,35 +20,38 @@ const BackgroundSync = {
     const maxPages = await BackgroundSync._getSyncConfig("max_pages_per_run", 3);
     const tabIds = [];
 
-    for (const page of scrollPages.slice(0, maxPages)) {
-      try {
-        const tab = await chrome.tabs.create({ url: page.url, active: false });
-        tabIds.push(tab.id);
-        const initialWait = await BackgroundSync._getSyncConfig("initial_wait_ms", 3000);
-        await BackgroundSync._sleep(initialWait);
-        if (tab.id) {
-          const pageWarn = await BackgroundSync._checkPageError(tab.id);
-          if (pageWarn) {
-            warnings.push(`${page.label}: ${pageWarn}`);
-            break;
+    try {
+      for (const page of scrollPages.slice(0, maxPages)) {
+        try {
+          const tab = await chrome.tabs.create({ url: page.url, active: false });
+          tabIds.push(tab.id);
+          const initialWait = await BackgroundSync._getSyncConfig("initial_wait_ms", 3000);
+          await BackgroundSync._sleep(initialWait);
+          if (tab.id) {
+            const pageWarn = await BackgroundSync._checkPageError(tab.id);
+            if (pageWarn) {
+              warnings.push(`${page.label}: ${pageWarn}`);
+              break;
+            }
+            await BackgroundSync._autoscroll(tab.id);
+            await BackgroundSync._sleep(4000);
+            stats.scroll.pages += 1;
           }
-          await BackgroundSync._autoscroll(tab.id);
-          await BackgroundSync._sleep(4000);
-          stats.scroll.pages += 1;
+          const gap = await BackgroundSync._getSyncConfig("page_gap_ms", 5000);
+          await BackgroundSync._sleep(gap + Math.floor(Math.random() * 3000));
+        } catch (err) {
+          warnings.push(`${page.label}: ${String(err.message || err)}`);
+          break;
         }
-        const gap = await BackgroundSync._getSyncConfig("page_gap_ms", 5000);
-        await BackgroundSync._sleep(gap + Math.floor(Math.random() * 3000));
-      } catch (err) {
-        warnings.push(`${page.label}: ${String(err.message || err)}`);
-        break;
       }
-    }
 
-    await EventQueue.flush();
-    for (const id of tabIds) {
-      try {
-        await chrome.tabs.remove(id);
-      } catch (_) {}
+      await EventQueue.flush();
+    } finally {
+      for (const id of tabIds) {
+        try {
+          await chrome.tabs.remove(id);
+        } catch (_) {}
+      }
     }
 
     const result = { stats, warnings, ok: warnings.length === 0 };

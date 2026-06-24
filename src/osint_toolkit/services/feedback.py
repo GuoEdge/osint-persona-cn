@@ -8,6 +8,7 @@ from typing import Any
 from osint_toolkit.feedback.apply import apply_step_feedback
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.services.run_session import run_dir_for_read
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 
 def submit_feedback(
@@ -78,7 +79,7 @@ def override_simulation(
                     else:
                         s.pop("reason", None)
                     break
-            sim_path.write_text(json.dumps(sims, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_text(sim_path, json.dumps(sims, ensure_ascii=False, indent=2))
             updated_sim = True
             break
         except (json.JSONDecodeError, OSError):
@@ -100,7 +101,7 @@ def override_simulation(
                         signals.pop("fold_reason", None)
                     updated_rel = True
                     break
-            dedup_path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_text(dedup_path, json.dumps(items, ensure_ascii=False, indent=2))
             break
         except (json.JSONDecodeError, OSError):
             continue

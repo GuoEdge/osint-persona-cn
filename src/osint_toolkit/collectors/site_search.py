@@ -22,6 +22,7 @@ def build_site_collector(
         _domain = domain
 
         def __init__(self, client: HttpClient | None = None) -> None:
+            self._owns_client = client is None
             self.client = client or HttpClient()
 
         async def search(self, query: str, limit: int = 10) -> list[IntelItem]:

@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.feedback.store import FeedbackStore
-from osint_toolkit.services.run_session import read_manifest, read_request
+from osint_toolkit.services.run_session import read_manifest, read_request, run_dir_for_read
 from osint_toolkit.services.search_params import SEARCH_SESSION_KEYS, pipeline_search_kwargs
 
 
@@ -18,7 +17,7 @@ def build_fork_search_params(fork_from_run_id: str, overrides: dict[str, Any]) -
     if not base.get("query") and manifest.get("query"):
         base["query"] = manifest["query"]
 
-    run_dir = get_data_dir() / "runs" / fork_from_run_id
+    run_dir = run_dir_for_read(fork_from_run_id)
     report_path = run_dir / "report.md"
     report_snippet = ""
     if report_path.exists():

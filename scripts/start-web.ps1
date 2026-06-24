@@ -20,8 +20,14 @@ function Write-Banner {
 function Get-PythonExe {
     $venvPy = Join-Path $Root ".venv\Scripts\python.exe"
     if (Test-Path $venvPy) { return $venvPy }
-    $py312 = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
-    if (Test-Path $py312) { return $py312 }
+    $pyCandidates = @("Python313", "Python312", "Python311")
+    foreach ($ver in $pyCandidates) {
+        $p = Join-Path $env:LOCALAPPDATA "Programs\Python\$ver\python.exe"
+        if (Test-Path $p) {
+            $v = & $p -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+            if ($v -and [version]$v -lt [version]"3.14") { return $p }
+        }
+    }
     $py = Get-Command python -ErrorAction SilentlyContinue
     if ($py) {
         $ver = & $py.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"

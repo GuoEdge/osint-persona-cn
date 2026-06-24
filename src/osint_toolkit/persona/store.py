@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 DEFAULT_MODEL: dict[str, Any] = {
     "version": 1,
@@ -47,7 +48,7 @@ def load_mental_model() -> dict[str, Any]:
 
 def save_mental_model(data: dict[str, Any]) -> Path:
     path = mental_model_path()
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    atomic_write_text(path, yaml.dump(data, allow_unicode=True, sort_keys=False))
     return path
 
 
@@ -60,7 +61,7 @@ def load_persona_brief() -> str:
 
 def save_persona_brief(text: str) -> Path:
     path = persona_brief_path()
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
     return path
 
 
@@ -145,8 +146,8 @@ def rollback_version(version: int) -> bool:
     src = persona_dir() / f"mental_model.v{version}.yaml"
     if not src.exists():
         return False
-    mental_model_path().write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    atomic_write_text(mental_model_path(), src.read_text(encoding="utf-8"))
     brief_src = persona_dir() / f"persona_brief.v{version}.md"
     if brief_src.exists():
-        persona_brief_path().write_text(brief_src.read_text(encoding="utf-8"), encoding="utf-8")
+        atomic_write_text(persona_brief_path(), brief_src.read_text(encoding="utf-8"))
     return True

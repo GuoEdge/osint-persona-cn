@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,7 +26,7 @@ templates = Jinja2Templates(directory=str(_templates_dir))
 router = APIRouter()
 
 
-def _nav_context(active: str) -> dict:
+def _nav_context_sync(active: str) -> dict:
     return {
         "nav_groups": [
             {
@@ -69,9 +70,13 @@ def _nav_context(active: str) -> dict:
     }
 
 
+async def _nav_context(active: str) -> dict:
+    return await asyncio.to_thread(_nav_context_sync, active)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def page_workspace(request: Request) -> HTMLResponse:
-    ctx = _nav_context("workspace")
+    ctx = await _nav_context("workspace")
     return templates.TemplateResponse(request, "workspace.html", ctx)
 
 
@@ -85,46 +90,46 @@ async def page_save(request: Request, url: str = "") -> HTMLResponse:
 
 @router.get("/knowledge", response_class=HTMLResponse)
 async def page_knowledge(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "knowledge.html", _nav_context("knowledge"))
+    return templates.TemplateResponse(request, "knowledge.html", await _nav_context("knowledge"))
 
 
 @router.get("/digest", response_class=HTMLResponse)
 async def page_digest(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "digest.html", _nav_context("digest"))
+    return templates.TemplateResponse(request, "digest.html", await _nav_context("digest"))
 
 
 @router.get("/persona", response_class=HTMLResponse)
 async def page_persona(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "persona.html", _nav_context("persona"))
+    return templates.TemplateResponse(request, "persona.html", await _nav_context("persona"))
 
 
 @router.get("/ingest", response_class=HTMLResponse)
 async def page_ingest(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "ingest.html", _nav_context("ingest"))
+    return templates.TemplateResponse(request, "ingest.html", await _nav_context("ingest"))
 
 
 @router.get("/behavior", response_class=HTMLResponse)
 async def page_behavior(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "behavior.html", _nav_context("behavior"))
+    return templates.TemplateResponse(request, "behavior.html", await _nav_context("behavior"))
 
 
 @router.get("/runs", response_class=HTMLResponse)
 async def page_runs(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "runs.html", _nav_context("runs"))
+    return templates.TemplateResponse(request, "runs.html", await _nav_context("runs"))
 
 
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 async def page_run_detail(request: Request, run_id: str) -> HTMLResponse:
-    ctx = _nav_context("runs")
+    ctx = await _nav_context("runs")
     ctx["run_id"] = run_id
     return templates.TemplateResponse(request, "run_detail.html", ctx)
 
 
 @router.get("/ai", response_class=HTMLResponse)
 async def page_ai(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "ai.html", _nav_context("ai"))
+    return templates.TemplateResponse(request, "ai.html", await _nav_context("ai"))
 
 
 @router.get("/settings", response_class=HTMLResponse)
 async def page_settings(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "settings.html", _nav_context("settings"))
+    return templates.TemplateResponse(request, "settings.html", await _nav_context("settings"))

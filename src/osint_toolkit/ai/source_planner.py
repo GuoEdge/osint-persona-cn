@@ -152,7 +152,6 @@ def plan_sources(
         key=lambda x: -x[1],
     )[:8]
 
-    client = DeepSeekClient()
     prompt_tpl, _ = load_prompt("source_plan")
     brief = (persona_ctx.brief if persona_ctx else "")[:1200]
     hints = persona_ctx.interest_hints[:5] if persona_ctx else []
@@ -173,6 +172,7 @@ def plan_sources(
     )
 
     try:
+        client = DeepSeekClient()
         raw = client.chat(
             messages=[
                 {

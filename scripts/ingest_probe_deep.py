@@ -48,5 +48,6 @@ async def zhihu():
         print("z", u.split("?")[0].split("/")[-1], r.status_code)
         print(r.text[:400])
 
-asyncio.run(bili())
-asyncio.run(zhihu())
+if __name__ == "__main__":
+    asyncio.run(bili())
+    asyncio.run(zhihu())

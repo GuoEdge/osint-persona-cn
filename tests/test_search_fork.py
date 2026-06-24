@@ -9,7 +9,6 @@ from osint_toolkit.services.search_fork import build_fork_search_params
 
 def test_fork_inherits_query_and_sets_fork_id(tmp_path, monkeypatch):
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("osint_toolkit.services.search_fork.get_data_dir", lambda: tmp_path)
     run_id = "20260101-120000-a1b2c3d4"
     run_dir = tmp_path / "runs" / run_id
     run_dir.mkdir(parents=True)

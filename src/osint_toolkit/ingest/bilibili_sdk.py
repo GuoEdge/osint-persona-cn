@@ -298,8 +298,13 @@ async def ingest_history(limit: int = 500) -> list[dict]:
     seen: set[str] = set()
     view_at: int | None = 0
     max_oid: int | None = 0
+    page = 0
 
     while len(results) < limit:
+        page += 1
+        if page > 100:
+            break
+        before = len(results)
         payload = await user.get_self_history_new(
             credential=credential,
             view_at=view_at,
@@ -336,6 +341,8 @@ async def ingest_history(limit: int = 500) -> list[dict]:
             break
         view_at = cursor.get("view_at")
         max_oid = cursor.get("max")
+        if len(results) == before:
+            break
     return results
 
 
@@ -362,6 +369,9 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
             continue
         page = 1
         while len(results) < limit:
+            if page > 100:
+                break
+            before = len(results)
             content_payload = await favorite_list.get_video_favorite_list_content(
                 int(media_id),
                 page=page,
@@ -388,6 +398,8 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                 )
                 if len(results) >= limit:
                     break
+            if len(results) == before:
+                break
             if len(medias) < 20:
                 break
             page += 1
@@ -413,6 +425,9 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
     seen: set[str] = set()
     page = 1
     while len(results) < limit:
+        if page > 100:
+            break
+        before = len(results)
         payload = await u.get_followings(pn=page, ps=50)
         batch = (payload.get("data") or {}).get("list") or []
         if not batch:
@@ -438,6 +453,8 @@ async def ingest_followings(limit: int = 500) -> list[dict]:
                 break
         if len(batch) < 50:
             break
+        if len(results) == before:
+            break
         page += 1
     return results
 
@@ -453,42 +470,45 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
 
     configure_sdk()
     client = HttpClient()
-    results: list[dict] = []
-    seen: set[str] = set()
-    pn = 1
-    while len(results) < limit:
-        payload = await wbi_get(
-            client,
-            "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
-            {"pn": pn, "ps": 20},
-        )
-        if payload.get("code") not in (0, None):
-            raise RuntimeError(payload.get("message") or f"bilibili likes code={payload.get('code')}")
-        items = (payload.get("data") or {}).get("list") or []
-        if not items:
-            break
-        before = len(results)
-        for item in items:
-            url = _video_url_from_history(item)
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            results.append(
-                {
-                    "source": "bilibili",
-                    "title": item.get("title", ""),
-                    "url": url,
-                    "event_kind": "like",
-                }
+    try:
+        results: list[dict] = []
+        seen: set[str] = set()
+        pn = 1
+        while len(results) < limit:
+            payload = await wbi_get(
+                client,
+                "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
+                {"pn": pn, "ps": 20},
             )
-            if len(results) >= limit:
+            if payload.get("code") not in (0, None):
+                raise RuntimeError(payload.get("message") or f"bilibili likes code={payload.get('code')}")
+            items = (payload.get("data") or {}).get("list") or []
+            if not items:
                 break
-        if len(results) >= limit or len(results) == before:
-            break
-        if len(items) < 20:
-            break
-        pn += 1
-    return results
+            before = len(results)
+            for item in items:
+                url = _video_url_from_history(item)
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                results.append(
+                    {
+                        "source": "bilibili",
+                        "title": item.get("title", ""),
+                        "url": url,
+                        "event_kind": "like",
+                    }
+                )
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit or len(results) == before:
+                break
+            if len(items) < 20:
+                break
+            pn += 1
+        return results
+    finally:
+        await client.aclose()
 
 
 _COMMENT_TYPE_MAP: dict[int, Any] = {}
@@ -627,8 +647,11 @@ async def _download_subtitle_text(sub_url: str) -> str:
     if sub_url.startswith("//"):
         sub_url = "https:" + sub_url
     client = HttpClient()
-    body = await client.get_text(sub_url)
-    return parse_subtitle_json(body)
+    try:
+        body = await client.get_text(sub_url)
+        return parse_subtitle_json(body)
+    finally:
+        await client.aclose()
 
 
 def _subtitle_tracks_from_payload(payload: dict) -> list[dict]:
@@ -671,31 +694,36 @@ async def resolve_video_aid_cid(
     from osint_toolkit.http.client import HttpClient
 
     bvid, aid = parse_video_ref(url)
+    owns = client is None
     http = client or HttpClient()
-    if bvid:
-        resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
-    elif aid:
-        resp = await http.get(f"{_VIEW_API}?aid={aid}")
-    else:
-        return None, None
-    payload = resp.json()
-    if payload.get("code") not in (0, None):
-        return None, None
-    data = payload.get("data") or {}
-    resolved_aid = data.get("aid") or aid
-    pages = data.get("pages") or []
-    cid = None
-    if pages:
-        idx = min(max(page_index, 0), len(pages) - 1)
-        cid = pages[idx].get("cid")
-    if not cid:
-        cid = data.get("cid")
     try:
-        aid_int = int(resolved_aid) if resolved_aid is not None else None
-        cid_int = int(cid) if cid is not None else None
-    except (TypeError, ValueError):
-        return None, None
-    return aid_int, cid_int
+        if bvid:
+            resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
+        elif aid:
+            resp = await http.get(f"{_VIEW_API}?aid={aid}")
+        else:
+            return None, None
+        payload = resp.json()
+        if payload.get("code") not in (0, None):
+            return None, None
+        data = payload.get("data") or {}
+        resolved_aid = data.get("aid") or aid
+        pages = data.get("pages") or []
+        cid = None
+        if pages:
+            idx = min(max(page_index, 0), len(pages) - 1)
+            cid = pages[idx].get("cid")
+        if not cid:
+            cid = data.get("cid")
+        try:
+            aid_int = int(resolved_aid) if resolved_aid is not None else None
+            cid_int = int(cid) if cid is not None else None
+        except (TypeError, ValueError):
+            return None, None
+        return aid_int, cid_int
+    finally:
+        if owns:
+            await http.aclose()
 
 
 async def fetch_video_meta(url: str, *, client=None) -> dict[str, Any]:
@@ -704,25 +732,30 @@ async def fetch_video_meta(url: str, *, client=None) -> dict[str, Any]:
     from osint_toolkit.processors.normalize import html_to_text
 
     bvid, aid = parse_video_ref(url)
+    owns = client is None
     http = client or HttpClient()
-    if bvid:
-        resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
-    elif aid:
-        resp = await http.get(f"{_VIEW_API}?aid={aid}")
-    else:
-        return {}
-    payload = resp.json()
-    if payload.get("code") not in (0, None):
-        return {}
-    data = payload.get("data") or {}
-    owner = data.get("owner") or {}
-    return {
-        "title": str(data.get("title") or ""),
-        "desc": _normalize_video_desc(
-            html_to_text(str(data.get("desc") or data.get("description") or ""))
-        ),
-        "author": str(owner.get("name") or ""),
-    }
+    try:
+        if bvid:
+            resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
+        elif aid:
+            resp = await http.get(f"{_VIEW_API}?aid={aid}")
+        else:
+            return {}
+        payload = resp.json()
+        if payload.get("code") not in (0, None):
+            return {}
+        data = payload.get("data") or {}
+        owner = data.get("owner") or {}
+        return {
+            "title": str(data.get("title") or ""),
+            "desc": _normalize_video_desc(
+                html_to_text(str(data.get("desc") or data.get("description") or ""))
+            ),
+            "author": str(owner.get("name") or ""),
+        }
+    finally:
+        if owns:
+            await http.aclose()
 
 
 async def fetch_subtitle_for_aid_cid(
@@ -737,43 +770,48 @@ async def fetch_subtitle_for_aid_cid(
     from osint_toolkit.processors.subtitle import pick_subtitle_track
 
     http = client or HttpClient()
+    owns = client is None
     params = {"aid": aid, "cid": cid}
     last_reason = "no_tracks"
-    for source in ("wbi_player", "player_v2"):
-        try:
-            if source == "wbi_player":
-                payload = await wbi_get(http, "https://api.bilibili.com/x/player/wbi/v2", params)
-            else:
-                resp = await http.get(f"https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}")
-                payload = resp.json()
-            data = payload.get("data") or {}
-            tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
-            prefer = str(get_bilibili_config().get("subtitle_prefer") or "ai_first")
-            track = pick_subtitle_track(tracks, prefer=prefer)
-            if not track:
-                last_reason = "no_tracks"
+    try:
+        for source in ("wbi_player", "player_v2"):
+            try:
+                if source == "wbi_player":
+                    payload = await wbi_get(http, "https://api.bilibili.com/x/player/wbi/v2", params)
+                else:
+                    resp = await http.get(f"https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}")
+                    payload = resp.json()
+                data = payload.get("data") or {}
+                tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
+                prefer = str(get_bilibili_config().get("subtitle_prefer") or "ai_first")
+                track = pick_subtitle_track(tracks, prefer=prefer)
+                if not track:
+                    last_reason = "no_tracks"
+                    continue
+                sub_url = _track_subtitle_url(track)
+                if not sub_url:
+                    last_reason = "no_subtitle_url"
+                    continue
+                text = (await _download_subtitle_text(sub_url)).strip()
+                if not text:
+                    last_reason = "empty_subtitle_file"
+                    continue
+                return {"text": text, "track": track, "source": source, "aid": aid, "cid": cid}
+            except Exception as exc:  # noqa: BLE001
+                last_reason = f"{source}_error:{exc.__class__.__name__}"
                 continue
-            sub_url = _track_subtitle_url(track)
-            if not sub_url:
-                last_reason = "no_subtitle_url"
-                continue
-            text = (await _download_subtitle_text(sub_url)).strip()
-            if not text:
-                last_reason = "empty_subtitle_file"
-                continue
-            return {"text": text, "track": track, "source": source, "aid": aid, "cid": cid}
-        except Exception as exc:  # noqa: BLE001
-            last_reason = f"{source}_error:{exc.__class__.__name__}"
-            continue
 
-    return {
-        "text": "",
-        "track": None,
-        "source": "player_api",
-        "aid": aid,
-        "cid": cid,
-        "reason": last_reason,
-    }
+        return {
+            "text": "",
+            "track": None,
+            "source": "player_api",
+            "aid": aid,
+            "cid": cid,
+            "reason": last_reason,
+        }
+    finally:
+        if owns:
+            await http.aclose()
 
 
 async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
@@ -801,10 +839,13 @@ async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
             logger.warning("bilibili sdk subtitle failed: %s", exc)
 
     client = HttpClient()
-    aid, cid = await resolve_video_aid_cid(url, page_index=page_index, client=client)
-    if aid and cid:
-        return await fetch_subtitle_for_aid_cid(aid, cid, client=client)
-    return {"text": "", "track": None, "source": "view_api", "reason": "aid_cid_unresolved"}
+    try:
+        aid, cid = await resolve_video_aid_cid(url, page_index=page_index, client=client)
+        if aid and cid:
+            return await fetch_subtitle_for_aid_cid(aid, cid, client=client)
+        return {"text": "", "track": None, "source": "view_api", "reason": "aid_cid_unresolved"}
+    finally:
+        await client.aclose()
 
 
 async def fetch_danmaku_lines_legacy(
@@ -817,23 +858,28 @@ async def fetch_danmaku_lines_legacy(
     from osint_toolkit.http.client import HttpClient
 
     limit = int(max_lines or get_bilibili_config().get("danmaku_max_lines") or 800)
+    owns = client is None
     http = client or HttpClient()
-    _, cid = await resolve_video_aid_cid(url, client=http)
-    if not cid:
-        return []
     try:
-        resp = await http.get(f"https://comment.bilibili.com/{cid}.xml")
-        if resp.status_code != 200:
+        _, cid = await resolve_video_aid_cid(url, client=http)
+        if not cid:
             return []
-        lines = [
-            m.strip()
-            for m in re.findall(r"<d[^>]*>([^<]+)</d>", resp.text)
-            if m.strip()
-        ]
-        return lines[:limit]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("bilibili legacy danmaku failed: %s", exc)
-        return []
+        try:
+            resp = await http.get(f"https://comment.bilibili.com/{cid}.xml")
+            if resp.status_code != 200:
+                return []
+            lines = [
+                m.strip()
+                for m in re.findall(r"<d[^>]*>([^<]+)</d>", resp.text)
+                if m.strip()
+            ]
+            return lines[:limit]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili legacy danmaku failed: %s", exc)
+            return []
+    finally:
+        if owns:
+            await http.aclose()
 
 
 async def fetch_danmaku_lines(url: str, *, max_lines: int | None = None) -> list[str]:

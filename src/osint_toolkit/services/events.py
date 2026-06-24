@@ -54,19 +54,21 @@ def list_recent_events(
     from osint_toolkit.persona.behavior_signals import score_event
 
     conn = connect()
-    sql = "SELECT id, event_type, data_json, created_at FROM events WHERE 1=1"
-    params: list[Any] = []
-    if via:
-        sql += " AND json_extract(data_json, '$.via') = ?"
-        params.append(via)
-    if event_type:
-        sql += " AND event_type = ?"
-        params.append(event_type)
-    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
-    params.extend([limit + 200, offset])
-    rows = conn.execute(sql, params).fetchall()
-    total = _cached_event_total(conn)
-    conn.close()
+    try:
+        sql = "SELECT id, event_type, data_json, created_at FROM events WHERE 1=1"
+        params: list[Any] = []
+        if via:
+            sql += " AND json_extract(data_json, '$.via') = ?"
+            params.append(via)
+        if event_type:
+            sql += " AND event_type = ?"
+            params.append(event_type)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([limit + 200, offset])
+        rows = conn.execute(sql, params).fetchall()
+        total = _cached_event_total(conn)
+    finally:
+        conn.close()
 
     items: list[dict[str, Any]] = []
     for row in rows:

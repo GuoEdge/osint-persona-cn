@@ -8,10 +8,10 @@ from typing import Any
 
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.steering import build_system_prompt
-from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.persona.context import maybe_load_persona_context
 from osint_toolkit.research.tree import add_node, load_tree, save_tree
+from osint_toolkit.services.run_session import run_dir_for_read
 from osint_toolkit.services.runs import show_run
 
 
@@ -20,7 +20,7 @@ def _now_iso() -> str:
 
 
 def _useful_titles_for_run(run_id: str) -> list[str]:
-    run_dir = get_data_dir() / "runs" / run_id
+    run_dir = run_dir_for_read(run_id)
     item_by_id: dict[str, dict[str, Any]] = {}
     for path in run_dir.glob("*items_dedup.json"):
         try:
@@ -42,7 +42,7 @@ def _useful_titles_for_run(run_id: str) -> list[str]:
 
 
 def _run_item_titles(run_id: str, *, limit: int = 12) -> list[str]:
-    run_dir = get_data_dir() / "runs" / run_id
+    run_dir = run_dir_for_read(run_id)
     titles: list[str] = []
     for path in run_dir.glob("*items_dedup.json"):
         try:

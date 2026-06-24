@@ -10,7 +10,7 @@ from openai import OpenAI
 from osint_toolkit.utils.config import get_ai_config
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = "deepseek-chat"
 
 
 def _default_extra_body(model: str) -> dict[str, Any] | None:

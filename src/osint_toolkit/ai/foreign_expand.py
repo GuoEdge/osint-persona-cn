@@ -101,8 +101,8 @@ def _ai_foreign_expand(
     if no_ai or not is_step_enabled("foreign_expand", no_ai=no_ai, disabled_steps=disabled_steps):
         return [], []
     prompt_tpl, _ = load_prompt("foreign_expand")
-    client = DeepSeekClient()
     try:
+        client = DeepSeekClient()
         raw = client.chat(
             messages=[
                 {"role": "system", "content": build_system_prompt(task="外文拓展")},

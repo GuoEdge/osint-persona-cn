@@ -17,3 +17,7 @@ class BaseCollector(ABC):
     @abstractmethod
     async def fetch(self, url: str) -> IntelItem:
         raise NotImplementedError
+
+    async def aclose(self) -> None:
+        if getattr(self, "_owns_client", False) and self.client is not None:
+            await self.client.aclose()

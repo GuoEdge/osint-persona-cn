@@ -14,7 +14,7 @@ from osint_toolkit.services import search as search_mod
 async def test_collect_uses_multiple_queries(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    async def fake_collect(source: str, query: str, limit: int):
+    async def fake_collect(source: str, query: str, limit: int, **kwargs):
         calls.append((source, query))
         return (
             [

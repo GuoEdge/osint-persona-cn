@@ -14,11 +14,12 @@ from osint_toolkit.collectors.weixin import WeixinCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
 from osint_toolkit.exporters.card import export_card
 from osint_toolkit.models.intel_item import IntelItem
+from osint_toolkit.services.run_session import run_dir_for_read
 from osint_toolkit.storage.knowledge import save_item
 
 
 def _load_run_dedup_items(run_id: str) -> list[IntelItem]:
-    run_dir = get_data_dir() / "runs" / run_id
+    run_dir = run_dir_for_read(run_id)
     if not run_dir.exists():
         raise FileNotFoundError(f"run not found: {run_id}")
     for path in sorted(run_dir.glob("*items_dedup.json")):
@@ -71,30 +72,40 @@ async def save_url(
     except SSRFError as exc:
         raise ValueError(str(exc)) from exc
     host = urlparse(url).hostname or ""
-    if "zhihu.com" in host:
-        collector = ZhihuCollector()
-        item = await collector.fetch(url)
-        if with_comments:
-            comments = await collector.fetch_comments(url)
-            item.layers["comments"] = comments
-            item.layers["comments_summary"] = await summarize_comments(comments, no_ai=no_ai)
-    elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
-        collector = WeixinCollector()
-        item = await collector.fetch(url)
-    elif "bilibili.com" in host:
-        collector = BilibiliCollector()
-        item = await collector.fetch(url)
-        if item.type == "video":
-            try:
-                await collector.enrich_video(item)
-            except Exception:  # noqa: BLE001
-                pass
-        if with_comments:
-            comments = await collector.fetch_comments(url)
-            item.layers["comments"] = comments
-            item.layers["comments_summary"] = await summarize_comments(comments, no_ai=no_ai)
-    else:
-        item = await WebCollector().fetch(url)
-    save_item(item)
-    card_path = export_card(item, get_data_dir() / "cards")
-    return {"item": item, "card_path": str(card_path)}
+    collector = None
+    try:
+        if "zhihu.com" in host:
+            collector = ZhihuCollector()
+            item = await collector.fetch(url)
+            if with_comments:
+                comments = await collector.fetch_comments(url)
+                item.layers["comments"] = comments
+                summary = await summarize_comments(comments, no_ai=no_ai)
+                if summary and summary.strip():
+                    item.layers["comments_summary"] = summary
+        elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
+            collector = WeixinCollector()
+            item = await collector.fetch(url)
+        elif "bilibili.com" in host:
+            collector = BilibiliCollector()
+            item = await collector.fetch(url)
+            if item.type == "video":
+                try:
+                    await collector.enrich_video(item)
+                except Exception:  # noqa: BLE001
+                    pass
+            if with_comments:
+                comments = await collector.fetch_comments(url)
+                item.layers["comments"] = comments
+                summary = await summarize_comments(comments, no_ai=no_ai)
+                if summary and summary.strip():
+                    item.layers["comments_summary"] = summary
+        else:
+            collector = WebCollector()
+            item = await collector.fetch(url)
+        save_item(item)
+        card_path = export_card(item, get_data_dir() / "cards")
+        return {"item": item, "card_path": str(card_path)}
+    finally:
+        if collector is not None and hasattr(collector, "aclose"):
+            await collector.aclose()

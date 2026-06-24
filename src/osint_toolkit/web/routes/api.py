@@ -107,6 +107,66 @@ router = APIRouter(prefix="/api")
 
 _STEP_FILE_RE = re.compile(r"^\d+_.+\.json$")
 
+_MANIFEST_CACHE: dict[str, tuple[int, dict[str, Any] | None]] = {}
+
+
+def read_manifest_cached(run_id: str) -> dict[str, Any] | None:
+    from osint_toolkit.services.run_session import run_dir
+
+    path = run_dir(run_id) / "manifest.json"
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        _MANIFEST_CACHE.pop(run_id, None)
+        return None
+    cached = _MANIFEST_CACHE.get(run_id)
+    if cached and cached[0] == mtime_ns:
+        return cached[1]
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        parsed = None
+    _MANIFEST_CACHE[run_id] = (mtime_ns, parsed)
+    return parsed
+
+
+def _scan_run_dir(run_id: str, seen: frozenset[str]) -> dict[str, Any]:
+    """Sync helper for SSE event_stream: read manifest, progress, and new step files.
+
+    Receives an immutable *frozenset* copy of the caller's ``seen`` set so that
+    all ``seen`` mutations happen on the async side (main thread), never inside
+    the worker thread.  Returns ``new_file_names`` (ALL matched files, including
+    ones that fail JSON parsing) so the caller can update ``seen`` exactly once
+    per file, preserving the original skip-on-parse-error behaviour.
+    """
+    from osint_toolkit.pipeline.progress import get_progress
+    from osint_toolkit.services.run_session import run_dir as get_run_dir
+
+    manifest = read_manifest_cached(run_id)
+    progress = get_progress(run_id)
+    run_dir_path = get_run_dir(run_id)
+    new_steps: list[dict[str, Any]] = []
+    new_file_names: list[str] = []
+    if run_dir_path.exists():
+        new_files = sorted(
+            p
+            for p in run_dir_path.glob("*_*.json")
+            if p.name not in seen and _STEP_FILE_RE.match(p.name)
+        )
+        for path in new_files:
+            new_file_names.append(path.name)
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            new_steps.append({"file": path.name, "data": data})
+    return {
+        "manifest": manifest,
+        "progress": progress,
+        "new_steps": new_steps,
+        "new_file_names": new_file_names,
+    }
+
 
 @router.get("/health")
 async def api_health() -> dict[str, str]:
@@ -163,7 +223,10 @@ def _serialize_search_result(result: dict[str, Any]) -> dict[str, Any]:
 async def api_search_source_catalog() -> dict[str, Any]:
     from osint_toolkit.collectors.source_catalog import get_catalog_grouped, get_source_entries
 
-    return {"groups": get_catalog_grouped(), "entries": get_source_entries()}
+    return {
+        "groups": await asyncio.to_thread(get_catalog_grouped),
+        "entries": await asyncio.to_thread(get_source_entries),
+    }
 
 
 @router.get("/sources/auth-check")
@@ -224,7 +287,8 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         "parent_node_id": parent_node_id,
     }
     if body.fork_from_run_id:
-        search_kwargs = build_fork_search_params(
+        search_kwargs = await asyncio.to_thread(
+            build_fork_search_params,
             body.fork_from_run_id,
             {**search_kwargs, "query": body.query or search_kwargs.get("query", "")},
         )
@@ -232,7 +296,7 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
     tree_id = search_kwargs.get("tree_id") or tree_id
     parent_node_id = search_kwargs.get("parent_node_id") or parent_node_id
     if body.fork_from_run_id and tree_id:
-        fork_parent = find_search_node_id_for_run(tree_id, body.fork_from_run_id)
+        fork_parent = await asyncio.to_thread(find_search_node_id_for_run, tree_id, body.fork_from_run_id)
         if fork_parent:
             parent_node_id = fork_parent
     if tree_id:
@@ -245,7 +309,8 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     run_id = started["run_id"]
     if tree_id:
-        attach_search_node(
+        await asyncio.to_thread(
+            attach_search_node,
             tree_id,
             parent_node_id=parent_node_id,
             run_id=run_id,
@@ -378,7 +443,7 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
 @router.post("/search/{run_id}/cancel")
 async def api_search_cancel(run_id: str) -> dict[str, Any]:
     run_id = _validated_run_id(run_id)
-    if not cancel_job(run_id):
+    if not await asyncio.to_thread(cancel_job, run_id):
         job = get_job(run_id)
         if not job:
             raise HTTPException(404, detail="run not found")
@@ -390,16 +455,12 @@ async def api_search_cancel(run_id: str) -> dict[str, Any]:
 
 @router.get("/search/{run_id}/events")
 async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
-    from osint_toolkit.pipeline.progress import get_progress
-    from osint_toolkit.services.run_session import run_dir as get_run_dir
-
     run_id = _validated_run_id(run_id)
-    run_dir_path = get_run_dir(run_id)
 
     async def event_stream():
         from osint_toolkit.utils.config import get_search_config
 
-        search_cfg = get_search_config()
+        search_cfg = await asyncio.to_thread(get_search_config)
         collect_timeout = float(search_cfg.get("collect_timeout_sec", 900))
         sse_max_lifetime = float(search_cfg.get("sse_max_lifetime_sec", 3600))
         sse_ticks = max(1200, int(sse_max_lifetime / 0.5), int(collect_timeout * 4 / 0.5))
@@ -412,7 +473,8 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
             if await request.is_disconnected():
                 break
             job = get_job(run_id)
-            manifest = read_manifest(run_id) if not job else None
+            scan = await asyncio.to_thread(_scan_run_dir, run_id, frozenset(seen))
+            manifest = scan["manifest"] if not job else None
             terminal_status: str | None = None
             if job and job.get("status") in ("done", "cancelled", "error"):
                 terminal_status = str(job["status"])
@@ -423,58 +485,51 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
                 "interrupted",
             ):
                 terminal_status = str(manifest["status"])
-            progress = get_progress(run_id)
+            progress = scan["progress"]
             if progress:
                 progress_key = json.dumps(progress, ensure_ascii=False, sort_keys=True)
                 if progress_key != last_progress:
                     last_progress = progress_key
                     yield f"data: {json.dumps({'type': 'progress', 'progress': progress}, ensure_ascii=False)}\n\n"
-            if run_dir_path.exists():
-                for path in sorted(run_dir_path.glob("*_*.json")):
-                    if path.name == "manifest.json" or path.name in seen:
-                        continue
-                    if not _STEP_FILE_RE.match(path.name):
-                        continue
-                    seen.add(path.name)
-                    try:
-                        data = json.loads(path.read_text(encoding="utf-8"))
-                        payload = json.dumps({"type": "step", "file": path.name, "step": data}, ensure_ascii=False)
-                        yield f"data: {payload}\n\n"
-                        step_data = data.get("data") if isinstance(data, dict) else None
-                        if isinstance(step_data, dict) and step_data.get("source_errors"):
-                            err_payload = json.dumps(
-                                {"type": "source_error", "errors": step_data["source_errors"]},
-                                ensure_ascii=False,
-                            )
-                            yield f"data: {err_payload}\n\n"
-                        if isinstance(step_data, dict) and step_data.get("source_warnings"):
-                            warn_payload = json.dumps(
-                                {"type": "source_warning", "warnings": step_data["source_warnings"]},
-                                ensure_ascii=False,
-                            )
-                            yield f"data: {warn_payload}\n\n"
-                        plan_payload = None
-                        if isinstance(step_data, dict):
-                            if step_data.get("source_plan") or step_data.get("source_routing"):
-                                plan_payload = {
-                                    "source_plan": step_data.get("source_plan") or {},
-                                    "source_routing": step_data.get("source_routing") or {},
-                                    "collect_sources": step_data.get("active_sources") or [],
-                                }
-                        elif isinstance(data, dict) and data.get("step") == "ai_source_plan":
-                            inner = data.get("data") if isinstance(data.get("data"), dict) else data
-                            if isinstance(inner, dict) and (
-                                inner.get("source_plan") or inner.get("source_routing")
-                            ):
-                                plan_payload = {
-                                    "source_plan": inner.get("source_plan") or {},
-                                    "source_routing": inner.get("source_routing") or {},
-                                    "collect_sources": inner.get("active_sources") or [],
-                                }
-                        if plan_payload:
-                            yield f"data: {json.dumps({'type': 'source_plan', **plan_payload}, ensure_ascii=False)}\n\n"
-                    except json.JSONDecodeError:
-                        continue
+            for name in scan["new_file_names"]:
+                seen.add(name)
+            for step in scan["new_steps"]:
+                data = step["data"]
+                payload = json.dumps({"type": "step", "file": step["file"], "step": data}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+                step_data = data.get("data") if isinstance(data, dict) else None
+                if isinstance(step_data, dict) and step_data.get("source_errors"):
+                    err_payload = json.dumps(
+                        {"type": "source_error", "errors": step_data["source_errors"]},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {err_payload}\n\n"
+                if isinstance(step_data, dict) and step_data.get("source_warnings"):
+                    warn_payload = json.dumps(
+                        {"type": "source_warning", "warnings": step_data["source_warnings"]},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {warn_payload}\n\n"
+                plan_payload = None
+                if isinstance(step_data, dict):
+                    if step_data.get("source_plan") or step_data.get("source_routing"):
+                        plan_payload = {
+                            "source_plan": step_data.get("source_plan") or {},
+                            "source_routing": step_data.get("source_routing") or {},
+                            "collect_sources": step_data.get("active_sources") or [],
+                        }
+                elif isinstance(data, dict) and data.get("step") == "ai_source_plan":
+                    inner = data.get("data") if isinstance(data.get("data"), dict) else data
+                    if isinstance(inner, dict) and (
+                        inner.get("source_plan") or inner.get("source_routing")
+                    ):
+                        plan_payload = {
+                            "source_plan": inner.get("source_plan") or {},
+                            "source_routing": inner.get("source_routing") or {},
+                            "collect_sources": inner.get("active_sources") or [],
+                        }
+                if plan_payload:
+                    yield f"data: {json.dumps({'type': 'source_plan', **plan_payload}, ensure_ascii=False)}\n\n"
             if job and job["status"] == "done":
                 yield f"data: {json.dumps({'type': 'done', 'run_id': run_id}, ensure_ascii=False)}\n\n"
                 break
@@ -836,7 +891,7 @@ async def api_ingest_full_sync_result(job_id: str) -> dict[str, Any]:
 
 @router.post("/ingest/full-sync/{job_id}/cancel")
 async def api_ingest_full_sync_cancel(job_id: str) -> dict[str, Any]:
-    if not cancel_job(job_id):
+    if not await asyncio.to_thread(cancel_job, job_id):
         job = get_job(job_id)
         if not job:
             raise HTTPException(404, detail="job not found")
@@ -971,7 +1026,7 @@ async def api_runs_batch_delete(body: RunsBatchDeleteRequest) -> dict[str, Any]:
             continue
         job = get_job(run_id)
         if job and job.get("status") == "running":
-            cancel_job(run_id)
+            await asyncio.to_thread(cancel_job, run_id)
             skipped.append({"run_id": run_id, "reason": "was_running_cancelled"})
         try:
             await asyncio.to_thread(runs.delete_run, run_id)
@@ -1042,7 +1097,7 @@ async def api_run_delete(run_id: str) -> dict[str, Any]:
     run_id = _validated_run_id(run_id)
     job = get_job(run_id)
     if job and job.get("status") == "running":
-        cancel_job(run_id)
+        await asyncio.to_thread(cancel_job, run_id)
     try:
         await asyncio.to_thread(runs.delete_run, run_id)
     except FileNotFoundError as exc:

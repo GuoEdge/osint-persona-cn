@@ -10,6 +10,7 @@ import yaml
 
 from osint_toolkit.ai.alias_filter import has_relevance_to_query, is_valid_search_term
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 DISCOVERED_FILENAME = "discovered.yaml"
 
@@ -37,9 +38,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _save_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    atomic_write_text(
+        path,
         yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
     )
 
 

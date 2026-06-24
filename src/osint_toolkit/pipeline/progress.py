@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 _store: dict[str, dict[str, Any]] = {}
 _cancelled: set[str] = set()
@@ -104,9 +105,9 @@ def _flush_progress_disk(run_id: str, state: dict[str, Any] | None = None, *, fo
         return
     run_path = get_data_dir() / "runs" / run_id
     run_path.mkdir(parents=True, exist_ok=True)
-    (run_path / "progress.json").write_text(
+    atomic_write_text(
+        run_path / "progress.json",
         json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
     )
     _last_disk_flush[run_id] = now
 

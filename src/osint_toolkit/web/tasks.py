@@ -105,6 +105,13 @@ def drain_search_queue() -> None:
     _drain_search_queue()
 
 
+def shutdown_all_jobs() -> None:
+    """Cancel all tracked async tasks (called during app shutdown)."""
+    for task in list(_async_tasks.values()):
+        if not task.done():
+            task.cancel()
+
+
 def _search_run_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     return strip_session_keys(kwargs)
 

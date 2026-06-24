@@ -11,6 +11,27 @@ import yaml
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
+_ENV_DEP_KEYS: frozenset[str] = frozenset(
+    {
+        "OSINT_DATA_DIR",
+        "DEEPSEEK_API_KEY",
+        "ZHIHU_ACCESS_SECRET",
+        "BING_SEARCH_API_KEY",
+        "SERPAPI_KEY",
+        "SEARXNG_BASE_URL",
+    }
+)
+
+_CONFIG_CACHE: dict[str, Any] | None = None
+_CONFIG_KEY: tuple | None = None
+
+
+def reset_config_cache() -> None:
+    """清除 load_config 缓存（测试 / 写入后调用）。"""
+    global _CONFIG_CACHE, _CONFIG_KEY
+    _CONFIG_CACHE = None
+    _CONFIG_KEY = None
+
 
 def get_config_paths() -> list[Path]:
     """按优先级返回配置文件搜索路径。"""
@@ -51,7 +72,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "provider": "deepseek",
         "api_key": "${DEEPSEEK_API_KEY}",
         "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-chat",
         "timeout": 120,
         "persona_inject": True,
         "dwell_save_no_ai": True,
@@ -84,7 +105,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "zhihu": {
         "openapi": {
-            "enabled": True,
+            "enabled": False,
             "base_url": "https://developer.zhihu.com",
             "access_secret": "${ZHIHU_ACCESS_SECRET}",
             "prefer_search": True,
@@ -355,7 +376,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
     """加载配置，合并默认值、配置文件与环境变量。"""
-    config = dict(DEFAULT_CONFIG)
+    global _CONFIG_CACHE, _CONFIG_KEY
 
     paths: list[Path]
     if path is not None:
@@ -363,13 +384,27 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     else:
         paths = get_config_paths()
 
+    if path is None:
+        file_key = tuple((str(p), p.stat().st_mtime_ns) for p in paths if p.exists())
+        env_key = tuple(sorted((k, os.environ[k]) for k in _ENV_DEP_KEYS if k in os.environ))
+        key = file_key + env_key
+        if _CONFIG_CACHE is not None and key == _CONFIG_KEY:
+            return dict(_CONFIG_CACHE)
+    else:
+        key = None
+
+    config = dict(DEFAULT_CONFIG)
     for config_path in paths:
         if config_path.exists():
             with config_path.open(encoding="utf-8") as f:
                 file_cfg = yaml.safe_load(f) or {}
             config = _deep_merge(config, file_cfg)
 
-    return _expand_env(config)
+    result = _expand_env(config)
+    if path is None:
+        _CONFIG_CACHE = result
+        _CONFIG_KEY = key
+    return dict(result)
 
 
 def get_ai_config() -> dict[str, Any]:

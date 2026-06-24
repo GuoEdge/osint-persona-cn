@@ -10,6 +10,7 @@ import yaml
 
 from osint_toolkit.ai.step_registry import normalize_step_id
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 DEFAULT_DIRECTIVES: dict[str, Any] = {
     "hard_constraints": [
@@ -44,14 +45,32 @@ DEFAULT_DIRECTIVES: dict[str, Any] = {
 }
 
 
+_DIRECTIVES_CACHE: dict[str, Any] | None = None
+_DIRECTIVES_MTIME: int | None = None
+
+
+def reset_directives_cache() -> None:
+    """清除 load_directives 缓存（保存 / 测试时调用）。"""
+    global _DIRECTIVES_CACHE, _DIRECTIVES_MTIME
+    _DIRECTIVES_CACHE = None
+    _DIRECTIVES_MTIME = None
+
+
 def directives_path() -> Path:
     return get_data_dir() / "ai_directives.yaml"
 
 
 def load_directives() -> dict[str, Any]:
+    global _DIRECTIVES_CACHE, _DIRECTIVES_MTIME
     path = directives_path()
     if not path.exists():
         return dict(DEFAULT_DIRECTIVES)
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        mtime = 0
+    if _DIRECTIVES_CACHE is not None and _DIRECTIVES_MTIME == mtime:
+        return dict(_DIRECTIVES_CACHE)
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     merged = dict(DEFAULT_DIRECTIVES)
     for key, value in data.items():
@@ -59,13 +78,16 @@ def load_directives() -> dict[str, Any]:
             merged[key] = {**merged[key], **value}
         else:
             merged[key] = value
-    return merged
+    _DIRECTIVES_CACHE = merged
+    _DIRECTIVES_MTIME = mtime
+    return dict(merged)
 
 
 def save_directives(data: dict[str, Any]) -> Path:
     path = directives_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    atomic_write_text(path, yaml.dump(data, allow_unicode=True, sort_keys=False))
+    reset_directives_cache()
     return path
 
 

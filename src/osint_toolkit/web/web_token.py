@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import secrets
+import sys
 from functools import lru_cache
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 TOKEN_COOKIE = "osint_token"
 TOKEN_HEADER = "x-osint-token"
@@ -29,7 +31,9 @@ def get_or_create_token() -> str:
             return token
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
-    path.write_text(token, encoding="utf-8")
+    atomic_write_text(path, token)
+    if sys.platform != "win32":
+        os.chmod(path, 0o600)
     return token
 
 

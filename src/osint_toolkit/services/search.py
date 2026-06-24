@@ -36,11 +36,13 @@ from osint_toolkit.collectors.source_catalog import get_source_labels
 from osint_toolkit.collectors.thread_expand import enrich_forum_threads
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
+from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_context
 from osint_toolkit.pipeline.context import RunContext
 from osint_toolkit.pipeline.progress import JobCancelled, check_cancelled, update_progress
 from osint_toolkit.services.collect_tasks import build_fair_collect_tasks
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 _zhihu_collect_sem_cache: tuple[int, asyncio.Semaphore] | None = None
 
@@ -126,11 +128,18 @@ def _recent_url_entries(items: list[Any], existing: list[dict[str, str]], *, lim
     return recent[:limit]
 
 
-async def _collect_source(name: str, query: str, limit: int) -> tuple[list[IntelItem], list[str]]:
+async def _collect_source(
+    name: str, query: str, limit: int, *, client: HttpClient | None = None
+) -> tuple[list[IntelItem], list[str]]:
     cls = COLLECTORS.get(name)
     if not cls:
         return [], []
-    collector = cls()
+    import inspect
+
+    if "client" in inspect.signature(cls).parameters:
+        collector = cls(client=client)
+    else:
+        collector = cls()
     items = await collector.search(query, limit=limit)
     orphan_warnings: list[str] = []
     if hasattr(collector, "consume_warnings"):
@@ -140,6 +149,8 @@ async def _collect_source(name: str, query: str, limit: int) -> tuple[list[Intel
                 items[0].personal.setdefault("collector_warnings", []).extend(warns)
             else:
                 orphan_warnings = list(warns)
+    if hasattr(collector, "aclose"):
+        await collector.aclose()
     return items, orphan_warnings
 
 
@@ -236,7 +247,7 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
 
     step_file = step_path
 
-    step_file.write_text(json.dumps(step_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(step_file, json.dumps(step_payload, ensure_ascii=False, indent=2))
 
     runner._append_trace(result)
 
@@ -461,7 +472,7 @@ async def _mine_comments(
             item.layers["comments"] = comments
             summary = await summarize_comments(comments, no_ai=no_ai, disabled_steps=disabled_steps)
 
-            if summary:
+            if summary and summary.strip():
                 item.layers["comments_summary"] = summary
 
             mined.append(
@@ -695,6 +706,8 @@ async def run_search(
 
         import time
 
+        shared_http = HttpClient()
+
         async def collect_one(
             source_name: str, q: str
         ) -> tuple[str, str, list[IntelItem] | None, list[str], Exception | None, float]:
@@ -713,9 +726,9 @@ async def run_search(
             try:
                 if source_name == "zhihu":
                     async with zhihu_sem:
-                        group, orphan = await _collect_source(source_name, q, per_limit)
+                        group, orphan = await _collect_source(source_name, q, per_limit, client=shared_http)
                 else:
-                    group, orphan = await _collect_source(source_name, q, per_limit)
+                    group, orphan = await _collect_source(source_name, q, per_limit, client=shared_http)
                 return source_name, q, group, orphan, None, time.perf_counter() - task_started
             except Exception as exc:  # noqa: BLE001
                 return source_name, q, None, [], exc, time.perf_counter() - task_started
@@ -734,6 +747,8 @@ async def run_search(
         done = 0
         recent_urls: list[dict[str, str]] = []
         stop_collect = False
+        qk = normalize_product_key(query)
+        ql = query.lower()
         try:
             while pending and not stop_collect:
                 check_cancelled(run_id)
@@ -803,8 +818,8 @@ async def run_search(
                         on_topic = sum(
                             1
                             for item in shared_items
-                            if normalize_product_key(query) in normalize_product_key(item.title + item.content)
-                            or query.lower() in (item.title + " " + item.content).lower()
+                            if qk in normalize_product_key(item.title + item.content)
+                            or ql in (item.title + " " + item.content).lower()
                         )
                         if on_topic >= max(10, early_stop_items // 2):
                             stop_collect = True
@@ -845,6 +860,7 @@ async def run_search(
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
+            await shared_http.aclose()
 
         from osint_toolkit.utils.source_notices import consolidate_source_notices
 
@@ -1094,9 +1110,9 @@ async def run_search(
 
     try:
         final_path = ctx.ensure_run_dir() / "items_final.json"
-        final_path.write_text(
+        atomic_write_text(
+            final_path,
             json.dumps([i.to_dict() for i in items], ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
         )
     except Exception:  # noqa: BLE001
         pass
@@ -1125,7 +1141,7 @@ async def run_search(
 
         report_path = export_report(report_text, query=query, run_id=ctx.run_id)
 
-        (ctx.ensure_run_dir() / "report.md").write_text(report_text, encoding="utf-8")
+        atomic_write_text(ctx.ensure_run_dir() / "report.md", report_text)
         eta_tracker.mark_step_completed("ai_report", report_ms)
 
     ingest_completed_run(ctx.ensure_run_dir())

@@ -38,6 +38,10 @@ async def lifespan(app: FastAPI):
         await scheduler_task
     except asyncio.CancelledError:
         pass
+    from osint_toolkit.web.tasks import _async_tasks, shutdown_all_jobs
+
+    shutdown_all_jobs()
+    await asyncio.gather(*list(_async_tasks.values()), return_exceptions=True)
 
 
 def create_app() -> FastAPI:
@@ -47,7 +51,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Osint-Token"],
     )
     app.include_router(pages.router)
