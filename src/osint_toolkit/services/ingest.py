@@ -29,7 +29,7 @@ from osint_toolkit.ingest.zhihu_account import (
 from osint_toolkit.ingest.zhihu_account import ingest_favorites as ingest_zhihu_favorites
 from osint_toolkit.ingest.zhihu_endpoint_registry import ZHIHU_PERSONA_CAPABILITY_NOTE
 from osint_toolkit.ingest.zhihu_synthetic import build_synthetic_activities
-from osint_toolkit.storage.knowledge import log_event_deduped
+from osint_toolkit.storage.knowledge import log_events_batch
 
 
 def ingest_browser(*, since_days: int = 90) -> dict[str, Any]:
@@ -232,11 +232,13 @@ async def ingest_zhihu() -> dict[str, Any]:
     )
     if synthetic:
         warnings.append(f"已用收藏/关注/发布合成 {len(synthetic)} 条时间线事件（非官方动态流）。")
+        batch: list[tuple[str, dict[str, Any], str]] = []
         for entry in synthetic:
             event_type = str(entry.pop("_event_type", None) or "zhihu_activity")
             url = str(entry.get("url") or "")
             kind = str(entry.get("event_kind") or "")
-            log_event_deduped(event_type, entry, f"{event_type}|{url}|{kind}|synthetic")
+            batch.append((event_type, entry, f"{event_type}|{url}|{kind}|synthetic"))
+        log_events_batch(batch)
 
     activities_non_vote: list[dict] = []
     activity_total = len(synthetic)
