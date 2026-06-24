@@ -7,17 +7,17 @@ from typing import Any
 
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.steering import build_system_prompt
-from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.behavior_signals import load_ranked_behavior_samples
 from osint_toolkit.persona.context import maybe_load_persona_context
 from osint_toolkit.services import knowledge
+from osint_toolkit.services.run_session import run_dir_for_read
 from osint_toolkit.services.runs import show_run
 
 _CONTEXT_CHARS = 14000
 
 
 def _load_run_items(run_id: str, *, limit: int = 24) -> list[dict[str, Any]]:
-    run_dir = get_data_dir() / "runs" / run_id
+    run_dir = run_dir_for_read(run_id)
     if not run_dir.is_dir():
         return []
     for pattern in ("*items_dedup.json", "*items_raw.json"):
