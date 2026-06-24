@@ -107,6 +107,28 @@ router = APIRouter(prefix="/api")
 
 _STEP_FILE_RE = re.compile(r"^\d+_.+\.json$")
 
+_MANIFEST_CACHE: dict[str, tuple[int, dict[str, Any] | None]] = {}
+
+
+def read_manifest_cached(run_id: str) -> dict[str, Any] | None:
+    from osint_toolkit.services.run_session import run_dir
+
+    path = run_dir(run_id) / "manifest.json"
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        _MANIFEST_CACHE.pop(run_id, None)
+        return None
+    cached = _MANIFEST_CACHE.get(run_id)
+    if cached and cached[0] == mtime_ns:
+        return cached[1]
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        parsed = None
+    _MANIFEST_CACHE[run_id] = (mtime_ns, parsed)
+    return parsed
+
 
 @router.get("/health")
 async def api_health() -> dict[str, str]:
@@ -412,7 +434,7 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
             if await request.is_disconnected():
                 break
             job = get_job(run_id)
-            manifest = read_manifest(run_id) if not job else None
+            manifest = read_manifest_cached(run_id) if not job else None
             terminal_status: str | None = None
             if job and job.get("status") in ("done", "cancelled", "error"):
                 terminal_status = str(job["status"])
@@ -430,11 +452,12 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
                     last_progress = progress_key
                     yield f"data: {json.dumps({'type': 'progress', 'progress': progress}, ensure_ascii=False)}\n\n"
             if run_dir_path.exists():
-                for path in sorted(run_dir_path.glob("*_*.json")):
-                    if path.name == "manifest.json" or path.name in seen:
-                        continue
-                    if not _STEP_FILE_RE.match(path.name):
-                        continue
+                new_files = sorted(
+                    p
+                    for p in run_dir_path.glob("*_*.json")
+                    if p.name not in seen and _STEP_FILE_RE.match(p.name)
+                )
+                for path in new_files:
                     seen.add(path.name)
                     try:
                         data = json.loads(path.read_text(encoding="utf-8"))
