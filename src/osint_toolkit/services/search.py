@@ -747,6 +747,8 @@ async def run_search(
         done = 0
         recent_urls: list[dict[str, str]] = []
         stop_collect = False
+        qk = normalize_product_key(query)
+        ql = query.lower()
         try:
             while pending and not stop_collect:
                 check_cancelled(run_id)
@@ -816,8 +818,8 @@ async def run_search(
                         on_topic = sum(
                             1
                             for item in shared_items
-                            if normalize_product_key(query) in normalize_product_key(item.title + item.content)
-                            or query.lower() in (item.title + " " + item.content).lower()
+                            if qk in normalize_product_key(item.title + item.content)
+                            or ql in (item.title + " " + item.content).lower()
                         )
                         if on_topic >= max(10, early_stop_items // 2):
                             stop_collect = True
