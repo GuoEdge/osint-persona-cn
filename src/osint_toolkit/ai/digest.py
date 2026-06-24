@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 
 from osint_toolkit.ai.client import DeepSeekClient
@@ -10,6 +11,8 @@ from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.persona.behavior_signals import score_event
 from osint_toolkit.persona.context import PersonaContext
 from osint_toolkit.storage.sqlite import connect
+
+logger = logging.getLogger(__name__)
 
 
 def _today_events(*, limit: int = 80) -> list[dict]:
@@ -63,6 +66,15 @@ def _today_intel(*, limit: int = 20) -> list[dict]:
     ]
 
 
+def _rule_based_digest(events: list[dict], new_intel: list[dict]) -> str:
+    lines = [f"# 每日简报 {datetime.now(UTC).date()}", ""]
+    for ev in events[:20]:
+        lines.append(f"- [{ev['event_type']}] {ev['title']}")
+    for item in new_intel[:10]:
+        lines.append(f"- [收录] {item['title']}")
+    return "\n".join(lines)
+
+
 def generate_ai_daily_digest(
     persona_ctx: PersonaContext | None = None,
     *,
@@ -71,34 +83,33 @@ def generate_ai_daily_digest(
     events = _today_events()
     intel = _today_intel()
     if no_ai or not is_step_enabled("report", no_ai=no_ai):
-        lines = [f"# 每日简报 {datetime.now(UTC).date()}", ""]
-        for ev in events[:20]:
-            lines.append(f"- [{ev['event_type']}] {ev['title']}")
-        for item in intel[:10]:
-            lines.append(f"- [收录] {item['title']}")
-        return "\n".join(lines)
+        return _rule_based_digest(events, intel)
 
-    client = DeepSeekClient()
-    brief = persona_ctx.brief if persona_ctx else ""
-    payload = {
-        "date": str(datetime.now(UTC).date()),
-        "events": events,
-        "new_intel": intel,
-        "interest_hints": (persona_ctx.interest_hints[:8] if persona_ctx else []),
-    }
-    return client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(task="每日情报简报", persona_brief=brief),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "根据今日行为事件与新收录内容，写 3 段 Markdown 简报："
-                    "1) 今日关注主题 2) 值得深挖 3) 与近期兴趣的关联。\n"
-                    f"数据:\n{json.dumps(payload, ensure_ascii=False)[:10000]}"
-                ),
-            },
-        ]
-    )
+    try:
+        client = DeepSeekClient()
+        brief = persona_ctx.brief if persona_ctx else ""
+        payload = {
+            "date": str(datetime.now(UTC).date()),
+            "events": events,
+            "new_intel": intel,
+            "interest_hints": (persona_ctx.interest_hints[:8] if persona_ctx else []),
+        }
+        return client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(task="每日情报简报", persona_brief=brief),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "根据今日行为事件与新收录内容，写 3 段 Markdown 简报："
+                        "1) 今日关注主题 2) 值得深挖 3) 与近期兴趣的关联。\n"
+                        f"数据:\n{json.dumps(payload, ensure_ascii=False)[:10000]}"
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI daily digest failed: %s", exc)
+        return _rule_based_digest(events, intel)

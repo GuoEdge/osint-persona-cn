@@ -31,26 +31,29 @@ def suggest_queries(
     if no_ai or not is_step_enabled("query_analyze", no_ai=no_ai):
         return fallback[:limit] or ctx.recent_topics[:limit]
 
-    client = DeepSeekClient()
-    raw = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(task="搜罗建议", persona_brief=ctx.brief),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"根据用户兴趣生成 {limit} 个搜罗查询词，JSON 数组，每项 {{query: string}}。\n"
-                    f"兴趣: {json.dumps(ctx.interest_hints[:8], ensure_ascii=False)}\n"
-                    f"主题: {ctx.recent_topics}"
-                ),
-            },
-        ]
-    )
-    parsed = parse_json_array(raw)
-    queries = [str(item.get("query") or item.get("title") or "").strip() for item in parsed]
-    queries = [q for q in queries if q]
-    if queries:
-        return queries[:limit]
-    return fallback[:limit] or ctx.recent_topics[:limit]
+    try:
+        client = DeepSeekClient()
+        raw = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(task="搜罗建议", persona_brief=ctx.brief),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"根据用户兴趣生成 {limit} 个搜罗查询词，JSON 数组，每项 {{query: string}}。\n"
+                        f"兴趣: {json.dumps(ctx.interest_hints[:8], ensure_ascii=False)}\n"
+                        f"主题: {ctx.recent_topics}"
+                    ),
+                },
+            ]
+        )
+        parsed = parse_json_array(raw)
+        queries = [str(item.get("query") or item.get("title") or "").strip() for item in parsed]
+        queries = [q for q in queries if q]
+        if queries:
+            return queries[:limit]
+        return fallback[:limit] or ctx.recent_topics[:limit]
+    except Exception:  # noqa: BLE001
+        return fallback[:limit] or ctx.recent_topics[:limit]

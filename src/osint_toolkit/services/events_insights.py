@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -13,8 +14,17 @@ from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.behavior_signals import load_ranked_behavior_samples
 from osint_toolkit.persona.context import maybe_load_persona_context
 
+logger = logging.getLogger(__name__)
+
 _CACHE_FILE = "behavior_insights.json"
 _TTL = timedelta(hours=1)
+
+
+def _rule_based_insights(samples: list[dict]) -> str:
+    lines = ["近期高权重行为："]
+    for s in samples[:10]:
+        lines.append(f"- [{s.get('event_type')}] {s.get('title') or s.get('url')}")
+    return "\n".join(lines)
 
 
 def _cache_path() -> Path:
@@ -52,30 +62,30 @@ def get_behavior_insights(*, refresh: bool = False, no_ai: bool = False) -> dict
     persona_ctx = maybe_load_persona_context()
 
     if no_ai or not is_step_enabled("report", no_ai=no_ai):
-        lines = ["近期高权重行为："]
-        for s in samples[:10]:
-            lines.append(f"- [{s.get('event_type')}] {s.get('title') or s.get('url')}")
-        insights = "\n".join(lines)
-        return {"insights": insights, "cached": False}
+        return {"insights": _rule_based_insights(samples), "cached": False}
 
-    client = DeepSeekClient()
-    insights = client.chat(
-        messages=[
-            {
-                "role": "system",
-                "content": build_system_prompt(
-                    task="行为解读",
-                    persona_brief=persona_ctx.brief if persona_ctx else "",
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "用 3-5 句话总结用户近期兴趣与浏览模式，指出 2 个可能的研究方向。\n"
-                    f"行为样本:\n{json.dumps(samples, ensure_ascii=False)[:8000]}"
-                ),
-            },
-        ]
-    )
+    try:
+        client = DeepSeekClient()
+        insights = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(
+                        task="行为解读",
+                        persona_brief=persona_ctx.brief if persona_ctx else "",
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "用 3-5 句话总结用户近期兴趣与浏览模式，指出 2 个可能的研究方向。\n"
+                        f"行为样本:\n{json.dumps(samples, ensure_ascii=False)[:8000]}"
+                    ),
+                },
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("behavior insights AI failed: %s", exc)
+        return {"insights": _rule_based_insights(samples), "cached": False}
     _write_cache(insights)
     return {"insights": insights, "cached": False, "generated_at": datetime.now(UTC).isoformat()}
