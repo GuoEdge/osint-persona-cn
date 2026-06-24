@@ -57,3 +57,13 @@ digests/
 
 # Local scratch / temp research
 _tmp_bili-apis/
+
+# Secrets & local databases (never commit)
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
