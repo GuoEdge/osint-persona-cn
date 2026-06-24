@@ -209,10 +209,10 @@ def ai_extract_aliases(
             }
         )
 
-    client = DeepSeekClient()
     prompt_tpl, _ = load_prompt("alias_discover")
     slur_hint = "可包含贬义/黑称/梗称" if include_slurs else "不要输出贬义黑称"
     try:
+        client = DeepSeekClient()
         raw = client.chat(
             messages=[
                 {
