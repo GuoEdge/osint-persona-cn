@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from osint_toolkit.auth.paths import get_cookies_dir
 from osint_toolkit.utils.config import get_cookie_sync_config
+from osint_toolkit.utils.safe_path import PathSecurityError, assert_domain
 
 DEFAULT_DOMAINS = [
     "bilibili.com",
@@ -53,9 +54,6 @@ class CookieSyncResult:
     cookie_counts: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     synced_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-
-from osint_toolkit.utils.safe_path import PathSecurityError, assert_domain
 
 
 def _normalize_domain(domain: str) -> str:
