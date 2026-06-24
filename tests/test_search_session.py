@@ -28,7 +28,6 @@ def test_search_run_kwargs_strips_session_metadata():
 
 def test_fork_does_not_inherit_session_keys_from_parent_request(tmp_path, monkeypatch):
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr("osint_toolkit.services.search_fork.get_data_dir", lambda: tmp_path)
     run_id = "20260101-120000-a1b2c3d4"
     run_dir = tmp_path / "runs" / run_id
     run_dir.mkdir(parents=True)
