@@ -325,7 +325,13 @@ class ZhihuCollector(BaseCollector):
         items: list[IntelItem] = []
         seen: set[str] = set()
         offset = 0
+        pages = 0
+        max_pages = max(8, (limit // 20) + 2)
         while len(items) < limit:
+            pages += 1
+            if pages > max_pages:
+                break
+            before = len(items)
             api = (
                 f"https://www.zhihu.com/api/v4/questions/{qid}/answers"
                 "?include=content,comment_count,voteup_count,author,question,created_time,updated_time"
@@ -362,9 +368,11 @@ class ZhihuCollector(BaseCollector):
             qs = parse_qs(urlparse(next_url).query)
             offset_vals = qs.get("offset") or []
             if offset_vals:
-                offset = offset_vals[0]
+                offset = int(offset_vals[0])
             else:
                 offset += 20
+            if len(items) == before:
+                break
         return items
 
     def _parse_answer_object(self, obj: dict[str, Any], *, question_id: str | None = None) -> IntelItem | None:
