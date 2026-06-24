@@ -44,6 +44,16 @@ DOMAIN_REQUIRED_KEYS: dict[str, list[str]] = {
     "zhihu.com": ["z_c0"],
 }
 
+_COOKIE_CACHE: dict[str, tuple[float, str | None]] = {}
+_COOKIE_DIR_MTIME: float | None = None
+
+
+def reset_cookie_cache() -> None:
+    """清除 cookie_header_for_url 缓存（同步 / 导入后调用）。"""
+    global _COOKIE_DIR_MTIME
+    _COOKIE_CACHE.clear()
+    _COOKIE_DIR_MTIME = None
+
 
 @dataclass
 class CookieSyncResult:
@@ -154,6 +164,7 @@ def sync_browser_cookies(
             msg += " Edge 130+ 请用扩展弹窗「从浏览器同步 Cookie」，或右键以管理员运行 sync-cookies-admin.bat。"
         result.errors.append(msg)
         _write_index(result)
+        reset_cookie_cache()
         return result
 
     grouped = _group_cookies_by_domain(raw_cookies, domains)
@@ -173,6 +184,7 @@ def sync_browser_cookies(
         result.cookie_counts[domain] = len(domain_cookies)
 
     _write_index(result)
+    reset_cookie_cache()
     return result
 
 
@@ -233,6 +245,7 @@ def import_cookie_headers(
     if not result.domains_synced:
         result.errors.append("未收到任何域名的 Cookie 字符串")
     _write_index(result)
+    reset_cookie_cache()
     return result
 
 
@@ -350,16 +363,32 @@ def validate_domain_cookie(domain: str, cookies_dir: Path | None = None) -> dict
 
 def cookie_header_for_url(url: str, cookies_dir: Path | None = None) -> str | None:
     """根据 URL 自动匹配已同步的 Cookie。"""
+    global _COOKIE_DIR_MTIME
     host = urlparse(url).hostname or ""
     host = host.lower()
     if not host:
         return None
 
     cookies_path = cookies_dir or get_cookies_dir()
+    try:
+        dir_mtime = cookies_path.stat().st_mtime
+    except OSError:
+        dir_mtime = 0.0
+
+    if dir_mtime != _COOKIE_DIR_MTIME:
+        _COOKIE_CACHE.clear()
+        _COOKIE_DIR_MTIME = dir_mtime
+
+    if host in _COOKIE_CACHE:
+        return _COOKIE_CACHE[host][1]
+
+    header: str | None = None
     for domain_file in cookies_path.glob("*.json"):
         if domain_file.name == "_index.json":
             continue
         domain = domain_file.stem
         if host == domain or host.endswith(f".{domain}"):
-            return load_cookie_header(domain, cookies_path)
-    return None
+            header = load_cookie_header(domain, cookies_path)
+            break
+    _COOKIE_CACHE[host] = (dir_mtime, header)
+    return header
