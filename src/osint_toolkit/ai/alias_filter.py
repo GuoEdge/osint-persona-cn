@@ -20,9 +20,14 @@ _TECH_PRODUCT_QUERY = re.compile(
     re.I,
 )
 _MUSIC_DRIFT_TERM = re.compile(
-    r"音乐|作曲|编曲|写歌|歌曲|单曲|专辑|bgm|ost|mv|suno|udio",
+    r"音乐|作曲|编曲|写歌|歌曲|单曲|专辑|bgm|suno|udio",
     re.I,
 )
+_MUSIC_DRIFT_TERM_BOUND = re.compile(r"\b(?:ost|mv)\b", re.I)
+
+
+def _music_drift_match(text: str) -> bool:
+    return bool(_MUSIC_DRIFT_TERM.search(text) or _MUSIC_DRIFT_TERM_BOUND.search(text))
 
 _GENERIC_NOISE = frozenset(
     {
@@ -190,9 +195,9 @@ def is_music_drift_term(term: str, query: str) -> bool:
     t = (term or "").strip()
     if not q or not t:
         return False
-    if not _MUSIC_DRIFT_TERM.search(t):
+    if not _music_drift_match(t):
         return False
-    if _MUSIC_DRIFT_TERM.search(q) or re.search(r"(歌|曲|music)", q, re.I):
+    if _music_drift_match(q) or re.search(r"(歌|曲|music)", q, re.I):
         return False
     return bool(_TECH_PRODUCT_QUERY.search(q))
 
