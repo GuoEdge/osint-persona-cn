@@ -81,21 +81,26 @@ def list_items(
     offset: int = 0,
 ) -> list[IntelItem]:
     conn = connect()
-    sql = "SELECT data_json, created_at FROM intel_items WHERE 1=1"
-    params: list[Any] = []
-    if query:
-        sql += " AND (title LIKE ? OR content LIKE ?)"
-        params.extend([f"%{query}%", f"%{query}%"])
-    if source:
-        sql += " AND source = ?"
-        params.append(source)
-    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
+    try:
+        sql = "SELECT data_json, created_at FROM intel_items WHERE 1=1"
+        params: list[Any] = []
+        if query:
+            sql += " AND (title LIKE ? OR content LIKE ?)"
+            params.extend([f"%{query}%", f"%{query}%"])
+        if source:
+            sql += " AND source = ?"
+            params.append(source)
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
     items = []
     for row in rows:
-        item = IntelItem.from_dict(json.loads(row["data_json"]))
+        try:
+            item = IntelItem.from_dict(json.loads(row["data_json"]))
+        except (json.JSONDecodeError, TypeError):
+            continue
         item.personal["saved_at"] = row["created_at"]
         items.append(item)
     return items
@@ -103,11 +108,13 @@ def list_items(
 
 def count_items(source: str | None = None) -> int:
     conn = connect()
-    if source:
-        row = conn.execute("SELECT COUNT(*) AS c FROM intel_items WHERE source = ?", (source,)).fetchone()
-    else:
-        row = conn.execute("SELECT COUNT(*) AS c FROM intel_items").fetchone()
-    conn.close()
+    try:
+        if source:
+            row = conn.execute("SELECT COUNT(*) AS c FROM intel_items WHERE source = ?", (source,)).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) AS c FROM intel_items").fetchone()
+    finally:
+        conn.close()
     return int(row["c"]) if row else 0
 
 

@@ -44,6 +44,12 @@ class _PooledConnection:
     def close(self) -> None:
         _release_connection(self._conn)
 
+    def __enter__(self) -> _PooledConnection:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
 
 def _create_connection() -> sqlite3.Connection:
     path = get_db_path()

@@ -448,16 +448,18 @@ class ZhihuCollector(BaseCollector):
 
         tokens = [t for t in re.split(r"\s+", query.strip()) if len(t) >= 2]
         conn = connect()
-        rows = conn.execute(
-            """
-            SELECT data_json FROM events
-            WHERE event_type IN ('zhihu_fav', 'zhihu_vote', 'zhihu_browse', 'zhihu_activity')
-               OR (event_type LIKE 'zhihu_%' AND json_extract(data_json, '$.url') LIKE '%zhihu.com%')
-            ORDER BY id DESC
-            LIMIT 1200
-            """
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """
+                SELECT data_json FROM events
+                WHERE event_type IN ('zhihu_fav', 'zhihu_vote', 'zhihu_browse', 'zhihu_activity')
+                   OR (event_type LIKE 'zhihu_%' AND json_extract(data_json, '$.url') LIKE '%zhihu.com%')
+                ORDER BY id DESC
+                LIMIT 1200
+                """
+            ).fetchall()
+        finally:
+            conn.close()
 
         def to_item(data: dict) -> IntelItem | None:
             url = str(data.get("url") or "")
@@ -486,7 +488,10 @@ class ZhihuCollector(BaseCollector):
         recent_pool: list[IntelItem] = []
         seen: set[str] = set()
         for row in rows:
-            data = json.loads(row["data_json"])
+            try:
+                data = json.loads(row["data_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
             item = to_item(data)
             if not item or item.url in seen:
                 continue

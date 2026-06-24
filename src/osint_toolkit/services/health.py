@@ -22,18 +22,20 @@ def _playwright_available() -> bool:
 
 def event_type_counts(limit: int = 40) -> dict[str, Any]:
     conn = connect()
-    rows = conn.execute(
-        """
-        SELECT event_type, COUNT(*) AS c
-        FROM events
-        GROUP BY event_type
-        ORDER BY c DESC
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
-    total = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()
-    conn.close()
+    try:
+        rows = conn.execute(
+            """
+            SELECT event_type, COUNT(*) AS c
+            FROM events
+            GROUP BY event_type
+            ORDER BY c DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()
+    finally:
+        conn.close()
     return {
         "total": int(total["c"]) if total else 0,
         "by_type": [{"event_type": r["event_type"], "count": int(r["c"])} for r in rows],
@@ -62,10 +64,12 @@ def platform_coverage() -> list[dict[str, Any]]:
         "dwell_save": ("extension", "停留收录"),
     }
     conn = connect()
-    rows = conn.execute(
-        "SELECT event_type, COUNT(*) AS c FROM events GROUP BY event_type"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, COUNT(*) AS c FROM events GROUP BY event_type"
+        ).fetchall()
+    finally:
+        conn.close()
     counts = {r["event_type"]: int(r["c"]) for r in rows}
     by_platform: dict[str, dict[str, Any]] = {}
     for etype, (platform, label) in mapping.items():

@@ -41,37 +41,39 @@ def recall(query: str, limit: int = 20) -> list[IntelItem]:
     conn = connect()
     items: list[IntelItem] = []
     try:
-        fts_query = " ".join(f'"{part}"' for part in q.split() if part)
-        rows = conn.execute(
-            """
-            SELECT i.data_json FROM intel_fts f
-            JOIN intel_items i ON i.id = f.item_id
-            WHERE intel_fts MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (fts_query, limit),
-        ).fetchall()
-        items = [IntelItem.from_dict(json.loads(row["data_json"])) for row in rows]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("FTS recall failed, falling back to LIKE: %s", exc)
-        items = []
-    if len(items) < limit:
-        seen = {i.id for i in items}
-        like_rows = conn.execute(
-            "SELECT data_json FROM intel_items WHERE title LIKE ? OR content LIKE ? LIMIT ?",
-            (f"%{q}%", f"%{q}%", limit * 2),
-        ).fetchall()
-        for row in like_rows:
-            item = IntelItem.from_dict(json.loads(row["data_json"]))
-            if item.id in seen:
-                continue
-            items.append(item)
-            seen.add(item.id)
-            if len(items) >= limit:
-                break
-    conn.close()
-    return items
+        try:
+            fts_query = " ".join(f'"{part}"' for part in q.split() if part)
+            rows = conn.execute(
+                """
+                SELECT i.data_json FROM intel_fts f
+                JOIN intel_items i ON i.id = f.item_id
+                WHERE intel_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (fts_query, limit),
+            ).fetchall()
+            items = [IntelItem.from_dict(json.loads(row["data_json"])) for row in rows]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("FTS recall failed, falling back to LIKE: %s", exc)
+            items = []
+        if len(items) < limit:
+            seen = {i.id for i in items}
+            like_rows = conn.execute(
+                "SELECT data_json FROM intel_items WHERE title LIKE ? OR content LIKE ? LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit * 2),
+            ).fetchall()
+            for row in like_rows:
+                item = IntelItem.from_dict(json.loads(row["data_json"]))
+                if item.id in seen:
+                    continue
+                items.append(item)
+                seen.add(item.id)
+                if len(items) >= limit:
+                    break
+        return items
+    finally:
+        conn.close()
 
 
 def delete_item(item_id: str) -> bool:
@@ -113,31 +115,34 @@ def delete_items(item_ids: list[str]) -> int:
 
 def log_event(event_type: str, data: dict[str, Any]) -> None:
     conn = connect()
-    conn.execute(
-        "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
-        (event_type, json.dumps(data, ensure_ascii=False)),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
+            (event_type, json.dumps(data, ensure_ascii=False)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def log_event_deduped(event_type: str, data: dict[str, Any], dedup_key: str) -> bool:
     """写入 events；dedup_key 已存在则跳过。返回是否新写入。"""
     conn = connect()
-    cur = conn.execute(
-        "INSERT OR IGNORE INTO event_dedup (dedup_key, event_type) VALUES (?, ?)",
-        (dedup_key, event_type),
-    )
-    if cur.rowcount == 0:
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO event_dedup (dedup_key, event_type) VALUES (?, ?)",
+            (dedup_key, event_type),
+        )
+        if cur.rowcount == 0:
+            return False
+        conn.execute(
+            "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
+            (event_type, json.dumps(data, ensure_ascii=False)),
+        )
+        conn.commit()
+        return True
+    finally:
         conn.close()
-        return False
-    conn.execute(
-        "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
-        (event_type, json.dumps(data, ensure_ascii=False)),
-    )
-    conn.commit()
-    conn.close()
-    return True
 
 
 def log_events_batch(entries: list[tuple[str, dict[str, Any], str]]) -> int:
