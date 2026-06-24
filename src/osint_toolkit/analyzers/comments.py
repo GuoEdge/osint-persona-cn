@@ -9,7 +9,7 @@ from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 
 
 def select_top_comments(comments: list[dict], limit: int = 5) -> list[dict]:
-    return sorted(comments, key=lambda c: c.get("likes", 0), reverse=True)[:limit]
+    return sorted(comments, key=lambda c: int(c.get("likes") or 0), reverse=True)[:limit]
 
 
 async def summarize_comments(
