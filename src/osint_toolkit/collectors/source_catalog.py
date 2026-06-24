@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 from osint_toolkit.collectors.source_auth import auth_fields_for_catalog
@@ -481,6 +482,7 @@ def get_site_search_entries() -> list[dict[str, Any]]:
     return [e for e in SOURCE_ENTRIES if e.get("kind") == "site" and e.get("domain")]
 
 
+@functools.lru_cache(maxsize=1)
 def get_catalog_grouped() -> list[dict[str, Any]]:
     by_cat: dict[str, list[dict[str, Any]]] = {}
     for entry in SOURCE_ENTRIES:
