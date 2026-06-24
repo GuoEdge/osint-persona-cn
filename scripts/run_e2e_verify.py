@@ -28,7 +28,7 @@ def wait_search(client: httpx.Client, run_id: str) -> dict:
 
 def main() -> None:
     with httpx.Client(base_url=BASE, timeout=httpx.Timeout(180.0)) as client:
-        auth = {x["key"]: x for x in client.get("/api/auth/status").json()}
+        auth = {x["key"]: x for x in client.get("/api/auth/status").json()["items"]}
         step("Cookie", auth.get("bilibili", {}).get("ok") and auth.get("zhihu", {}).get("ok"))
 
         pre = client.get("/api/ingest/preflight").json()
