@@ -105,7 +105,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "zhihu": {
         "openapi": {
-            "enabled": True,
+            "enabled": False,
             "base_url": "https://developer.zhihu.com",
             "access_secret": "${ZHIHU_ACCESS_SECRET}",
             "prefer_search": True,
