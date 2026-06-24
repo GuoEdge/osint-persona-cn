@@ -13,6 +13,12 @@ COPY config/config.example.yaml ./config/config.example.yaml
 
 RUN pip install --no-cache-dir -e ".[web,bilibili]"
 
+RUN useradd --create-home --uid 1000 osint \
+    && mkdir -p /data \
+    && chown -R 1000:1000 /data
+
+USER osint
+
 ENV OSINT_DATA_DIR=/data \
     PYTHONUNBUFFERED=1
 
