@@ -79,7 +79,7 @@ async def save_url(
             comments = await collector.fetch_comments(url)
             item.layers["comments"] = comments
             summary = await summarize_comments(comments, no_ai=no_ai)
-            if summary and len(summary.strip()) > 10:
+            if summary and summary.strip():
                 item.layers["comments_summary"] = summary
     elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
         collector = WeixinCollector()
@@ -96,7 +96,7 @@ async def save_url(
             comments = await collector.fetch_comments(url)
             item.layers["comments"] = comments
             summary = await summarize_comments(comments, no_ai=no_ai)
-            if summary and len(summary.strip()) > 10:
+            if summary and summary.strip():
                 item.layers["comments_summary"] = summary
     else:
         item = await WebCollector().fetch(url)

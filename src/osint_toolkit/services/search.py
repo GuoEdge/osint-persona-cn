@@ -462,7 +462,7 @@ async def _mine_comments(
             item.layers["comments"] = comments
             summary = await summarize_comments(comments, no_ai=no_ai, disabled_steps=disabled_steps)
 
-            if summary and len(summary.strip()) > 10:
+            if summary and summary.strip():
                 item.layers["comments_summary"] = summary
 
             mined.append(
