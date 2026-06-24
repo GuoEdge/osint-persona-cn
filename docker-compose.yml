@@ -4,7 +4,7 @@ services:
     build: .
     container_name: osint-toolkit-web
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       ZHIHU_ACCESS_SECRET: ${ZHIHU_ACCESS_SECRET:-}
