@@ -11,6 +11,7 @@ from typing import Any
 
 from osint_toolkit.pipeline.context import RunContext
 from osint_toolkit.pipeline.trace import trace_step
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 
 @dataclass
@@ -69,8 +70,8 @@ class PipelineRunner:
             manifest["finished_at"] = existing["finished_at"]
         if existing.get("error"):
             manifest["error"] = existing["error"]
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        atomic_write_text(
+            manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2)
         )
 
     def _append_trace(self, result: StepResult) -> None:
@@ -92,7 +93,7 @@ class PipelineRunner:
         manifest_path = self.run_dir / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["steps"] = [s.to_dict() for s in self.steps]
-        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2))
 
     def _step_index(self) -> int:
         return len(self.steps) + 1
@@ -101,7 +102,7 @@ class PipelineRunner:
         return self.run_dir / f"{self._step_index():02d}_{name}.json"
 
     def _write_step_file(self, path: Path, payload: dict[str, Any]) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
     def begin_step(self, name: str, *, input_summary: str = "", ai_invoked: bool = False) -> Path:
         """长耗时步骤开始前落盘 running 状态，便于运行详情页审查。"""
@@ -140,7 +141,7 @@ class PipelineRunner:
                 }
             )
             manifest["steps"] = steps
-            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2))
         return path
 
     def run_step(

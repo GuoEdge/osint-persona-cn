@@ -41,6 +41,7 @@ from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_con
 from osint_toolkit.pipeline.context import RunContext
 from osint_toolkit.pipeline.progress import JobCancelled, check_cancelled, update_progress
 from osint_toolkit.services.collect_tasks import build_fair_collect_tasks
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 _zhihu_collect_sem_cache: tuple[int, asyncio.Semaphore] | None = None
 
@@ -236,7 +237,7 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
 
     step_file = step_path
 
-    step_file.write_text(json.dumps(step_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(step_file, json.dumps(step_payload, ensure_ascii=False, indent=2))
 
     runner._append_trace(result)
 
@@ -1094,9 +1095,9 @@ async def run_search(
 
     try:
         final_path = ctx.ensure_run_dir() / "items_final.json"
-        final_path.write_text(
+        atomic_write_text(
+            final_path,
             json.dumps([i.to_dict() for i in items], ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
         )
     except Exception:  # noqa: BLE001
         pass
@@ -1125,7 +1126,7 @@ async def run_search(
 
         report_path = export_report(report_text, query=query, run_id=ctx.run_id)
 
-        (ctx.ensure_run_dir() / "report.md").write_text(report_text, encoding="utf-8")
+        atomic_write_text(ctx.ensure_run_dir() / "report.md", report_text)
         eta_tracker.mark_step_completed("ai_report", report_ms)
 
     ingest_completed_run(ctx.ensure_run_dir())

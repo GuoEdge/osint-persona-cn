@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.safe_path import assert_prompt_name, resolve_under
 
 BUILTIN_PROMPTS = {
@@ -100,7 +101,7 @@ def load_prompt(name: str) -> tuple[str, str]:
 def save_user_prompt(name: str, content: str) -> Path:
     path = user_prompt_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    atomic_write_text(path, content)
     return path
 
 

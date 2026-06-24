@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.config import _deep_merge
 
 
@@ -58,7 +59,7 @@ def save_user_config_patch(patch: dict[str, Any]) -> str:
     path = user_config_path()
     merged = _deep_merge(load_user_config_raw(), patch)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(merged, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    atomic_write_text(path, yaml.dump(merged, allow_unicode=True, sort_keys=False))
     return str(path)
 
 

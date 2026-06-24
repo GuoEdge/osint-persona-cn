@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import osint_toolkit.auth.paths as auth_paths
+from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.safe_path import assert_run_id, coerce_run_dir_id, resolve_under
 
 RUN_STATUSES = frozenset({"queued", "running", "done", "error", "cancelled", "interrupted"})
@@ -27,7 +28,7 @@ def run_dir_for_read(run_id: str) -> Path:
 def write_request(run_id: str, request: dict[str, Any]) -> None:
     d = run_dir(run_id)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "request.json").write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(d / "request.json", json.dumps(request, ensure_ascii=False, indent=2))
 
 
 def read_request(run_id: str) -> dict[str, Any] | None:
@@ -52,7 +53,7 @@ def patch_manifest(run_id: str, **fields: Any) -> None:
     else:
         manifest = {"run_id": run_id}
     manifest.update(fields)
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2))
 
 
 def set_run_status(

@@ -13,6 +13,7 @@ from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.behavior_signals import load_ranked_behavior_samples
 from osint_toolkit.persona.context import maybe_load_persona_context
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def _read_cache() -> dict[str, Any] | None:
 
 def _write_cache(insights: str) -> None:
     payload = {"generated_at": datetime.now(UTC).isoformat(), "insights": insights}
-    _cache_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(_cache_path(), json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def get_behavior_insights(*, refresh: bool = False, no_ai: bool = False) -> dict[str, Any]:

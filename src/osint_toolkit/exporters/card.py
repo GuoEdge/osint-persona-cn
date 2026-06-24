@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from osint_toolkit.models.intel_item import IntelItem
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 
 def export_card(item: IntelItem, output_dir: Path) -> Path:
@@ -23,5 +24,5 @@ def export_card(item: IntelItem, output_dir: Path) -> Path:
     if comments:
         lines.extend(["## 社区补充", str(comments), ""])
     path = output_dir / f"{item.id}.md"
-    path.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines))
     return path

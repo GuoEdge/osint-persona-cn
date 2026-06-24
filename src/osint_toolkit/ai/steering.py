@@ -10,6 +10,7 @@ import yaml
 
 from osint_toolkit.ai.step_registry import normalize_step_id
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 
 DEFAULT_DIRECTIVES: dict[str, Any] = {
     "hard_constraints": [
@@ -65,7 +66,7 @@ def load_directives() -> dict[str, Any]:
 def save_directives(data: dict[str, Any]) -> Path:
     path = directives_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    atomic_write_text(path, yaml.dump(data, allow_unicode=True, sort_keys=False))
     return path
 
 

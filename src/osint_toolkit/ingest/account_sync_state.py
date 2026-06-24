@@ -7,6 +7,8 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from osint_toolkit.utils.atomic_write import atomic_write_text
+
 _STATE_FILE = "account_sync_state.json"
 _state_lock = threading.Lock()
 
@@ -36,10 +38,7 @@ def save_account_sync_state(state: dict[str, Any]) -> None:
         state.setdefault("bilibili", {})["last_sync_at"] = now
     if "zhihu" in state:
         state.setdefault("zhihu", {})["last_sync_at"] = now
-    tmp = path.with_name(path.name + ".tmp")
-    payload = json.dumps(state, ensure_ascii=False, indent=2)
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_text(path, json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def atomic_update_state(

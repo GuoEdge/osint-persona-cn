@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.safe_path import assert_safe_id, resolve_under
 
 NODE_KINDS = frozenset({"topic", "search", "note", "insight", "ask"})
@@ -36,18 +35,7 @@ def _new_id() -> str:
 
 def _atomic_write_text(path, text: str) -> None:
     """原子写入文本：先写临时文件再 os.replace，避免中途崩溃产生截断 JSON。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(path, text)
 
 
 def create_tree(title: str, *, query: str = "") -> dict[str, Any]:
