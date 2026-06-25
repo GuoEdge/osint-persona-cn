@@ -3975,7 +3975,7 @@ async function submitSearch({ focus = true } = {}) {
   }
 
   try {
-    const start = await api("POST", "/api/search", body);
+    const start = await api("POST", "/api/search", body, { timeoutMs: 30000 });
     const run_id = start.run_id;
     if (start.tree_id) setResearchTreeId(start.tree_id);
     workspaceSession.selectedNodeId = null;
