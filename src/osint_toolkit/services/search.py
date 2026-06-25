@@ -548,6 +548,7 @@ async def run_search(
 
     cookie_sync_warn: str | None = None
     if cfg.get("cookie_sync", {}).get("auto_sync_before_search") and os.name == "nt":
+        update_progress(run_id, "starting", detail="正在同步浏览器 Cookie…")
         try:
             await asyncio.to_thread(sync_browser_cookies)
         except Exception as exc:  # noqa: BLE001
