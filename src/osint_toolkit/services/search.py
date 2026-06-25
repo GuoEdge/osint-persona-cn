@@ -520,7 +520,7 @@ async def run_search(
     sources, unknown_sources = normalize_sources(sources, profile=profile)
 
     if comment_mine_top is None:
-        comment_mine_top = int(search_cfg.get("comment_mine_top", 12))
+        comment_mine_top = int(search_cfg.get("comment_mine_top", 25))
 
     if deep_top > 0 and comment_mine_top == 0:
         comment_mine_top = deep_top
@@ -897,6 +897,10 @@ async def run_search(
     collect_data = step_collect.data if isinstance(step_collect.data, dict) else {"items": step_collect.data or []}
 
     items: list[IntelItem] = collect_data.get("items") or []
+
+    auto_scale_cap = min(30, max(15, len(items) // 4))
+    if comment_mine_top < auto_scale_cap:
+        comment_mine_top = auto_scale_cap
 
     source_errors: list[dict[str, str]] = collect_data.get("source_errors") or []
     source_warnings: list[dict[str, str]] = collect_data.get("source_warnings") or []

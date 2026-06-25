@@ -43,10 +43,10 @@ async def test_enrich_video_adds_subtitle_and_danmaku(monkeypatch):
     assert item.layers["danmaku_summary"] == "弹幕摘要"
 
 
-def test_default_comment_mine_top_is_twelve():
+def test_default_comment_mine_top_is_25():
     from osint_toolkit.utils.config import DEFAULT_CONFIG
 
-    assert DEFAULT_CONFIG["search"]["comment_mine_top"] == 12
+    assert DEFAULT_CONFIG["search"]["comment_mine_top"] == 25
 
 
 @pytest.mark.asyncio
