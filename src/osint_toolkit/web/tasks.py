@@ -190,7 +190,12 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     items: list[IntelItem] = []
-    for path in sorted(run_dir.glob("*items_final.json")) + sorted(run_dir.glob("*items_dedup.json")) + sorted(run_dir.glob("*items_raw.json")):
+    item_paths = (
+        sorted(run_dir.glob("*items_final.json"))
+        + sorted(run_dir.glob("*items_dedup.json"))
+        + sorted(run_dir.glob("*items_raw.json"))
+    )
+    for path in item_paths:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -206,7 +211,12 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
     if report_path.exists():
         report = report_path.read_text(encoding="utf-8")
     simulations: list[dict] = []
-    for path in sorted(run_dir.glob("*_simulations.json")):
+    sim_paths = [run_dir / "simulations.json", *sorted(run_dir.glob("*_simulations.json"))]
+    seen_sim_paths: set[str] = set()
+    for path in sim_paths:
+        if str(path) in seen_sim_paths or not path.exists():
+            continue
+        seen_sim_paths.add(str(path))
         try:
             simulations = json.loads(path.read_text(encoding="utf-8"))
             break
@@ -561,7 +571,9 @@ async def _execute_playwright_install(job_id: str) -> None:
         job = _jobs.get(job_id)
         if job:
             job["log"] = list(log)
-        pct = _playwright_percent(phase, msg, int(get_progress(job_id).get("step_done") or 0) if get_progress(job_id) else 0)
+        progress = get_progress(job_id)
+        step_done = int(progress.get("step_done") or 0) if progress else 0
+        pct = _playwright_percent(phase, msg, step_done)
         update_progress(
             job_id,
             phase,

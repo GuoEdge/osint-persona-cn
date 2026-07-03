@@ -17,6 +17,13 @@ def _mock_response(payload: dict) -> MagicMock:
     return resp
 
 
+def _mock_status_response(status_code: int) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = {}
+    return resp
+
+
 def test_openapi_configured(monkeypatch):
     monkeypatch.setenv("ZHIHU_ACCESS_SECRET", "test-secret")
     monkeypatch.setattr(
@@ -180,6 +187,41 @@ async def test_openapi_retries_on_second_limit(monkeypatch):
     items = await zhihu_openapi.search("python", limit=1, client=client)
     assert len(items) == 1
     assert items[0].title == "重试成功"
+    assert client.get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_openapi_retries_http_429_with_global_backoff(monkeypatch):
+    zhihu_openapi._reset_rate_limiter_for_tests()
+    client = MagicMock()
+    ok = _mock_response({"Code": 0, "Data": {"Items": []}})
+    client.get = AsyncMock(side_effect=[_mock_status_response(429), ok])
+    bumped = False
+
+    async def fake_bump():
+        nonlocal bumped
+        bumped = True
+
+    monkeypatch.setattr(zhihu_openapi, "openapi_enabled", lambda _f: True)
+    monkeypatch.setattr(zhihu_openapi, "access_secret", lambda: "x")
+    monkeypatch.setattr(zhihu_openapi, "_bump_rate_limit_backoff", fake_bump)
+    monkeypatch.setattr(
+        zhihu_openapi,
+        "get_zhihu_config",
+        lambda: {
+            "openapi": {
+                "base_url": "https://developer.zhihu.com",
+                "min_request_interval_sec": 0,
+                "rate_limit_retry_max": 1,
+                "rate_limit_retry_base_sec": 0.01,
+            }
+        },
+    )
+
+    items = await zhihu_openapi.search("python", limit=1, client=client)
+
+    assert items == []
+    assert bumped is True
     assert client.get.await_count == 2
 
 

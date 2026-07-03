@@ -130,14 +130,12 @@ def read_manifest_cached(run_id: str) -> dict[str, Any] | None:
     return parsed
 
 
-def _scan_run_dir(run_id: str, seen: frozenset[str]) -> dict[str, Any]:
-    """Sync helper for SSE event_stream: read manifest, progress, and new step files.
+def _scan_run_dir(run_id: str, seen_versions: dict[str, int]) -> dict[str, Any]:
+    """Sync helper for SSE event_stream: read manifest, progress, and changed step files.
 
-    Receives an immutable *frozenset* copy of the caller's ``seen`` set so that
-    all ``seen`` mutations happen on the async side (main thread), never inside
-    the worker thread.  Returns ``new_file_names`` (ALL matched files, including
-    ones that fail JSON parsing) so the caller can update ``seen`` exactly once
-    per file, preserving the original skip-on-parse-error behaviour.
+    Receives a shallow copy of the caller's version map so all mutations happen
+    on the async side. Step files are rewritten from ``running`` to final
+    payloads, so filename-only de-duplication can miss completed steps.
     """
     from osint_toolkit.pipeline.progress import get_progress
     from osint_toolkit.services.run_session import run_dir as get_run_dir
@@ -146,15 +144,21 @@ def _scan_run_dir(run_id: str, seen: frozenset[str]) -> dict[str, Any]:
     progress = get_progress(run_id)
     run_dir_path = get_run_dir(run_id)
     new_steps: list[dict[str, Any]] = []
-    new_file_names: list[str] = []
+    new_file_versions: dict[str, int] = {}
     if run_dir_path.exists():
         new_files = sorted(
             p
             for p in run_dir_path.glob("*_*.json")
-            if p.name not in seen and _STEP_FILE_RE.match(p.name)
+            if _STEP_FILE_RE.match(p.name)
         )
         for path in new_files:
-            new_file_names.append(path.name)
+            try:
+                mtime_ns = path.stat().st_mtime_ns
+            except OSError:
+                continue
+            if seen_versions.get(path.name) == mtime_ns:
+                continue
+            new_file_versions[path.name] = mtime_ns
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
@@ -164,7 +168,7 @@ def _scan_run_dir(run_id: str, seen: frozenset[str]) -> dict[str, Any]:
         "manifest": manifest,
         "progress": progress,
         "new_steps": new_steps,
-        "new_file_names": new_file_names,
+        "new_file_versions": new_file_versions,
     }
 
 
@@ -465,7 +469,7 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
         sse_max_lifetime = float(search_cfg.get("sse_max_lifetime_sec", 3600))
         sse_ticks = max(1200, int(sse_max_lifetime / 0.5), int(collect_timeout * 4 / 0.5))
 
-        seen: set[str] = set()
+        seen_versions: dict[str, int] = {}
         last_progress: str | None = None
         tick = 0
         while tick < sse_ticks:
@@ -473,7 +477,7 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
             if await request.is_disconnected():
                 break
             job = get_job(run_id)
-            scan = await asyncio.to_thread(_scan_run_dir, run_id, frozenset(seen))
+            scan = await asyncio.to_thread(_scan_run_dir, run_id, dict(seen_versions))
             manifest = scan["manifest"] if not job else None
             terminal_status: str | None = None
             if job and job.get("status") in ("done", "cancelled", "error"):
@@ -491,8 +495,7 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
                 if progress_key != last_progress:
                     last_progress = progress_key
                     yield f"data: {json.dumps({'type': 'progress', 'progress': progress}, ensure_ascii=False)}\n\n"
-            for name in scan["new_file_names"]:
-                seen.add(name)
+            seen_versions.update(scan["new_file_versions"])
             for step in scan["new_steps"]:
                 data = step["data"]
                 payload = json.dumps({"type": "step", "file": step["file"], "step": data}, ensure_ascii=False)
@@ -537,7 +540,11 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
                 yield f"data: {json.dumps({'type': 'done', 'run_id': run_id}, ensure_ascii=False)}\n\n"
                 break
             if job and job["status"] == "cancelled":
-                yield f"data: {json.dumps({'type': 'cancelled', 'error': job.get('error') or '已取消'}, ensure_ascii=False)}\n\n"
+                payload = json.dumps(
+                    {"type": "cancelled", "error": job.get("error") or "已取消"},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
                 break
             if terminal_status == "cancelled":
                 err = (manifest or {}).get("error") or "已取消"

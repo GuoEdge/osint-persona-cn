@@ -236,7 +236,15 @@ async def _api_get(
         resp = await http.get(url, headers=headers)
         if resp.status_code == 429:
             if attempt < max_retries:
-                await asyncio.sleep(retry_base * (2**attempt))
+                delay = retry_base * (2**attempt)
+                logger.warning(
+                    "知乎 openapi 触发 HTTP 429，%ss 后重试 (%s/%s)",
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                await _bump_rate_limit_backoff()
+                await asyncio.sleep(delay)
                 continue
             raise RuntimeError("知乎开放平台 HTTP 429（请求过于频繁）")
         if resp.status_code != 200:

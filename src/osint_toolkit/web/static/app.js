@@ -1019,9 +1019,9 @@ function hydrateItemCardMarkdown(card, item) {
 
 function hydrateItemCards(container, items) {
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
-  container._itemsById = byId;
+  container._itemsById = { ...(container._itemsById || {}), ...byId };
   container.querySelectorAll(".item-card[data-item-id]").forEach((card) => {
-    const item = byId[card.dataset.itemId];
+    const item = container._itemsById[card.dataset.itemId];
     if (!item) return;
     if (card.classList.contains("is-expanded")) hydrateItemCardMarkdown(card, item);
   });
@@ -1889,6 +1889,14 @@ function ensureMarkmapLoader() {
 function appendResultCardInteractions(container, runId, items) {
   hydrateItemCards(container, items);
   initItemCardInteractions(container);
+  if (container.dataset.simOverrideBound !== "1") {
+    container.dataset.simOverrideBound = "1";
+    container.addEventListener("click", (ev) => {
+      const btn = ev.target.closest?.("[data-sim-override]");
+      if (!btn || !container.contains(btn)) return;
+      overrideSimVerdict(btn.dataset.id, btn.dataset.run, btn.dataset.simOverride, btn);
+    });
+  }
   container.querySelectorAll("[data-feedback]").forEach((btn) => {
     if (btn.dataset.bound === "1") return;
     btn.dataset.bound = "1";
@@ -1904,12 +1912,6 @@ function appendResultCardInteractions(container, runId, items) {
     if (btn.dataset.bound === "1") return;
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => saveFromCard(btn.dataset.save));
-  });
-  container.querySelectorAll("[data-sim-override]").forEach((btn) => {
-    if (btn.dataset.bound === "1") return;
-    btn.dataset.bound = "1";
-    btn.addEventListener("click", () =>
-      overrideSimVerdict(btn.dataset.id, btn.dataset.run, btn.dataset.simOverride, btn));
   });
 }
 
@@ -3230,6 +3232,7 @@ function mountSearchProgress(container, runId = "") {
   const ui = {
     setRunId(id) {
       state.runId = id;
+      state.boundGen = searchSession.generation;
       renderSearchProgressPanel(container, state);
     },
     update(progress) {
@@ -4781,7 +4784,7 @@ async function overrideSimVerdict(targetId, runId, interest, btn) {
       verdict: "",
       reason: "",
     });
-    if (result?.ok) {
+    if (result?.ok && result?.updated_simulation) {
       const sim = simMap[targetId];
       if (sim) {
         sim.interest = interest;

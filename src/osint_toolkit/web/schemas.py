@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -66,8 +66,8 @@ class FeedbackRequest(BaseModel):
 
 class SimOverrideRequest(BaseModel):
     item_id: str
-    interest: str = "interested"
-    confidence: float = 0.9
+    interest: Literal["interested", "neutral", "skip"] = "interested"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     verdict: str = ""
     reason: str = ""
 

@@ -158,10 +158,10 @@ class PipelineRunner:
         issues: list[str] = []
         status = "ok"
         data: Any = None
-        path = step_path or self._step_path(name)
-        if not path.exists():
+        step_file = step_path or self._step_path(name)
+        if not step_file.exists():
             self._write_step_file(
-                path,
+                step_file,
                 {
                     "step": name,
                     "status": "running",
@@ -181,8 +181,8 @@ class PipelineRunner:
         duration_ms = int((time.perf_counter() - start) * 1000)
         artifacts: list[str] = []
         if artifact_name and data is not None:
-            path = self._write_artifact(artifact_name, data)
-            artifacts.append(path.name)
+            artifact_path = self._write_artifact(artifact_name, data)
+            artifacts.append(artifact_path.name)
         output_summary = ""
         if isinstance(data, list):
             output_summary = f"{len(data)} items"
@@ -201,7 +201,7 @@ class PipelineRunner:
             ai_invoked=ai_invoked,
             data=data,
         )
-        self._write_step_file(path, result.to_dict())
+        self._write_step_file(step_file, result.to_dict())
         self._append_trace(result)
         return result
 

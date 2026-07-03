@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -145,6 +148,77 @@ def test_feedback(client, tmp_path, monkeypatch):
     assert r2.json()["feedback"]["item:item-1"] == "useful"
 
 
+def test_sim_override_persists_current_simulation_artifact(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    run_id = "20260101-120000-abcd1234"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text('{"status":"done"}', encoding="utf-8")
+    (run_dir / "simulations.json").write_text(
+        json.dumps([
+            {"item_id": "item-1", "interest": "skip", "confidence": 0.99, "verdict": "AI 判定无价值"}
+        ], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (run_dir / "items_final.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "item-1",
+                    "source": "web",
+                    "type": "snippet",
+                    "title": "t",
+                    "url": "https://x.test",
+                    "signals": {"relevance": 0.1, "fold_reason": "低相关"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    r = client.post(
+        f"/api/runs/{run_id}/sim-override",
+        json={"item_id": "item-1", "interest": "interested"},
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["updated_simulation"] is True
+    sims = json.loads((run_dir / "simulations.json").read_text(encoding="utf-8"))
+    assert sims[0]["interest"] == "interested"
+    assert sims[0]["overridden"] is True
+    assert sims[0]["ai_original"]["interest"] == "skip"
+    items = json.loads((run_dir / "items_final.json").read_text(encoding="utf-8"))
+    assert items[0]["signals"]["relevance"] == 0.7
+    assert "fold_reason" not in items[0]["signals"]
+
+
+def test_sim_override_returns_failure_when_item_missing(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    run_id = "20260101-120000-abcd1234"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "simulations.json").write_text('[{"item_id":"other"}]', encoding="utf-8")
+
+    r = client.post(
+        f"/api/runs/{run_id}/sim-override",
+        json={"item_id": "item-1", "interest": "skip"},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+
+
+def test_sim_override_rejects_invalid_interest(client):
+    r = client.post(
+        "/api/runs/20260101-120000-abcd1234/sim-override",
+        json={"item_id": "item-1", "interest": "bad"},
+    )
+
+    assert r.status_code == 422
+
+
 def test_aicu_status(client, monkeypatch):
     monkeypatch.setattr(
         "osint_toolkit.utils.config.load_config",
@@ -182,3 +256,24 @@ def test_run_detail_skips_list_artifacts(client, tmp_path, monkeypatch):
     r = client.get("/api/runs/20260101-120000-abcd1234")
     assert r.status_code == 200
     assert len(r.json()["steps"]) == 1
+
+
+def test_sse_scan_reemits_changed_step_file(tmp_path, monkeypatch):
+    from osint_toolkit.web.routes.api import _scan_run_dir
+
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    run_id = "20260101-120000-abcd1234"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    step_path = run_dir / "01_demo.json"
+    step_path.write_text('{"step":"demo","status":"running"}', encoding="utf-8")
+
+    first = _scan_run_dir(run_id, {})
+    assert first["new_steps"][0]["data"]["status"] == "running"
+
+    step_path.write_text('{"step":"demo","status":"ok"}', encoding="utf-8")
+    stat = step_path.stat()
+    os.utime(step_path, ns=(stat.st_atime_ns + 1_000_000, stat.st_mtime_ns + 1_000_000))
+    second = _scan_run_dir(run_id, first["new_file_versions"])
+
+    assert second["new_steps"][0]["data"]["status"] == "ok"
