@@ -24,6 +24,7 @@ _HIGH_VALUE_TYPES = frozenset(
         "zhihu_answer",
         "github_star",
         "ext_save",
+        "sim_override",
     }
 )
 

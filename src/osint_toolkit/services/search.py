@@ -1091,6 +1091,27 @@ async def run_search(
 
     sim_map = {s.get("item_id"): s for s in simulations if s.get("item_id")}
 
+    for item in items:
+        sim = sim_map.get(item.id)
+        if not sim:
+            continue
+        interest = sim.get("interest", "neutral")
+        if interest == "interested":
+            current = float(getattr(getattr(item, "signals", None), "relevance", 0) or 0)
+            if current < 0.6:
+                item.signals.relevance = 0.6
+            fold = getattr(getattr(item, "signals", None), "fold_reason", None)
+            if fold:
+                item.signals.fold_reason = None
+            item.personal["sim_boosted"] = True
+        elif interest == "skip":
+            current = float(getattr(getattr(item, "signals", None), "relevance", 0) or 0)
+            if current > 0.15:
+                item.signals.relevance = 0.15
+            if not getattr(getattr(item, "signals", None), "fold_reason", None):
+                item.signals.fold_reason = "画像模拟判定无价值"
+                item.personal["sim_boosted"] = False
+
     def _sim_confidence(sim: dict) -> float:
 
         if sim.get("interest") != "interested":

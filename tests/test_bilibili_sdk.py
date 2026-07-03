@@ -391,3 +391,59 @@ async def test_fetch_subtitle_for_url_uses_matched_aid_cid(monkeypatch):
     result = await bilibili_sdk.fetch_subtitle_for_url("https://www.bilibili.com/video/BVdaily")
     assert result["text"] == "AI日报字幕"
     assert result["source"] == "view_api"
+
+
+@pytest.mark.asyncio
+async def test_enrich_child_replies_uses_sdk_raw_inline_children(monkeypatch):
+    col = BilibiliCollector()
+    comments = [
+        {
+            "author": "root",
+            "content": "root comment",
+            "likes": 10,
+            "rpid": 1,
+            "_raw": {
+                "rpid": 1,
+                "count": 1,
+                "rcount": 1,
+                "replies": [
+                    {
+                        "rpid": 2,
+                        "parent": 1,
+                        "member": {"uname": "child"},
+                        "content": {"message": "child reply"},
+                        "like": 5,
+                    }
+                ],
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        bilibili_sdk,
+        "get_bilibili_config",
+        lambda: {"child_comment_roots": 3, "child_comment_limit": 20},
+    )
+
+    await col._enrich_child_replies("123", comments, 1)
+
+    assert comments[0]["replies"][0]["content"] == "child reply"
+
+
+@pytest.mark.asyncio
+async def test_collect_child_replies_short_circuits_on_auth_failure():
+    class FakeClient:
+        called = False
+
+        async def get(self, _url):
+            self.called = True
+
+    BilibiliCollector._auth_failed = True
+    client = FakeClient()
+    col = BilibiliCollector(client=client)
+
+    rows = await col._collect_child_replies("1", "2", 1)
+
+    assert rows == []
+    assert client.called is False
+    BilibiliCollector.reset_auth_state()

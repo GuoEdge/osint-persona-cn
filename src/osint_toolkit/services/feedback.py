@@ -8,6 +8,7 @@ from typing import Any
 from osint_toolkit.feedback.apply import apply_step_feedback
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.services.run_session import run_dir_for_read
+from osint_toolkit.storage.knowledge import log_event_deduped
 from osint_toolkit.utils.atomic_write import atomic_write_text
 
 _SIM_INTERESTS = {"interested", "neutral", "skip"}
@@ -141,4 +142,14 @@ def override_simulation(
 
     if not updated_sim:
         return {"ok": False, "detail": "未找到该条目的画像模拟结果", "updated_simulation": False}
+
+    try:
+        log_event_deduped(
+            "sim_override",
+            {"item_id": item_id, "interest": interest, "verdict": verdict, "run_id": run_id},
+            dedup_key=f"sim_override:{run_id}:{item_id}",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return {"ok": True, "updated_simulation": updated_sim, "updated_relevance": updated_rel}

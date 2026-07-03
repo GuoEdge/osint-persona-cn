@@ -218,7 +218,7 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 
 7. **Cookie 与 WBI**：B站/知乎接口常变；失败时优先 WBI 回退、扩展补洞，而非硬爬页面。B站 `code=-101` 用 `_check_reply_auth()` 检测。
 
-8. **B站 auth 短路**：首次检测到认证失败（`code=-101/-400/12002` 或含"权限"关键词）后，必须在 class 级别设 `_auth_failed = True` 标记。后续所有评论/弹幕/子回复请求直接返回空，不再发 WBI 或 legacy API。同时用 `_auth_warning_shown` 抑制重复告警，只打一次警告。参见 `collectors/bilibili.py` 的 `_fetch_reply_page` 入口短路和 `_check_reply_auth` 逻辑。
+8. **B站 auth 短路**：首次检测到认证失败（`code=-101/-400/12002` 或含"权限"关键词）后，必须在 class 级别设 `_auth_failed = True` 标记。该标记**不**在 `__init__` 中重置（避免创建新 collector 实例时失效），需通过类方法 `reset_auth_state()` 显式调用。`_collect_child_replies()` 入口同样检查短路。子回复 API 返回非零 code 时同样调用 `_check_reply_auth()`。参见 `collectors/bilibili.py` 的 `_fetch_reply_page`、`_collect_child_replies` 入口短路和 `_check_reply_auth` 逻辑。
 
 9. **HTTP Referer 反爬**：知乎等平台校验 Referer 头，爬取类请求须附带正确来源。改 `HttpClient` 或 collector 时检查 referer 是否被剥离或错置。参见 `tests/test_http_client_referer.py`。
 
@@ -240,15 +240,31 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 
 16. **扩展队列**：`extension/lib/queue.js` 分批 POST（默认 25 条/批），勿恢复单次 500 条上传。
 
+### Pipeline 与反馈
+
+17. **Pipeline run_step artifact 隔离**：`run_step(artifact_name=...)` 内部必须用独立 `step_file` 和 `artifact_path` 变量，避免 `StepResult` 元数据覆盖 artifact 文件。参见 `pipeline/runner.py`。
+
+18. **SSE 步骤变更追踪**：`_scan_run_dir` 返回 `new_file_versions`（`filename -> mtime_ns`），事件循环侧合并用于去重；running 占位→完成状态可再次推送。参见 `web/routes/api.py` 的 `seen_versions`。
+
+19. **画像模拟覆盖持久化**：`POST /api/runs/{run_id}/sim-override` 写入 `simulations.json`（优先）+ `items_final.json`/*items_dedup.json。写入时保留 `overridden` 标记和 `ai_original` 快照。同时 `log_event_deduped("sim_override", ...)` 写入行为事件表供画像构建。参见 `services/feedback.py` 的 `override_simulation()`。
+
+20. **模拟判定→相关度融合**：pipeline 中 `persona_simulate` 完成后，`interested`→relevance ≥ 0.6 并清折叠；`skip`→relevance ≤ 0.15 并设折叠。参数 `sim_boosted`。参见 `services/search.py` 中 `sim_map` 后的融合循环。
+
+21. **批量收录优先 items_final.json**：`save_run_items()` 优先读 `items_final.json`（含评论/字幕/摘要层），不存在才回退 `*items_dedup.json` → `*items_raw.json`。参见 `services/save.py` 的 `_load_run_items_for_save()`。
+
+22. **知乎评论分页偏移量**：`paging.next` 是全 URL 时须 parse `offset` 参数，不能直接拼接。支持 `/answer/{aid}` 独立 URL 评论挖掘。参见 `collectors/zhihu.py` 的 `_next_offset_from_paging()`。
+
+23. **B站 SDK 子回复**：`fetch_comments_lazy()` 保留 `_raw` 字段供 `_enrich_child_replies()`，采集器返回前剥离。参见 `ingest/bilibili_sdk.py` 和 `collectors/bilibili.py` 的 `fetch_comments()`。
+
 ### 文档与提交
 
-17. **文档同步**：用户可见能力变更（新 prompt 约束、短路逻辑、配置项）必须同步更新 `docs/CAPABILITIES.md` 和 `docs/AI_CONTROL.md`，否则用户不知道功能变了。
+24. **文档同步**：用户可见能力变更（新 prompt 约束、短路逻辑、配置项）必须同步更新 `docs/CAPABILITIES.md` 和 `docs/AI_CONTROL.md`，否则用户不知道功能变了。
 
-18. **AGENTS.md 是活文档**：每次踩到新坑就在本小节加一条，描述具体现象、根因、修复位置。不要只写在 commit message 里，其他人（包括未来的你）看不到。
+25. **AGENTS.md 是活文档**：每次踩到新坑就在本小节加一条，描述具体现象、根因、修复位置。不要只写在 commit message 里，其他人（包括未来的你）看不到。
 
-19. **大改动分多次会话**：不要在一个 session 里改 collector + prompt + API + UI。一次改一个模块，跑完对应层测试再继续。跨越多文件的改动使用 `task` 工具拆分给子 agent。
+26. **大改动分多次会话**：不要在一个 session 里改 collector + prompt + API + UI。一次改一个模块，跑完对应层测试再继续。跨越多文件的改动使用 `task` 工具拆分给子 agent。
 
-20. **测试是安全网**：代码改动必须跑对应层测试（见上方的三层测试结构），不能只跑 `ruff check`。改了采集/解析/过滤不跑第二层，线上数据质量会回退且无声。
+27. **测试是安全网**：代码改动必须跑对应层测试（见上方的三层测试结构），不能只跑 `ruff check`。改了采集/解析/过滤不跑第二层，线上数据质量会回退且无声。
 
 ## 关键配置段（`config.example.yaml`）
 

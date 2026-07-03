@@ -571,6 +571,7 @@ async def fetch_comments_lazy(
                     "content": html_to_text(row.get("content", {}).get("message", "")),
                     "likes": row.get("like", 0),
                     "rpid": rpid,
+                    "_raw": row,
                 }
             )
             if len(collected) >= limit:

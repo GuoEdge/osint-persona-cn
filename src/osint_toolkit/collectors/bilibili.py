@@ -26,8 +26,11 @@ class BilibiliCollector(BaseCollector):
     def __init__(self, client: HttpClient | None = None) -> None:
         self._owns_client = client is None
         self.client = client or HttpClient()
-        type(self)._auth_failed = False
-        type(self)._auth_warning_shown = False
+
+    @classmethod
+    def reset_auth_state(cls) -> None:
+        cls._auth_failed = False
+        cls._auth_warning_shown = False
 
     @classmethod
     def _check_reply_auth(cls, code: int, message: str) -> None:
@@ -399,6 +402,8 @@ class BilibiliCollector(BaseCollector):
     async def _collect_child_replies(
         self, oid: str, root_rpid: str, comment_type: int, *, limit: int = 20
     ) -> list[dict]:
+        if self._auth_failed:
+            return []
         collected: list[dict] = []
         pn = 1
         pages = 0
@@ -411,6 +416,7 @@ class BilibiliCollector(BaseCollector):
                 resp = await self.client.get(api)
                 data = resp.json()
                 if data.get("code") not in (0, None):
+                    self._check_reply_auth(int(data.get("code") or 0), str(data.get("message") or "child reply failed"))
                     break
                 children = data.get("data", {}).get("replies", [])
                 if not children:
@@ -537,6 +543,8 @@ class BilibiliCollector(BaseCollector):
                 )
                 if collected and bilibili_sdk.sdk_enabled("child_comments"):
                     await self._enrich_child_replies(oid, collected, comment_type)
+                for entry in collected:
+                    entry.pop("_raw", None)
                 return collected
             except Exception as exc:  # noqa: BLE001
                 logger.warning("bilibili sdk comments failed, fallback to legacy: %s", exc)

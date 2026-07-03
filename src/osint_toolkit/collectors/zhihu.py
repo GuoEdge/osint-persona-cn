@@ -17,7 +17,17 @@ from osint_toolkit.utils.zhihu_urls import public_zhihu_url
 
 _QUESTION_URL = re.compile(r"/question/(\d+)")
 _ANSWER_URL = re.compile(r"/question/\d+/answer/(\d+)")
+_STANDALONE_ANSWER_URL = re.compile(r"/answer/(\d+)")
 logger = logging.getLogger(__name__)
+
+
+def _next_offset_from_paging(paging: dict[str, Any]) -> str:
+    next_url = str(paging.get("next") or "").strip()
+    if not next_url:
+        return ""
+    parsed = urlparse(next_url)
+    values = parse_qs(parsed.query).get("offset") or []
+    return values[0] if values else next_url
 
 
 class ZhihuCollector(BaseCollector):
@@ -530,10 +540,15 @@ class ZhihuCollector(BaseCollector):
             )
         if otype == "answer":
             question = obj.get("question", {})
+            aid = obj.get("id")
+            qid = question.get("id")
+            if not aid:
+                return None
+            url = f"https://www.zhihu.com/question/{qid}/answer/{aid}" if qid else f"https://www.zhihu.com/answer/{aid}"
             return IntelItem(
                 source="zhihu",
                 type="answer",
-                url=f"https://www.zhihu.com/question/{question.get('id')}/answer/{obj.get('id')}",
+                url=url,
                 title=question.get("title", obj.get("title", "")),
                 content=html_to_text(obj.get("content", "") or obj.get("excerpt", "")),
                 author=obj.get("author", {}).get("name", ""),
@@ -580,7 +595,7 @@ class ZhihuCollector(BaseCollector):
         )
 
     async def _fetch_via_api(self, url: str) -> IntelItem | None:
-        answer_match = _ANSWER_URL.search(url)
+        answer_match = _ANSWER_URL.search(url) or _STANDALONE_ANSWER_URL.search(url)
         if answer_match:
             aid = answer_match.group(1)
             api = f"https://www.zhihu.com/api/v4/answers/{aid}?include=content,question"
@@ -590,10 +605,12 @@ class ZhihuCollector(BaseCollector):
                     return None
                 data = resp.json()
                 question = data.get("question") or {}
+                qid = question.get("id")
+                item_url = f"https://www.zhihu.com/question/{qid}/answer/{aid}" if qid else url
                 return IntelItem(
                     source="zhihu",
                     type="answer",
-                    url=url,
+                    url=item_url,
                     title=question.get("title", data.get("title", "")),
                     content=html_to_text(data.get("content", "") or data.get("excerpt", "")),
                     author=(data.get("author") or {}).get("name", ""),
@@ -651,7 +668,7 @@ class ZhihuCollector(BaseCollector):
         return None
 
     def _comment_resource(self, url: str) -> tuple[str, str] | None:
-        answer_match = _ANSWER_URL.search(url)
+        answer_match = _ANSWER_URL.search(url) or _STANDALONE_ANSWER_URL.search(url)
         if answer_match:
             return "answers", answer_match.group(1)
         article_match = re.search(r"(?:zhuanlan\.zhihu\.com)?/p/(\d+)", url)
@@ -704,7 +721,7 @@ class ZhihuCollector(BaseCollector):
             paging = data.get("paging") or {}
             if paging.get("is_end") or not paging.get("next"):
                 break
-            offset = str(paging.get("next") or "")
+            offset = _next_offset_from_paging(paging)
             pages += 1
         return collected[:limit]
 
@@ -743,7 +760,7 @@ class ZhihuCollector(BaseCollector):
             paging = data.get("paging") or {}
             if paging.get("is_end") or not paging.get("next"):
                 break
-            offset = str(paging.get("next") or "")
+            offset = _next_offset_from_paging(paging)
             pages += 1
         return collected
 

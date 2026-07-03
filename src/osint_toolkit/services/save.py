@@ -18,18 +18,29 @@ from osint_toolkit.services.run_session import run_dir_for_read
 from osint_toolkit.storage.knowledge import save_item
 
 
-def _load_run_dedup_items(run_id: str) -> list[IntelItem]:
+def _load_run_items_for_save(run_id: str) -> list[IntelItem]:
     run_dir = run_dir_for_read(run_id)
     if not run_dir.exists():
         raise FileNotFoundError(f"run not found: {run_id}")
-    for path in sorted(run_dir.glob("*items_dedup.json")):
+    candidates = [
+        run_dir / "items_final.json",
+        *sorted(run_dir.glob("*items_final.json")),
+        *sorted(run_dir.glob("*items_dedup.json")),
+        *sorted(run_dir.glob("*items_raw.json")),
+    ]
+    seen: set[str] = set()
+    for path in candidates:
+        if str(path) in seen or not path.exists():
+            continue
+        seen.add(str(path))
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
         items_raw = raw if isinstance(raw, list) else raw.get("items") or []
-        return [IntelItem.from_dict(d) for d in items_raw if isinstance(d, dict)]
-    raise FileNotFoundError(f"items_dedup not found for run: {run_id}")
+        if items_raw:
+            return [IntelItem.from_dict(d) for d in items_raw if isinstance(d, dict)]
+    raise FileNotFoundError(f"items artifact not found for run: {run_id}")
 
 
 def save_run_items(
@@ -40,7 +51,7 @@ def save_run_items(
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """从 run 目录批量收录去重后的条目到知识库。"""
-    items = _load_run_dedup_items(run_id)
+    items = _load_run_items_for_save(run_id)
     id_set = set(item_ids) if item_ids else None
     saved_ids: list[str] = []
     for item in items:
@@ -81,7 +92,7 @@ async def save_url(
                 comments = await collector.fetch_comments(url)
                 item.layers["comments"] = comments
                 summary = await summarize_comments(comments, no_ai=no_ai)
-                if summary and summary.strip():
+                if summary and len(summary.strip()) > 10:
                     item.layers["comments_summary"] = summary
         elif "mp.weixin.qq.com" in host or "weixin.sogou.com" in host:
             collector = WeixinCollector()
@@ -98,7 +109,7 @@ async def save_url(
                 comments = await collector.fetch_comments(url)
                 item.layers["comments"] = comments
                 summary = await summarize_comments(comments, no_ai=no_ai)
-                if summary and summary.strip():
+                if summary and len(summary.strip()) > 10:
                     item.layers["comments_summary"] = summary
         else:
             collector = WebCollector()

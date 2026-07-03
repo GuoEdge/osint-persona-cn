@@ -167,17 +167,21 @@ def test_subtitle_wrong_track_short_text_skipped():
     assert _subtitle_likely_wrong_track("短文本", title) is False  # < 200 chars
 
 
-# ── B站 auth reset on new instance ──
+# ── B站 auth state persists until explicit reset ──
 
-def test_bilibili_auth_flag_resets_on_new_instance():
+def test_bilibili_auth_flag_persists_on_new_instance_and_can_reset():
     from osint_toolkit.collectors.bilibili import BilibiliCollector
 
     BilibiliCollector._auth_failed = True
     BilibiliCollector._auth_warning_shown = True
 
     collector = BilibiliCollector()
-    assert collector._auth_failed is False
-    assert collector._auth_warning_shown is False
+    assert collector._auth_failed is True
+    assert collector._auth_warning_shown is True
+
+    BilibiliCollector.reset_auth_state()
+    assert BilibiliCollector._auth_failed is False
+    assert BilibiliCollector._auth_warning_shown is False
 
 
 # ── B站 auth error code detection ──
@@ -206,3 +210,4 @@ def test_bilibili_check_reply_auth_codes():
     BilibiliCollector._auth_failed = False
     BilibiliCollector._check_reply_auth(12002, "包含不含权限的视频")
     assert BilibiliCollector._auth_failed is True
+    BilibiliCollector.reset_auth_state()

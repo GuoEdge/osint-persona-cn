@@ -157,6 +157,7 @@ search:
 
 - 单条收录：结果卡片「收录」或 `POST /api/save`
 - **批量收录**：`POST /api/search/{run_id}/save-items`，body 可选 `item_ids`、`min_relevance`、`tags`；工作区工具栏「收录本轮精选」
+- 批量收录优先读取 `items_final.json`（含评论/字幕/摘要等后处理层），若不存在才回退 `items_dedup.json` / `items_raw.json`
 - 收录条目写入 `personal.run_id` / `citation_id` 便于溯源
 
 ### 跨 run 新情报
@@ -291,6 +292,15 @@ Windows 可双击 `启动情报台.bat`、`sync-cookies.bat`。
 | **知乎 URL 覆盖** | `_ZHIHU_CONTENT_URL` 正则补全 `zhuanlan./pin//zvideo//people//column/` |
 | **相对 URL 处理** | `_parse_read_history_item` 支持 `/question/...` 相对路径，自动补全 |
 | **dedup key 区分** | 知乎踩反对/取消赞同的 dedup key 加入 `vote_type` 和 HTTP method，不再碰撞 |
+| **SSE 步骤变更追踪** | 按 `filename + mtime_ns` 而非仅文件名去重，running 占位→最终状态可被再次推送 |
+| **Pipeline 产物隔离** | `run_step(artifact_name=...)` 步骤元数据与 artifact payload 分路径写入，不再互相覆盖 |
+| **画像模拟覆盖持久化** | 覆盖后保留 `overridden` 标记和 `ai_original` 原始快照，支持还原；优先读写 `simulations.json` |
+| **知乎评论分页** | 从 `paging.next` 中解析真实 `offset` 参数，而非直接拼接完整 URL；支持 `/answer/{aid}` 独立 URL |
+| **B站 SDK 子回复修复** | `fetch_comments_lazy()` 保留 `_raw` 字段以供子回复富化，采集器返回前删除 |
+| **B站 auth 短路持久化** | `_auth_failed` 不再在 `__init__` 重置，改由显式 `reset_auth_state()` 控制；子回复端点也检查短路标记 |
+| **批量收录保留评论** | `save_run_items()` 优先读取 `items_final.json`，确保评论/评论摘要/字幕等后处理层不被遗漏 |
+| **画像模拟 → 相关度融合** | 模拟判为"感兴趣"的条目自动提升 relevance 至 ≥0.6 并清除折叠；"无价值"降为 ≤0.15 并标记折叠 |
+| **覆盖即学习** | 用户覆盖模拟判定后，自动写入 `sim_override` 行为事件（高分值），下次构建画像时纳入兴趣 hint，无需等待重新采集行为 |
 
 ---
 

@@ -12,6 +12,18 @@ def select_top_comments(comments: list[dict], limit: int = 5) -> list[dict]:
     return sorted(comments, key=lambda c: int(c.get("likes") or 0), reverse=True)[:limit]
 
 
+def _comments_fallback(lines: list[str]) -> str:
+    no_ai_fallback = [f"- {line.split(') ', 1)[-1]}" for line in lines if line.strip()]
+    return "社区评论精选:\n" + "\n".join(no_ai_fallback)
+
+
+def _valid_comment_summary(text: str | None) -> bool:
+    clean = (text or "").strip()
+    if len(clean) <= 10:
+        return False
+    return clean.lower() not in {"无", "没有", "ok", "好的", "好", "总结：", "总结:"}
+
+
 async def summarize_comments(
     comments: list[dict],
     *,
@@ -32,7 +44,7 @@ async def summarize_comments(
             if len(replies) > 3:
                 lines.append(f"   ... 还有 {len(replies) - 3} 条回复未展示")
     if not is_step_enabled("comment_mine", no_ai=no_ai, disabled_steps=disabled_steps):
-        return "社区评论精选:\n" + "\n".join(line.split(") ", 1)[-1] for line in lines if line.strip())
+        return _comments_fallback(lines)
     prompt = "\n".join(lines)
     try:
         client = client or DeepSeekClient()
@@ -45,10 +57,8 @@ async def summarize_comments(
                  f"{prompt}"},
             ],
         )
-        if not result or not result.strip():
-            no_ai_fallback = [f"- {line.split(') ', 1)[-1]}" for line in lines if line.strip()]
-            return "社区评论精选:\n" + "\n".join(no_ai_fallback)
-        return result
+        if not _valid_comment_summary(result):
+            return _comments_fallback(lines)
+        return result.strip()
     except Exception:  # noqa: BLE001
-        no_ai_fallback = [f"- {line.split(') ', 1)[-1]}" for line in lines if line.strip()]
-        return "社区评论精选:\n" + "\n".join(no_ai_fallback)
+        return _comments_fallback(lines)
