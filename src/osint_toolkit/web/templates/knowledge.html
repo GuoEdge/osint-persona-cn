@@ -8,9 +8,22 @@
   </div>
 </div>
 
+<div id="knowledge-cloud-status" class="card mb-1">
+  <div class="muted">正在检查云端 vault 状态…</div>
+</div>
+
+<div id="knowledge-ai-status" class="card mb-1">
+  <div class="muted">正在检查 AI 使用状态…</div>
+</div>
+
+<div id="knowledge-health-status" class="card mb-1">
+  <div class="muted">正在检查知识库索引状态…</div>
+</div>
+
 <div class="tab-row ui-segmented-wrap">
   <div class="ui-segmented" id="knowledge-tabs">
-    <button type="button" class="tab active" data-knowledge-tab="search">关键词检索</button>
+    <button type="button" class="tab active" data-knowledge-tab="search">智能检索</button>
+    <button type="button" class="tab" data-knowledge-tab="graph">图谱</button>
     <button type="button" class="tab" data-knowledge-tab="save">收录</button>
   </div>
 </div>
@@ -31,14 +44,86 @@
           <option value="web">网页</option>
         </select>
       </div>
+      <div class="form-row">
+        <label for="knowledge-topic">主题</label>
+        <input type="search" id="knowledge-topic" list="knowledge-topic-list" placeholder="如 MCP / 本地知识库">
+      </div>
+      <div class="form-row">
+        <label for="knowledge-entity">实体</label>
+        <input type="search" id="knowledge-entity" list="knowledge-entity-list" placeholder="人名 / 产品 / 组织">
+      </div>
+      <div class="form-row">
+        <label for="knowledge-tag">标签</label>
+        <input type="search" id="knowledge-tag" list="knowledge-tag-list" placeholder="可选">
+      </div>
+      <div class="form-row">
+        <label for="knowledge-conflict">冲突状态</label>
+        <select id="knowledge-conflict">
+          <option value="">全部</option>
+          <option value="clean">仅干净笔记</option>
+          <option value="only">仅待合并</option>
+        </select>
+      </div>
     </div>
+    <datalist id="knowledge-topic-list"></datalist>
+    <datalist id="knowledge-entity-list"></datalist>
+    <datalist id="knowledge-tag-list"></datalist>
     <div class="toggle-row">
-      <label><input type="radio" name="knowledge-mode" value="keyword" checked> 关键词检索</label>
-      <label><input type="radio" name="knowledge-mode" value="semantic"> 全文检索 FTS</label>
+      <label><input type="radio" name="knowledge-mode" value="hybrid" checked> 智能检索</label>
+      <label><input type="radio" name="knowledge-mode" value="fts"> 纯 FTS</label>
+      <label><input type="radio" name="knowledge-mode" value="keyword"> 关键词</label>
+      <label><input type="checkbox" id="knowledge-explain" checked> 显示命中原因</label>
     </div>
     <button type="submit" class="btn">检索</button>
   </form>
   <div id="knowledge-results" class="mt-1"></div>
+  <form id="knowledge-ask-form" class="card mt-1">
+    <div class="form-row">
+      <label for="knowledge-ask-question">问知识库</label>
+      <input type="text" id="knowledge-ask-question" placeholder="基于当前知识库结果继续追问…" autocomplete="off">
+    </div>
+    <button type="submit" class="btn">追问</button>
+    <div id="knowledge-ask-answer" class="mt-1 muted">回答会严格基于当前知识库命中与引用。</div>
+  </form>
+</div>
+
+<div id="knowledge-tab-graph" class="tab-panel hidden">
+  <div class="grid-2">
+    <div class="card">
+      <div class="form-row">
+        <label for="knowledge-concept-query">概念 / 实体 / 项目</label>
+        <input type="search" id="knowledge-concept-query" placeholder="筛选概念…">
+      </div>
+      <button type="button" class="btn btn-secondary" id="knowledge-concepts-refresh">刷新概念</button>
+      <div id="knowledge-concepts-list" class="mt-1 muted">正在加载概念…</div>
+    </div>
+    <div class="card">
+      <div class="form-row">
+        <label for="knowledge-graph-item">条目 ID</label>
+        <input type="text" id="knowledge-graph-item" placeholder="可选，留空显示整体图谱">
+      </div>
+      <div class="grid-2">
+        <div class="form-row">
+          <label for="knowledge-graph-relation">关系类型</label>
+          <input type="text" id="knowledge-graph-relation" placeholder="如 explains / mentions_entity">
+        </div>
+        <div class="form-row">
+          <label for="knowledge-graph-confidence">最低置信度</label>
+          <input type="number" id="knowledge-graph-confidence" min="0" max="1" step="0.05" value="0">
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="knowledge-graph-refresh">刷新图谱</button>
+      <div id="knowledge-graph-summary" class="mt-1 muted">正在加载图谱…</div>
+    </div>
+  </div>
+  <div class="card mt-1">
+    <div class="form-row">
+      <label for="knowledge-gap-topic">知识缺口 / 后续问题</label>
+      <input type="text" id="knowledge-gap-topic" placeholder="输入主题、概念或问题方向">
+    </div>
+    <button type="button" class="btn btn-secondary" id="knowledge-gaps-refresh">生成研究问题</button>
+    <div id="knowledge-gaps-list" class="mt-1 muted">可从概念、条目或主题生成后续问题。</div>
+  </div>
 </div>
 
 <div id="knowledge-tab-save" class="tab-panel hidden">

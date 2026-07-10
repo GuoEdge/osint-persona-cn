@@ -36,13 +36,24 @@ from osint_toolkit.collectors.source_catalog import get_source_labels
 from osint_toolkit.collectors.thread_expand import enrich_forum_threads
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
+from osint_toolkit.exporters.report import export_report
+from osint_toolkit.feedback.signals import apply_feedback_profile, build_feedback_profile
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_context
 from osint_toolkit.pipeline.context import RunContext
 from osint_toolkit.pipeline.progress import JobCancelled, check_cancelled, update_progress
+from osint_toolkit.pipeline.runner import PipelineRunner
+from osint_toolkit.pipeline.timing_stats import (
+    SearchEtaTracker,
+    ingest_completed_run,
+    planned_search_phases,
+)
 from osint_toolkit.services.collect_tasks import build_fair_collect_tasks
+from osint_toolkit.services.knowledge_graph import annotate_search_items
+from osint_toolkit.services.local_context import build_local_context
 from osint_toolkit.utils.atomic_write import atomic_write_text
+from osint_toolkit.utils.config import get_search_config, load_config
 
 _zhihu_collect_sem_cache: tuple[int, asyncio.Semaphore] | None = None
 
@@ -60,16 +71,6 @@ def _zhihu_global_collect_sem() -> asyncio.Semaphore:
 def reset_zhihu_collect_sem_for_tests() -> None:
     global _zhihu_collect_sem_cache
     _zhihu_collect_sem_cache = None
-
-
-from osint_toolkit.exporters.report import export_report
-from osint_toolkit.pipeline.runner import PipelineRunner
-from osint_toolkit.pipeline.timing_stats import (
-    SearchEtaTracker,
-    ingest_completed_run,
-    planned_search_phases,
-)
-from osint_toolkit.utils.config import get_search_config, load_config
 
 _SOURCE_LABELS = get_source_labels()
 
@@ -575,6 +576,8 @@ async def run_search(
     runner = PipelineRunner(ctx)
 
     persona_ctx = maybe_load_persona_context()
+    local_context = build_local_context(query, persona_ctx=persona_ctx)
+    runner._write_artifact("local_context.json", local_context)
 
     discover_meta: dict[str, Any] = {}
     if search_cfg.get("discover_aliases", True):
@@ -639,6 +642,7 @@ async def run_search(
         intl_probe_terms=intl_probe_terms,
         profile=profile,
         source_overrides=source_overrides,
+        local_context=local_context,
     )
 
     step_analyze = runner.run_step(
@@ -758,7 +762,11 @@ async def run_search(
                     for task in pending:
                         task.cancel()
                     source_warnings.append(
-                        {"source": "*", "warning": f"采集超时 ({int(collect_timeout)}s)，已终止剩余任务", "query": query}
+                        {
+                            "source": "*",
+                            "warning": f"采集超时 ({int(collect_timeout)}s)，已终止剩余任务",
+                            "query": query,
+                        }
                     )
                     break
                 wait_timeout = min(30.0, max(1.0, collect_timeout - elapsed))
@@ -802,7 +810,11 @@ async def run_search(
                     sample_url = ""
                     if isinstance(group, list) and group:
                         sample_url = str(group[0].url or "")
-                    preview_batch = [_preview_item(item) for item in (group or [])[:8]] if isinstance(group, list) else None
+                    preview_batch = (
+                        [_preview_item(item) for item in (group or [])[:8]]
+                        if isinstance(group, list)
+                        else None
+                    )
                     update_progress(
                         run_id,
                         "collect_all",
@@ -932,6 +944,30 @@ async def run_search(
     new_count = sum(1 for i in items if not i.personal.get("already_seen"))
     intel_stats = {"new_count": new_count, "seen_count": max(0, len(items) - new_count), "total": len(items)}
     update_progress(run_id, "dedup", detail=f"去重后 {len(items)} 条（新增 {new_count}）", items_found=len(items))
+
+    update_progress(
+        run_id,
+        "feedback_adjust",
+        detail="应用历史反馈闭环…",
+        items_found=len(items),
+        eta_sec=eta_tracker.remaining_sec(current_phase="dedup"),
+    )
+
+    def feedback_adjust() -> dict[str, Any]:
+        profile = build_feedback_profile()
+        changes = apply_feedback_profile(items, profile)
+        return {
+            "count": len(changes),
+            "feedback_count": profile.feedback_count,
+            "changes": changes,
+        }
+
+    step_feedback = runner.run_step(
+        "feedback_adjust",
+        feedback_adjust,
+        artifact_name="feedback_adjust.json",
+    )
+    _ = step_feedback
 
     auto_scale_cap = min(30, max(15, len(items) // 4))
     if comment_mine_top < auto_scale_cap:
@@ -1132,6 +1168,27 @@ async def run_search(
         reverse=True,
     )
 
+    update_progress(run_id, "knowledge_audit", detail="分析与知识库的联动关系…")
+    step_knowledge_audit = runner.run_step(
+        "knowledge_audit",
+        lambda: annotate_search_items(
+            query,
+            items,
+            persona_structured=(persona_ctx.structured if persona_ctx else {}),
+        ),
+        artifact_name="knowledge_audit.json",
+    )
+    knowledge_audit = step_knowledge_audit.data or {}
+    knowledge_summary = knowledge_audit.get("summary") or {}
+    intel_stats.update(
+        {
+            "knowledge_linked_count": int(knowledge_summary.get("linked_count") or 0),
+            "knowledge_known_url_count": int(knowledge_summary.get("known_url_count") or 0),
+            "knowledge_supplements_count": int(knowledge_summary.get("supplements_count") or 0),
+            "knowledge_project_count": int(knowledge_summary.get("project_linked_count") or 0),
+        }
+    )
+
     citation_map = assign_citation_ids(items)
 
     try:
@@ -1206,6 +1263,8 @@ async def run_search(
         "queries_used": queries_used,
         "foreign_queries": foreign_queries,
         "queries_by_source": queries_by_source,
+        "local_context": local_context,
+        "knowledge_audit": knowledge_audit,
         "no_ai": no_ai,
     }
 
@@ -1221,6 +1280,7 @@ async def preview_query_expansion(
 ) -> dict[str, Any]:
     """Preview expanded queries without running full search."""
     persona_ctx = maybe_load_persona_context()
+    local_context = build_local_context(query, persona_ctx=persona_ctx)
     sources, _unknown = normalize_sources(sources, profile=profile)
     search_cfg = get_search_config()
     discover_meta: dict[str, Any] = {}
@@ -1250,4 +1310,5 @@ async def preview_query_expansion(
         intl_probe_terms=intl_probe_terms,
         profile=profile,
         source_overrides=source_overrides,
+        local_context=local_context,
     )

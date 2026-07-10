@@ -10,7 +10,7 @@
 
 1. **搜罗**：按话题从中文互联网多源采集、去重、AI 摘要，可选生成情报报告  
 2. **理解**：用浏览/点赞/收藏等行为构建心智画像，模拟「我会不会点这条」  
-3. **沉淀**：收录 URL 进知识库、写研究树笔记、分叉深挖、每日简报  
+3. **沉淀**：收录 URL 进知识库、写研究树笔记、分叉深挖、每日简报，并可同步为 Obsidian 兼容 Markdown vault
 4. **审计**：每次搜罗落盘 `~/.osint/runs/{run_id}/`，可回溯每一步 JSON/报告  
 
 默认绑定 `127.0.0.1:8787`，**单用户本地**使用，无账号体系。
@@ -109,11 +109,16 @@ search:
 - **Cookie**：`osint auth sync-cookies`（需关闭 Edge 后读磁盘）或扩展弹窗同步  
 - **完整同步**：Web「行为同步」页一键 / `osint sync`  
 - **画像**：`osint persona build` 或 Web「心智画像」；新行为后可半自动重建（`ai.auto_persona_rebuild`）
+- 心智画像页现在同时提供“画像证据台”：可查看近期信源分布、行为类型、近 7 日高价值行为、账号清单快照与高兴趣样本，帮助判断画像建立在什么数据上，以及是否存在重复、偏差或遗漏。
 
 ### 3.3 心智画像用途
 
 - 搜罗时对条目做 **画像模拟**（是否会点击、简要理由）；模拟失败时在结果卡片显示错误提示
 - 注入 AI 报告、追问与研究树 **洞察/建议查询**（`research_ai` + `persona/context.py`）
+- `mental_model.yaml` 现在同时保存结构化 persona：`interest_domains`、`active_projects`、`source_preferences`、`knowledge_goals`、`entity_affinities`、`reading_style`、`avoid_patterns`。AI 可增强结构化字段；无 API Key 时用规则版 fallback。
+- 版本历史自动只保留最近 10 个版本，避免 persona 目录无限堆积；旧版本仍可在页面中回滚到最近保留范围内。
+- 搜罗前的 `local_context.json` 会携带结构化 persona，供查询分析、信源规划、知识库问答和研究建议读取，不再只依赖 Markdown brief。
+- `local_context.json` 还会额外携带相关概念、研究项目与知识缺口问题，供 AI 在“继续搜什么”“补哪块盲区”时参考，但不会直接替你删结果或改排序。
 - 已有画像用户进入搜罗页时 **默认开启** 画像模拟（可手动勾选「跳过画像模拟」）
 - **不**用于对外推荐流；仅供个人情报分析
 
@@ -124,7 +129,7 @@ search:
 | 页面 | 路径 | 作用 |
 |------|------|------|
 | 搜罗 | `/` | 多源搜索、情报报告（本轮）、研究树、话题监视、过程时间线 |
-| 知识库 | `/knowledge` | 全文检索 FTS 已收录条目 |
+| 知识库 | `/knowledge` | 混合检索已收录条目，查看概念/实体/项目图谱、知识缺口、关联扩展、命中解释、知识库追问与 Markdown vault 状态/冲突 |
 | 简报 | `/digest` | **每日简报**（与搜罗页「本轮情报报告」不同） |
 | 行为同步 | `/ingest` | 预检、完整同步、扩展状态 |
 | 行为时间线 | `/behavior` | 近期 events 浏览 |
@@ -160,6 +165,31 @@ search:
 - 批量收录优先读取 `items_final.json`（含评论/字幕/摘要等后处理层），若不存在才回退 `items_dedup.json` / `items_raw.json`
 - 收录条目写入 `personal.run_id` / `citation_id` 便于溯源
 
+### Markdown vault 与云端文件夹
+
+- 可在设置页或 `osint cloud init` 配置 `knowledge.cloud.vault_path`，推荐指向 OneDrive、Dropbox、iCloud、Syncthing 等同步文件夹。
+- 收录、高停留自动收录、批量收录始终先写入 SQLite 索引；若 `sync_mode=passive` 会即时生成 Obsidian 兼容 Markdown 笔记，若为 `manual/scheduled` 则先进入待同步队列，等 `osint cloud sync` 再统一写入 vault。
+- Vault 目录包含 `Inbox/`、`Sources/`、`Topics/`、`Entities/`、`Concepts/`、`Projects/`、`Daily/`、`Runs/`、`Attachments/` 与 `_osint/index.json`、`graph.json`、`sync-state.json`。
+- Markdown frontmatter 会保留 `concepts`、`claims`、`questions`、`relations`、`project`、`confidence`、`evidence_refs`；正文使用 Obsidian wiki link 连接 `Topics/`、`Entities/`、`Concepts/`、`Projects/`。
+- SQLite、Cookie、API Key、原始行为事件默认仍留在 `~/.osint/`，不直接放进云同步目录；新设备可用 `osint cloud reindex` 从 vault 重建本地索引。
+- 若用户手改 Markdown，系统检测到 `content_hash` 变化后会保留冲突副本，不覆盖用户内容；Web 知识库页和 `osint cloud conflicts` 可查看冲突。
+- 知识库页和 `osint cloud status` 会额外显示 vault 健康信息：是否位于 OneDrive 目录、目录结构是否完整、是否存在长路径/冲突风险、`sync-state.json` 是否存在。
+- `osint cloud init` / Web 初始化现在支持多 OneDrive 根目录选择、vault 名称选择和同步模式选择，避免默认写入错误的同步盘位置。
+- `osint cloud reindex` 现在会清理 vault 中已不存在、但本地仍残留的旧同步条目，让“云端 vault 是长期资产、本地 SQLite 是可重建索引”的语义更完整。
+- `rclone`、`webdav`、`syncthing`、`git` 目前作为配置枚举保留；v1 实际同步依赖这些工具各自的本地同步文件夹或挂载目录。
+
+### 知识库检索与利用
+
+- 统一检索默认走 `hybrid`：综合 FTS、关键词字段、主题/实体/标签命中、时间衰减、停留时长、收录方式与历史反馈，返回可解释分数与命中原因。
+- 中文自然句提问会拆成可检索片段，避免整句无法命中；知识库问答和本地上下文注入都复用同一检索层。
+- 知识库“检索”本身不调用 AI；“问知识库”则是先本地召回，再由 AI 基于命中内容生成回答。若未配置 API Key 或 AI 失败，会自动回退为本地证据式回答。
+- 所有通过 `DeepSeekClient` 发起的 AI 调用现在会落本地台账：记录任务类型、模型、成功/失败、耗时、输入输出规模，便于后续优化 AI 成本与效果。
+- 收录后会进入 `knowledge_enrich`：规则抽取主题、实体、概念、观点、问题和项目，写入 `knowledge_concepts`、`knowledge_item_concepts`、`knowledge_relations`。规则高置信关系为 `confirmed`；AI 候选关系后续以 `suggested` 接入，必须带 `evidence`。
+- 知识图谱支持 `mentions_entity`、`explains`、`extends`、`source_of`、`belongs_to_project`，并保留旧 `knowledge_links` 的 `same_topic` / `same_entity` 一跳扩展。
+- 知识库页可按来源、主题、实体、标签与冲突状态过滤，图谱页可查看概念/实体/项目节点、关系证据和“后续研究问题”。
+- 搜罗完成后会额外生成 `knowledge_audit.json`：标记每条结果是“库中已有”“补充旧知识”还是“可挂到研究项目”，并给出概念命中与后续问题，方便马上进入研究循环。
+- API / CLI：`GET /api/knowledge/search`、`GET /api/knowledge/graph`、`GET /api/knowledge/items/{item_id}/graph`、`POST /api/knowledge/items/{item_id}/enrich`、`GET /api/knowledge/concepts`、`POST /api/knowledge/research-questions`、`POST /api/knowledge/ask`、`osint knowledge search|links|graph|enrich|concepts|gaps|ask`。
+
 ### 跨 run 新情报
 
 - 结果列表筛选：**全部 | 本轮新增 | 已见过**（基于画像/KB 已见 URL）
@@ -190,9 +220,10 @@ search:
 
 将多轮搜罗组织成 **主题研究**：
 
-- 节点类型：主题、搜罗轮次、笔记、AI 归纳要点、追问  
+- 节点类型：主题、搜罗轮次、笔记、AI 归纳要点、追问、知识条目、概念、实体、问题
 - **分叉深挖**：继承上轮报告与有用/噪音反馈，修改关键词再搜  
 - **归纳要点 / 建议查询**：需选中研究树中的搜罗节点 + DeepSeek API；建议查询显示在研究树面板下方  
+- **从知识继续研究**：`POST /api/research/from-knowledge` / `osint research from-knowledge --item-id ID` 可把知识条目挂入研究树，并生成后续问题。
 
 导图：研究树面板切换「导图」视图（Markmap）。
 
@@ -224,9 +255,17 @@ search:
 | 画像模拟 | `--no-simulate` 关闭 | 需已有 persona |
 | 别名发现 | `search.discover_aliases` | 联网 + AI，可禁 `--no-ai-step alias_discover` |
 | 外文拓展 | `search.foreign_expand` | 国际信源英文检索词；`http.proxy` 可扩大探针范围。**设置 → 运行参数 → 外文信源** 可图形化配置；支持「检测国际网络」自检 |
+| 本地上下文注入 | 默认开启 | 聚合 persona、混合检索后的知识库命中、概念/项目/知识缺口、近期高价值行为与反馈概况，作为 AI 查询/信源规划参考；每次搜罗落盘 `local_context.json` 供审计，当前不直接改排序 |
+| 结构化 Persona | `osint persona build --structured` | 同时生成 brief 与可程序调用的长期兴趣、当前项目、信源偏好、反感模式等字段；AI 失败时规则 fallback |
+| 知识增强 | 收录 / 批量收录 / reindex | 规则抽取概念、实体、观点、问题与关系；AI 仅作为候选增强，不直接覆盖用户笔记 |
 | 研究树归纳/建议 | 研究树按钮 | 需报告或条目标题作上下文 |
 | 追问报告 | 搜罗完成后 | `POST /api/ask` |
+| 问知识库 | 知识库页 / CLI | `POST /api/knowledge/ask` / `osint knowledge ask` |
 | 每日简报 | 简报页 | 基于近期行为与收录 |
+
+### 反馈闭环
+
+搜罗结果中的「有用 / 噪音」反馈会在后续搜罗中参与轻量相关度融合：同 URL、同信源/站点、标题关键词相似的条目会被小幅加权或降权。系统不会因反馈静默删除结果；所有调整会写入条目的 `personal.local_context_adjustments`，并在 run 目录落盘 `feedback_adjust.json` 供审计。
 
 API Key：`DEEPSEEK_API_KEY` 环境变量或 Web **设置 → API 密钥**（写入 `~/.osint/config.yaml`）。
 
@@ -244,6 +283,10 @@ osint sync                         # 完整行为同步
 osint search "话题" --digest --trace
 osint save "https://..." --with-comments
 osint recall "关键词"
+osint cloud init --provider onedrive_folder --sync
+osint cloud status
+osint cloud sync
+osint cloud reindex
 osint persona build --review
 osint run list
 osint run show <run_id>

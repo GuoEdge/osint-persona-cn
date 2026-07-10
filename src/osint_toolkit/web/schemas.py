@@ -80,6 +80,42 @@ class AskRequest(BaseModel):
     history: list[dict[str, str]] = []
 
 
+class KnowledgeAskRequest(BaseModel):
+    question: str
+    mode: str = "hybrid"
+    source: str | None = None
+    topic: str | None = None
+    tag: str | None = None
+    entity: str | None = None
+    run_id: str | None = None
+    capture_reason: str | None = None
+    conflict_status: str | None = None
+    history: list[dict[str, str]] = []
+
+
+class KnowledgeRagAskRequest(KnowledgeAskRequest):
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class KnowledgeResearchQuestionsRequest(BaseModel):
+    item_id: str | None = None
+    topic: str | None = None
+    query: str | None = None
+    limit: int = 8
+
+
+class ResearchFromKnowledgeRequest(BaseModel):
+    item_id: str
+    tree_id: str | None = None
+    parent_node_id: str | None = None
+
+
+class ResearchFromSearchRequest(BaseModel):
+    item: dict[str, Any]
+    tree_id: str | None = None
+    parent_node_id: str | None = None
+
+
 class ResearchTreeCreate(BaseModel):
     title: str
     query: str = ""
@@ -201,3 +237,16 @@ class SecretSaveRequest(BaseModel):
 
 class TunablePatchRequest(BaseModel):
     values: dict[str, Any]
+
+
+class CloudSyncRequest(BaseModel):
+    backup: bool = False
+
+
+class CloudInitRequest(BaseModel):
+    provider: str = "auto"
+    vault_path: str | None = None
+    onedrive_root: str | None = None
+    vault_name: str | None = None
+    sync_mode: str = "manual"
+    sync_after: bool = False

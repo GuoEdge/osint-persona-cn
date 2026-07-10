@@ -9,7 +9,7 @@ from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.steering import build_system_prompt
 from osint_toolkit.persona.behavior_signals import load_ranked_behavior_samples
 from osint_toolkit.persona.context import maybe_load_persona_context
-from osint_toolkit.services import knowledge
+from osint_toolkit.services import knowledge, rag
 from osint_toolkit.services.run_session import run_dir_for_read
 from osint_toolkit.services.runs import show_run
 
@@ -62,7 +62,10 @@ def _build_messages(
                 task="追问",
                 persona_brief=persona_brief,
             )
-            + "\n请基于提供的报告与条目上下文作答；可引用 [cN] 标注来源。",
+            + (
+                "\n请基于提供的报告与条目上下文作答；若引用知识库片段，"
+                "使用上下文给出的 citation 标识，不得编造不存在的引用。"
+            ),
         },
     ]
     for turn in history or []:
@@ -87,6 +90,50 @@ def _build_messages(
         }
     )
     return messages
+
+
+def _fallback_knowledge_answer(question: str, hits: list[dict[str, Any]]) -> str:
+    lines = [
+        "当前未调用 AI，下面按本地知识库命中给出依据整理。",
+        "",
+        f"问题: {question}",
+        "",
+        "最相关条目:",
+    ]
+    for hit in hits[:5]:
+        title = str(hit.get("title") or "无标题")
+        citation = str(hit.get("citation") or "")
+        summary = str(hit.get("summary") or "").strip()
+        reasons = "；".join(str(x) for x in (hit.get("match_reasons") or []) if str(x).strip())
+        detail = reasons or summary or "命中但暂无摘要"
+        lines.append(f"- [{citation}] {title}: {detail}")
+    lines.append("")
+    lines.append("你可以继续缩小问题范围，或恢复 AI 问答来生成更自然的综合回答。")
+    return "\n".join(lines).strip()
+
+
+def _attach_knowledge_context(context: dict[str, Any], question: str, *, persona_ctx: Any = None) -> dict[str, Any]:
+    if persona_ctx and getattr(persona_ctx, "structured", None):
+        context["persona_structured"] = persona_ctx.structured
+    try:
+        concepts = knowledge.list_concepts(query=question, limit=8)
+    except Exception:  # noqa: BLE001
+        concepts = []
+    try:
+        projects = knowledge.list_concepts(query=question, kind="project", limit=5)
+    except Exception:  # noqa: BLE001
+        projects = []
+    try:
+        gaps = knowledge.research_questions(query=question, limit=5)
+    except Exception:  # noqa: BLE001
+        gaps = {"questions": [], "gaps": [], "count": 0}
+    if concepts:
+        context["knowledge_concepts"] = concepts
+    if projects:
+        context["knowledge_projects"] = projects
+    if gaps.get("questions"):
+        context["knowledge_gaps"] = gaps
+    return gaps
 
 
 def ask_question(
@@ -120,11 +167,15 @@ def ask_question(
         context["recent_topics"] = persona_ctx.recent_topics
 
     context["behavior_samples"] = load_ranked_behavior_samples(sample_limit=10)
-    recalled = knowledge.recall(question, limit=5)
-    if recalled:
-        context["knowledge_recall"] = [
-            {"title": i.title, "url": i.url, "summary": (i.summary or i.content[:300])} for i in recalled
-        ]
+    rag_context = rag.retrieve_context(question, limit=6)
+    if rag_context.get("evidence"):
+        context["knowledge_recall"] = rag_context["evidence"]
+        context["rag_context"] = {
+            "knowledge_concepts": rag_context.get("knowledge_concepts") or [],
+            "knowledge_projects": rag_context.get("knowledge_projects") or [],
+            "knowledge_gaps": rag_context.get("knowledge_gaps") or {},
+        }
+    gaps = _attach_knowledge_context(context, question, persona_ctx=persona_ctx)
 
     try:
         client = DeepSeekClient()
@@ -139,6 +190,51 @@ def ask_question(
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
         if "api" in msg.lower() and "key" in msg.lower():
-            msg = "未配置 DeepSeek API Key，请在设置页「API 密钥」填写或设置 DEEPSEEK_API_KEY"
-        return {"ok": False, "question": question, "answer": "", "error": msg, "run_id": run_id}
-    return {"ok": True, "question": question, "answer": answer, "run_id": run_id}
+            msg = "未配置 DeepSeek API Key，已回退为本地证据整理"
+        fallback_hits = context.get("knowledge_recall") or context.get("items") or []
+        return {
+            "ok": True,
+            "question": question,
+            "answer": _fallback_knowledge_answer(question, fallback_hits),
+            "run_id": run_id,
+            "ai_used": False,
+            "fallback": "local_evidence",
+            "follow_up_questions": gaps.get("questions") or [],
+            "warning": msg,
+        }
+    return {
+        "ok": True,
+        "question": question,
+        "answer": answer,
+        "run_id": run_id,
+        "ai_used": True,
+        "follow_up_questions": gaps.get("questions") or [],
+        "fallback": "",
+    }
+
+
+def ask_knowledge(
+    question: str,
+    *,
+    mode: str = "hybrid",
+    source: str | None = None,
+    topic: str | None = None,
+    tag: str | None = None,
+    entity: str | None = None,
+    run_id: str | None = None,
+    capture_reason: str | None = None,
+    conflict_status: str | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    return rag.ask(
+        question,
+        mode=mode,
+        source=source,
+        topic=topic,
+        tag=tag,
+        entity=entity,
+        run_id=run_id,
+        capture_reason=capture_reason,
+        conflict_status=conflict_status,
+        history=history,
+    )

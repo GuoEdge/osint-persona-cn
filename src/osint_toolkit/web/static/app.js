@@ -787,15 +787,59 @@ function itemCardTeaser(item) {
   return "点击展开查看详情";
 }
 
+function knowledgeLinkage(item) {
+  return item?.personal?.knowledge_linkage || null;
+}
+
+function shortKnowledgeProjectLabel(project) {
+  const text = String(project || "").trim();
+  if (!text) return "";
+  return text.length > 10 ? `${text.slice(0, 10)}…` : text;
+}
+
 function itemSectionFlags(item, sim) {
   const flags = [];
   if (item.summary || item.key_points?.length) flags.push("摘要");
   if (item.layers?.comments_summary) flags.push("观点");
   const raw = (item.content || item.layers?.subtitle?.text || "").trim();
   if (raw) flags.push("原文");
+  if (item.source === "bilibili" && item.type === "video") {
+    const subtitleText = String(item.layers?.subtitle?.text || "").trim();
+    const subtitleReason = String(item.layers?.subtitle?.reason || "").trim();
+    if (subtitleText) {
+      flags.push("已识别字幕");
+    } else if (subtitleReason === "no_tracks") {
+      flags.push("无字幕");
+    } else if (subtitleReason) {
+      flags.push({ label: "字幕失败", title: formatBilibiliSubtitleReason(subtitleReason) });
+    }
+  }
   if (item.layers?.comments?.length) flags.push(`热评 ${item.layers.comments.length}`);
   if (sim && !sim.raw) flags.push("模拟");
+  const linkage = knowledgeLinkage(item);
+  if (linkage?.known_url) flags.push("库中已有");
+  else if (linkage?.supplements_existing) flags.push("补充旧知识");
+  if (linkage?.project) flags.push({ label: `项目 ${shortKnowledgeProjectLabel(linkage.project)}`, title: linkage.project });
+  if (linkage?.persona_overlap?.length) {
+    flags.push({ label: "贴合画像", title: linkage.persona_overlap.join("；") });
+  }
   return flags;
+}
+
+function formatBilibiliSubtitleReason(reason) {
+  const value = String(reason || "").trim();
+  if (!value) return "字幕抓取失败";
+  if (value === "aid_cid_unresolved") return "字幕抓取失败：未能解析该视频的 aid/cid";
+  if (value === "no_subtitle_url") return "字幕抓取失败：字幕轨未返回可下载地址";
+  if (value === "empty_subtitle_file") return "字幕抓取失败：字幕文件为空";
+  if (value === "no_tracks") return "该视频未提供 CC/AI 字幕轨";
+  if (value.startsWith("wbi_player_error:")) {
+    return `字幕抓取失败：WBI player 接口异常（${value.split(":").slice(1).join(":") || "unknown"}）`;
+  }
+  if (value.startsWith("player_v2_error:")) {
+    return `字幕抓取失败：player_v2 接口异常（${value.split(":").slice(1).join(":") || "unknown"}）`;
+  }
+  return `字幕抓取失败：${value}`;
 }
 
 function formatRelevanceBadge(item) {
@@ -1005,11 +1049,23 @@ function bilibiliShortRawHint(item, rawText) {
   return `<p class="muted section-hint">B 站简介通常较短；${reasonHint}。请勾选「挖掘 B 站热评」并在<a href="/settings">设置</a>同步 B 站 Cookie 后重试。</p>`;
 }
 
+function bilibiliRawContent(item) {
+  const content = String(item?.content || "").trim();
+  const subtitleText = String(item?.layers?.subtitle?.text || "").trim();
+  if (item?.source !== "bilibili" || item?.type !== "video") {
+    return content || subtitleText;
+  }
+  if (!subtitleText) return content;
+  if (!content) return `[字幕]\n${subtitleText}`;
+  if (content.includes(subtitleText)) return content;
+  return `${content}\n\n[字幕]\n${subtitleText}`;
+}
+
 function hydrateItemCardMarkdown(card, item) {
   if (!item || card.dataset.mdHydrated === "1") return;
   card.dataset.mdHydrated = "1";
   const raw = card.querySelector(".raw-body");
-  const rawText = (item.content || item.layers?.subtitle?.text || "").trim();
+  const rawText = bilibiliRawContent(item).trim();
   if (raw && rawText) renderMarkdown(raw, rawText);
   const summary = card.querySelector(".summary-body");
   if (summary && item.summary) renderMarkdown(summary, item.summary);
@@ -1028,9 +1084,43 @@ function hydrateItemCards(container, items) {
 }
 
 const API_TIMEOUT_MS = 12000;
+let _apiPrewarmPromise = null;
+
+async function prewarmApiToken() {
+  if (_apiPrewarmPromise) return _apiPrewarmPromise;
+  _apiPrewarmPromise = fetch("/api/health", { credentials: "same-origin" })
+    .then((res) => res.ok)
+    .catch(() => false)
+    .finally(() => {
+      setTimeout(() => {
+        _apiPrewarmPromise = null;
+      }, 1500);
+    });
+  return _apiPrewarmPromise;
+}
+
+function friendlyApiError(err, url = "") {
+  const msg = String(err?.message || err || "");
+  if (err?.name === "AbortError") {
+    return new Error("请求超时，后台可能正忙。请稍后重试，或先检查情报台是否仍在运行。");
+  }
+  if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
+    return new Error("无法连接本机情报台服务。请确认“启动情报台.bat”已经运行，并刷新页面重试。");
+  }
+  if (/forbidden|403/i.test(msg)) {
+    return new Error("页面授权还没就绪。请刷新页面；若仍失败，请重新启动情报台。");
+  }
+  if (url.includes("/knowledge/")) {
+    return new Error(msg || "知识库请求失败。请查看知识诊断条里的修复建议。");
+  }
+  return err instanceof Error ? err : new Error(msg || "请求失败");
+}
 
 async function api(method, url, body, options = {}) {
   const timeoutMs = options.timeoutMs ?? API_TIMEOUT_MS;
+  const retry = Number(options.retry ?? 0);
+  const prewarm = options.prewarm === true;
+  if (prewarm) await prewarmApiToken();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const headers = { "Content-Type": "application/json" };
@@ -1041,13 +1131,18 @@ async function api(method, url, body, options = {}) {
   try {
     const res = await fetch(url, opts);
     const data = await res.json().catch(() => ({}));
+    if (res.status === 403 && retry > 0) {
+      await prewarmApiToken();
+      return api(method, url, body, { ...options, retry: retry - 1, prewarm: false });
+    }
     if (!res.ok) throw new Error(data.detail || res.statusText);
     return data;
   } catch (err) {
-    if (err.name === "AbortError") {
-      throw new Error("请求超时，后台可能正忙（搜罗/同步进行中）");
+    if (retry > 0 && err?.name !== "AbortError") {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      return api(method, url, body, { ...options, retry: retry - 1, prewarm: false });
     }
-    throw err;
+    throw friendlyApiError(err, url);
   } finally {
     clearTimeout(timer);
   }
@@ -1111,6 +1206,17 @@ const EVENT_TYPE_LABELS = {
   extension_flush: "扩展上报",
 };
 
+const PERSONA_BEHAVIOR_CATEGORY_LABELS = {
+  browse: "浏览发现",
+  dwell: "深度阅读",
+  watch: "观看",
+  endorse: "点赞/赞同",
+  save: "收藏/收录",
+  publish: "发布/互动",
+  inventory: "账号库存",
+  other: "其他行为",
+};
+
 const CAPABILITY_STATUS_LABELS = {
   supported: "完整支持",
   partial: "需扩展配合",
@@ -1131,6 +1237,10 @@ const AUTH_FIX_LINKS = {
 
 function formatEventType(type) {
   return EVENT_TYPE_LABELS[type] || type || "—";
+}
+
+function formatBehaviorCategory(category) {
+  return PERSONA_BEHAVIOR_CATEGORY_LABELS[category] || category || "其他行为";
 }
 
 function formatCapabilityStatus(status) {
@@ -1912,6 +2022,15 @@ function appendResultCardInteractions(container, runId, items) {
     if (btn.dataset.bound === "1") return;
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => saveFromCard(btn.dataset.save));
+  });
+  container.querySelectorAll("[data-research-item]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      const itemId = String(btn.dataset.researchItem || "");
+      const item = items.find((row) => String(row.id || "") === itemId);
+      if (item) void addSearchItemToResearch(item);
+    });
   });
 }
 
@@ -2965,9 +3084,13 @@ async function loadPersonaStaleBanner() {
       return;
     }
     if (data.stale_prompt ?? (data.stale && data.auto_rebuild_mode === "prompt")) {
+      const thresholdBits = [];
+      if (data.auto_rebuild_threshold) thresholdBits.push(`新增行为达到 ${data.auto_rebuild_threshold} 条`);
+      if (data.auto_rebuild_max_age_hours) thresholdBits.push(`距离上次构建超过 ${data.auto_rebuild_max_age_hours} 小时`);
+      const thresholdText = thresholdBits.length ? `（${thresholdBits.join("，或")}）` : "";
       el.classList.remove("hidden");
       el.className = "alert alert-warn";
-      el.innerHTML = `画像可能已过时（新增行为数据已达阈值）。<button type="button" class="btn btn-sm" id="btn-persona-rebuild-inline">立即重建</button> <a href="/persona">详情</a>`;
+      el.innerHTML = `画像可能已过时${escapeHtml(thresholdText)}。<button type="button" class="btn btn-sm" id="btn-persona-rebuild-inline">立即重建</button> <a href="/persona">详情</a>`;
       document.getElementById("btn-persona-rebuild-inline")?.addEventListener("click", async () => {
         try {
           await api("POST", "/api/persona/build?review=true");
@@ -4364,6 +4487,7 @@ function showSourceErrors(errors, resultsEl) {
 }
 
 const askSession = { runId: null, history: [], citationMap: {} };
+const knowledgeAskSession = { history: [] };
 
 function renderReportPanel(result, reportEl, askSection, runId, resultsEl) {
   const hasItems = (result.items || []).length > 0;
@@ -4587,6 +4711,19 @@ function renderSearchMetaBanner(result) {
       `本轮情报：新增 ${Number(stats.new_count) || 0} 条 · 已见过 ${Number(stats.seen_count) || 0} 条`,
     );
   }
+  const knowledge = result.knowledge_audit?.summary || {};
+  if (
+    knowledge.linked_count != null
+    || knowledge.known_url_count != null
+    || knowledge.supplements_count != null
+    || knowledge.project_linked_count != null
+    || knowledge.persona_overlap_count != null
+    || knowledge.followup_count != null
+  ) {
+    parts.push(
+      `知识联动：关联 ${Number(knowledge.linked_count) || 0} 条 · 库中已有 ${Number(knowledge.known_url_count) || 0} 条 · 补充旧知识 ${Number(knowledge.supplements_count) || 0} 条 · 挂到项目 ${Number(knowledge.project_linked_count) || 0} 条 · 贴合画像 ${Number(knowledge.persona_overlap_count) || 0} 条 · 带后续问题 ${Number(knowledge.followup_count) || 0} 条`,
+    );
+  }
   const bySource = {};
   (result.items || []).forEach((item) => {
     const src = item.source || "web";
@@ -4605,6 +4742,54 @@ function itemCommentCount(item) {
   return Array.isArray(comments) ? comments.length : 0;
 }
 
+function renderKnowledgeLinkageSection(item) {
+  const linkage = knowledgeLinkage(item);
+  if (!linkage) return "";
+  const rows = [];
+  if (linkage.known_url) {
+    rows.push("<p class=\"muted\">这条内容的原始链接已经在知识库里出现过，可直接回到旧知识脉络继续研究。</p>");
+  } else if (linkage.supplements_existing) {
+    rows.push("<p class=\"muted\">这条内容能补充库中已有材料，适合并入现有研究线索。</p>");
+  }
+  if (linkage.matching_concepts?.length) {
+    rows.push(
+      `<div class="chip-group">${linkage.matching_concepts
+        .slice(0, 8)
+        .map((name) => `<span class="chip">${escapeHtml(name)}</span>`)
+        .join("")}</div>`,
+    );
+  }
+  if (linkage.project) {
+    rows.push(`<p><strong>关联项目：</strong>${escapeHtml(linkage.project)}</p>`);
+  }
+  if (linkage.persona_overlap?.length) {
+    rows.push(`<p><strong>与当前画像重合：</strong>${linkage.persona_overlap.slice(0, 6).map(escapeHtml).join("；")}</p>`);
+  }
+  if (linkage.related_titles?.length) {
+    rows.push(
+      `<p><strong>可衔接旧条目：</strong>${linkage.related_titles.slice(0, 4).map(escapeHtml).join("；")}</p>`,
+    );
+  }
+  if (linkage.related_reasons?.length) {
+    rows.push(
+      `<p class="muted"><strong>关联原因：</strong>${linkage.related_reasons.slice(0, 4).map(escapeHtml).join("；")}</p>`,
+    );
+  }
+  if (linkage.followups?.length) {
+    rows.push(
+      `<ul class="key-points">${linkage.followups
+        .slice(0, 3)
+        .map((q) => `<li>${escapeHtml(q)}</li>`)
+        .join("")}</ul>`,
+    );
+  }
+  if (!rows.length) return "";
+  return `<details class="item-section item-section-knowledge" open>
+    <summary class="item-section-summary">知识联动</summary>
+    <div class="item-section-body">${rows.join("")}</div>
+  </details>`;
+}
+
 function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = false, cardIndex = null) {
   const src = item.source || "web";
   const itemHref = safeHref(item.url);
@@ -4614,11 +4799,17 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
     ? `<span class="source-badge source-seen">已关注</span>` : "";
   const simHtml = formatSimulation(sim, item.id, runId, feedbackMap);
   const itemRating = feedbackMap[`item:${item.id}`] || "";
-  const rawText = (item.content || item.layers?.subtitle?.text || "").trim();
+  const rawText = bilibiliRawContent(item).trim();
   const teaser = escapeHtml(itemCardTeaser(item));
   const flags = itemSectionFlags(item, sim);
   const flagsHtml = flags.length
-    ? `<div class="item-card-flags">${flags.map((f) => `<span class="item-flag">${escapeHtml(f)}</span>`).join("")}</div>`
+    ? `<div class="item-card-flags">${flags
+        .map((f) => {
+          const flag = typeof f === "string" ? { label: f, title: "" } : f;
+          const title = flag.title ? ` title="${escapeHtml(flag.title)}"` : "";
+          return `<span class="item-flag"${title}>${escapeHtml(flag.label || "")}</span>`;
+        })
+        .join("")}</div>`
     : "";
   const expandedClass = expandedDefault ? "is-expanded" : "is-collapsed";
   const ariaExpanded = expandedDefault ? "true" : "false";
@@ -4651,6 +4842,9 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
       </div>
     </details>`);
   }
+
+  const linkageSection = renderKnowledgeLinkageSection(item);
+  if (linkageSection) sections.push(linkageSection);
 
   if (rawText) {
     sections.push(`<details class="item-section item-section-raw">
@@ -4724,6 +4918,7 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
       <div class="actions">
         ${itemHref ? `<a class="btn btn-sm" href="${escapeHtml(itemHref)}" target="_blank" rel="noopener">打开原文</a>` : ""}
         <button class="btn btn-sm btn-secondary" data-save="${escapeHtml(item.url || "")}">收录</button>
+        <button class="btn btn-sm btn-ghost" data-research-item="${escapeHtml(item.id || "")}">加入研究</button>
         <button class="${feedbackBtnClass(itemRating === "useful", "btn btn-sm btn-secondary")}" data-base-label="有用" data-feedback="useful" data-id="${escapeHtml(item.id || "")}">${feedbackLabel("有用", itemRating === "useful")}</button>
         <button class="${feedbackBtnClass(itemRating === "noise")}" data-base-label="噪音" data-feedback="noise" data-id="${escapeHtml(item.id || "")}">${feedbackLabel("噪音", itemRating === "noise")}</button>
       </div>
@@ -4873,6 +5068,27 @@ async function saveFromCard(url) {
   }
 }
 
+async function addSearchItemToResearch(item) {
+  if (!item || typeof item !== "object") return;
+  try {
+    const payload = {
+      item,
+      tree_id: workspaceSession.treeId || null,
+      parent_node_id: insightParentNodeId(workspaceSession.activeRunId) || workspaceSession.parentNodeId || null,
+    };
+    const data = await api("POST", "/api/research/from-search", payload, { timeoutMs: 30000, retry: 1 });
+    if (data.tree?.id) {
+      setResearchTreeId(data.tree.id);
+      if (data.node?.id) setWorkspaceParentNodeId(data.node.id);
+      await refreshResearchTree(data.node?.id || null);
+      switchWorkspacePanel("research");
+    }
+    showToast(`已加入研究树：${item.title || "搜索结果"}`, "success");
+  } catch (err) {
+    showToast(err.message || "加入研究树失败", "error");
+  }
+}
+
 function setAskFormBusy(form, busy) {
   const submitBtn = form.querySelector('button[type="submit"]');
   const input = document.getElementById("ask-question");
@@ -5010,6 +5226,65 @@ async function loadRecentItems() {
 }
 
 /* 知识库 */
+function currentKnowledgeSearchState() {
+  return {
+    q: document.getElementById("knowledge-query")?.value.trim() || "",
+    source: document.getElementById("knowledge-source")?.value || "",
+    topic: document.getElementById("knowledge-topic")?.value.trim() || "",
+    entity: document.getElementById("knowledge-entity")?.value.trim() || "",
+    tag: document.getElementById("knowledge-tag")?.value.trim() || "",
+    conflict_status: document.getElementById("knowledge-conflict")?.value || "",
+    mode: document.querySelector("input[name='knowledge-mode']:checked")?.value || "hybrid",
+    explain: document.getElementById("knowledge-explain")?.checked !== false,
+  };
+}
+
+function renderKnowledgeLinks(host, links) {
+  if (!host) return;
+  if (!links.length) {
+    host.innerHTML = "<p class='muted mt-1'>没有找到可展示的关联条目</p>";
+    return;
+  }
+  host.innerHTML = `<div class="ui-inset-group mt-1">${links.map((link) => {
+    const item = link.item || {};
+    return `<div class="ui-list-row">
+      <div class="ui-list-row-main">
+        <div class="item-card-meta">
+          <span class="source-badge source-${escapeHtml(item.source || "web")}">${escapeHtml(link.relation_label || "关联")}</span>
+          <span class="muted">置信度 ${escapeHtml(String(Math.round((Number(link.confidence) || 0) * 100)))}%</span>
+        </div>
+        <div class="ui-list-row-title">${escapeHtml(item.title || "无标题")}</div>
+        <p class="ui-list-row-sub muted">${escapeHtml(link.evidence || item.summary || item.content?.slice(0, 160) || "")}</p>
+      </div>
+      <div class="ui-list-row-actions">
+        <a class="btn btn-sm btn-secondary" href="${safeHref(item.url)}" target="_blank" rel="noopener">原文</a>
+      </div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+async function loadKnowledgeFilters() {
+  try {
+    const data = await api("GET", "/api/knowledge/filters?limit=40");
+    const topicList = document.getElementById("knowledge-topic-list");
+    const entityList = document.getElementById("knowledge-entity-list");
+    const tagList = document.getElementById("knowledge-tag-list");
+    const sourceSel = document.getElementById("knowledge-source");
+    if (topicList) topicList.innerHTML = (data.topics || []).map((row) => `<option value="${escapeHtml(row.value || row.topic || "")}"></option>`).join("");
+    if (entityList) entityList.innerHTML = (data.entities || []).map((row) => `<option value="${escapeHtml(row.value || "")}"></option>`).join("");
+    if (tagList) tagList.innerHTML = (data.tags || []).map((row) => `<option value="${escapeHtml(row.value || "")}"></option>`).join("");
+    if (sourceSel && Array.isArray(data.sources) && data.sources.length) {
+      const current = sourceSel.value;
+      sourceSel.innerHTML = `<option value="">全部</option>${data.sources.map((row) =>
+        `<option value="${escapeHtml(row.value || "")}">${escapeHtml(sourceLabel(row.value || ""))} (${escapeHtml(String(row.count || 0))})</option>`
+      ).join("")}`;
+      sourceSel.value = current || "";
+    }
+  } catch (_) {
+    // keep page usable even if filter metadata fails
+  }
+}
+
 function initKnowledge() {
   const params = new URLSearchParams(window.location.search);
   const q = params.get("q") || "";
@@ -5022,28 +5297,140 @@ function initKnowledge() {
   });
   if (tab === "save") switchKnowledgeTab("save");
   initSave(url);
-  const sourceSel = document.getElementById("knowledge-source");
-  const syncSourceFilterForMode = () => {
-    const semantic = document.querySelector("input[name='knowledge-mode']:checked")?.value === "semantic";
-    if (sourceSel) {
-      if (semantic && sourceSel.value) {
-        showToast("全文检索模式下信源筛选仅关键词检索可用", "info");
-        sourceSel.value = "";
-      }
-      sourceSel.disabled = semantic;
-    }
-  };
-  document.querySelectorAll("input[name='knowledge-mode']").forEach((radio) => {
-    radio.addEventListener("change", syncSourceFilterForMode);
-  });
-  syncSourceFilterForMode();
   const form = document.getElementById("knowledge-form");
+  const ready = prewarmApiToken().catch(() => false);
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       await searchKnowledge();
     });
-    if (q) searchKnowledge();
+    if (q) ready.finally(() => searchKnowledge());
+  }
+  const askForm = document.getElementById("knowledge-ask-form");
+  if (askForm) {
+    askForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const inputEl = document.getElementById("knowledge-ask-question");
+      const question = inputEl?.value.trim() || "";
+      const host = document.getElementById("knowledge-ask-answer");
+      if (!question) {
+        if (host) host.innerHTML = "<p class='muted'>请输入问题后再追问</p>";
+        return;
+      }
+      if (host) host.innerHTML = "<p class='muted'>正在基于知识库回答…</p>";
+      const filters = currentKnowledgeSearchState();
+      try {
+        const data = await api("POST", "/api/knowledge/rag/ask", {
+          question,
+          mode: filters.mode,
+          source: filters.source || null,
+          topic: filters.topic || null,
+          entity: filters.entity || null,
+          tag: filters.tag || null,
+          conflict_status: filters.conflict_status || null,
+          history: knowledgeAskSession.history,
+        }, { timeoutMs: 45000, retry: 1, prewarm: true });
+        if (data.ok === false) {
+          if (host) host.innerHTML = `<div class="alert alert-error">${escapeHtml(data.error || "追问失败")}</div>`;
+          return;
+        }
+        knowledgeAskSession.history.push({ question, answer: data.answer || "" });
+        knowledgeAskSession.history = knowledgeAskSession.history.slice(-6);
+        const refs = (data.evidence || data.hits || []).length
+          ? `<div class="mt-1"><strong>RAG 证据</strong><div class="ui-inset-group mt-1">${(data.evidence || data.hits || []).map((hit) => `
+              <div class="ui-list-row">
+                <div class="ui-list-row-main">
+                  <div class="item-card-meta">
+                    <span class="source-badge source-web">${escapeHtml(hit.source_channel || "rag")}</span>
+                    ${hit.needs_verification ? `<span class="source-badge source-bad">需核查</span>` : ""}
+                    ${hit.relation ? `<span class="source-badge source-bilibili">${escapeHtml(hit.relation)}</span>` : ""}
+                  </div>
+                  <div class="ui-list-row-title">[${escapeHtml(hit.citation || "")}] ${escapeHtml(hit.title || "无标题")}</div>
+                  <p class="ui-list-row-sub muted">${escapeHtml(hit.match_reason || hit.relation_reason || (hit.match_reasons || []).join("；") || hit.summary || "")}</p>
+                </div>
+                <div class="ui-list-row-actions">
+                  <a class="btn btn-sm btn-secondary" href="${safeHref(hit.url)}" target="_blank" rel="noopener">原文</a>
+                </div>
+              </div>
+            `).join("")}</div></div>`
+          : "";
+        const aiMeta = data.ai_used === false
+          ? `<div class="alert alert-warning mt-1">${escapeHtml(data.warning || "当前回答未调用 AI，已回退为本地 RAG 证据整理。")}</div>`
+          : `<div class="muted mt-1">本次回答: 本地 Graph-RAG 召回 + AI 生成</div>`;
+        const followUps = renderKnowledgeFollowUps(data.follow_up_questions || []);
+        if (host) {
+          host.innerHTML = `${aiMeta}<div class="markdown-body"></div>${refs}${followUps}`;
+          renderMarkdown(host.querySelector(".markdown-body"), data.answer || "");
+          bindKnowledgeSuggestionButtons(host);
+        }
+      } catch (err) {
+        if (host) host.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "追问失败")}</div>`;
+      }
+    });
+  }
+  ready.finally(() => {
+    loadKnowledgeHealth();
+    loadKnowledgeFilters();
+    loadKnowledgeCloudStatus();
+    loadKnowledgeAiStatus();
+    initKnowledgeGraphPanel();
+  });
+}
+
+async function loadKnowledgeHealth() {
+  const el = document.getElementById("knowledge-health-status");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/knowledge/health", null, { timeoutMs: 15000, retry: 1, prewarm: true });
+    const issues = (data.issues || []).map((msg) => `<div class="alert alert-warning mt-1">${escapeHtml(msg)}</div>`).join("");
+    const suggestions = (data.suggestions || []).map((msg) => `<span class="muted">${escapeHtml(msg)}</span>`).join(" · ");
+    el.innerHTML = `
+      <div class="toggle-row">
+        <span class="muted">条目 ${escapeHtml(String(data.item_count || 0))}</span>
+        <span class="muted">FTS ${data.fts_ok ? "正常" : "需检查"}</span>
+        <span class="muted">概念 ${escapeHtml(String(data.concept_count || 0))}</span>
+        <span class="muted">关系 ${escapeHtml(String(data.graph_edge_count || 0))}</span>
+      </div>
+      ${issues}
+      ${suggestions ? `<div class="mt-1">${suggestions}</div>` : ""}
+    `;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "知识诊断加载失败")}</div>`;
+  }
+}
+
+async function loadKnowledgeAiStatus() {
+  const el = document.getElementById("knowledge-ai-status");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/ai/status", null, { timeoutMs: 12000, retry: 1, prewarm: true });
+    const enabled = Number(data.enabled_step_count || 0);
+    const total = Number(data.total_step_count || 0);
+    const apiReady = data.api_key_configured === true;
+    const note = apiReady
+      ? "AI 问答与搜罗增强已可用"
+      : "当前未配置 AI Key，问答会自动回退为本地证据整理";
+    el.innerHTML = `
+      <div class="grid-2">
+        <div>
+          <div><strong>AI 引擎</strong></div>
+          <div class="muted">${escapeHtml(data.provider || "")} · ${escapeHtml(data.model || "")}</div>
+          <div class="muted">${escapeHtml(note)}</div>
+        </div>
+        <div>
+          <div><strong>AI 参与方式</strong></div>
+          <div class="muted">知识检索: 纯本地</div>
+          <div class="muted">知识问答: 本地召回 + AI / 本地兜底</div>
+        </div>
+      </div>
+      <div class="toggle-row mt-1">
+        <span class="muted">API Key ${apiReady ? "已配置" : "未配置"}</span>
+        <span class="muted">启用步骤 ${escapeHtml(String(enabled))}/${escapeHtml(String(total))}</span>
+        <span class="muted">Prompt 覆盖 ${escapeHtml(String(data.prompt_overrides || 0))}</span>
+      </div>
+    `;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "无法加载 AI 状态")}</div>`;
   }
 }
 
@@ -5053,13 +5440,163 @@ function switchKnowledgeTab(name) {
   });
   document.getElementById("knowledge-tab-search")?.classList.toggle("active", name === "search");
   document.getElementById("knowledge-tab-search")?.classList.toggle("hidden", name !== "search");
+  document.getElementById("knowledge-tab-graph")?.classList.toggle("active", name === "graph");
+  document.getElementById("knowledge-tab-graph")?.classList.toggle("hidden", name !== "graph");
   document.getElementById("knowledge-tab-save")?.classList.toggle("active", name === "save");
   document.getElementById("knowledge-tab-save")?.classList.toggle("hidden", name !== "save");
 }
 
+function initKnowledgeGraphPanel() {
+  document.getElementById("knowledge-concepts-refresh")?.addEventListener("click", loadKnowledgeConcepts);
+  document.getElementById("knowledge-graph-refresh")?.addEventListener("click", loadKnowledgeGraph);
+  document.getElementById("knowledge-gaps-refresh")?.addEventListener("click", loadKnowledgeGaps);
+  if (document.getElementById("knowledge-tab-graph")) {
+    loadKnowledgeConcepts();
+    loadKnowledgeGraph();
+  }
+}
+
+function renderKnowledgeFollowUps(questions) {
+  const rows = (questions || []).filter(Boolean).slice(0, 6);
+  if (!rows.length) return "";
+  return `<div class="mt-1"><strong>可继续研究</strong><div class="toggle-row mt-1">${rows.map((q) =>
+    `<button type="button" class="btn btn-sm btn-secondary" data-knowledge-suggestion="${escapeHtml(q)}">${escapeHtml(q)}</button>`
+  ).join("")}</div></div>`;
+}
+
+function bindKnowledgeSuggestionButtons(root = document) {
+  root.querySelectorAll("[data-knowledge-suggestion]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      const value = btn.dataset.knowledgeSuggestion || "";
+      const input = document.getElementById("knowledge-query");
+      const ask = document.getElementById("knowledge-ask-question");
+      if (input) input.value = value;
+      if (ask) ask.value = value;
+      switchKnowledgeTab("search");
+      searchKnowledge();
+    });
+  });
+}
+
+async function loadKnowledgeConcepts() {
+  const host = document.getElementById("knowledge-concepts-list");
+  if (!host) return;
+  const q = document.getElementById("knowledge-concept-query")?.value.trim() || "";
+  const params = new URLSearchParams();
+  params.set("limit", "40");
+  if (q) params.set("q", q);
+  host.innerHTML = "<p class='muted'>正在加载概念…</p>";
+  try {
+    const data = await api("GET", `/api/knowledge/concepts?${params.toString()}`, null, {
+      timeoutMs: 20000,
+      retry: 1,
+      prewarm: true,
+    });
+    const rows = data.concepts || [];
+    host.innerHTML = rows.length
+      ? `<div class="ui-inset-group">${rows.map((row) => `
+        <button type="button" class="ui-list-row text-left" data-concept-name="${escapeHtml(row.name || "")}">
+          <div class="ui-list-row-main">
+            <div class="item-card-meta">
+              <span class="source-badge source-web">${escapeHtml(row.kind || "concept")}</span>
+              <span class="muted">${escapeHtml(String(row.item_count || 0))} 条</span>
+            </div>
+            <div class="ui-list-row-title">${escapeHtml(row.name || "")}</div>
+          </div>
+        </button>
+      `).join("")}</div>`
+      : "<p class='muted'>暂无概念节点</p>";
+    host.querySelectorAll("[data-concept-name]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.conceptName || "";
+        const gapInput = document.getElementById("knowledge-gap-topic");
+        if (gapInput) gapInput.value = name;
+        await loadKnowledgeGaps();
+      });
+    });
+  } catch (err) {
+    host.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "概念加载失败")}</div>`;
+  }
+}
+
+async function loadKnowledgeGraph() {
+  const host = document.getElementById("knowledge-graph-summary");
+  if (!host) return;
+  const params = new URLSearchParams();
+  params.set("limit", "80");
+  const itemId = document.getElementById("knowledge-graph-item")?.value.trim() || "";
+  const relation = document.getElementById("knowledge-graph-relation")?.value.trim() || "";
+  const minConfidence = document.getElementById("knowledge-graph-confidence")?.value || "0";
+  if (itemId) params.set("item_id", itemId);
+  if (relation) params.set("relation", relation);
+  params.set("min_confidence", minConfidence);
+  host.innerHTML = "<p class='muted'>正在加载图谱…</p>";
+  try {
+    const data = await api("GET", `/api/knowledge/graph?${params.toString()}`, null, {
+      timeoutMs: 25000,
+      retry: 1,
+      prewarm: true,
+    });
+    const nodes = data.nodes || [];
+    const edges = data.edges || [];
+    host.innerHTML = `
+      <div class="toggle-row">
+        <span class="muted">节点 ${escapeHtml(String(nodes.length))}</span>
+        <span class="muted">关系 ${escapeHtml(String(edges.length))}</span>
+      </div>
+      <div class="ui-inset-group mt-1">${edges.slice(0, 20).map((edge) => `
+        <div class="ui-list-row">
+          <div class="ui-list-row-main">
+            <div class="item-card-meta">
+              <span class="source-badge source-bilibili">${escapeHtml(edge.relation || "relation")}</span>
+              <span class="muted">${escapeHtml(String(Math.round((Number(edge.confidence) || 0) * 100)))}%</span>
+            </div>
+            <div class="ui-list-row-title">${escapeHtml(edge.from_id || "")} → ${escapeHtml(edge.to_id || "")}</div>
+            <p class="ui-list-row-sub muted">${escapeHtml(edge.evidence || "")}</p>
+          </div>
+        </div>
+      `).join("") || "<p class='muted'>暂无关系</p>"}</div>
+    `;
+  } catch (err) {
+    host.innerHTML = `<div class="alert alert-warning">${escapeHtml(err.message || "图谱加载失败")}<div class="mt-1 muted">检索仍可继续使用；可先查看知识诊断条，必要时从云端 vault 重建索引。</div></div>`;
+  }
+}
+
+async function loadKnowledgeGaps() {
+  const host = document.getElementById("knowledge-gaps-list");
+  if (!host) return;
+  const topic = document.getElementById("knowledge-gap-topic")?.value.trim() || "";
+  const itemId = document.getElementById("knowledge-graph-item")?.value.trim() || "";
+  host.innerHTML = "<p class='muted'>正在生成研究问题…</p>";
+  try {
+    const data = await api("POST", "/api/knowledge/research-questions", {
+      topic: topic || null,
+      query: topic || null,
+      item_id: itemId || null,
+      limit: 8,
+    }, { timeoutMs: 25000, retry: 1, prewarm: true });
+    const rows = data.questions || [];
+    host.innerHTML = rows.length
+      ? `<div class="ui-inset-group">${rows.map((row) => `
+        <div class="ui-list-row">
+          <div class="ui-list-row-main">
+            <div class="ui-list-row-title">${escapeHtml(row.question || "")}</div>
+            <p class="ui-list-row-sub muted">${escapeHtml(row.evidence || row.source || "")}</p>
+          </div>
+        </div>
+      `).join("")}</div>`
+      : "<p class='muted'>暂无可生成的研究问题</p>";
+  } catch (err) {
+    host.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "研究问题生成失败")}</div>`;
+  }
+}
+
 async function searchKnowledge() {
   const el = document.getElementById("knowledge-results");
-  const q = document.getElementById("knowledge-query")?.value.trim() || "";
+  const state = currentKnowledgeSearchState();
+  const q = state.q;
   if (!q) {
     el.innerHTML = "<p class='muted'>请输入关键词后再检索</p>";
     return;
@@ -5068,38 +5605,264 @@ async function searchKnowledge() {
     el.innerHTML = "<p class='muted'>关键词至少 2 个字符</p>";
     return;
   }
-  const source = document.getElementById("knowledge-source").value;
-  const mode = document.querySelector("input[name='knowledge-mode']:checked")?.value || "keyword";
-  if (mode === "semantic" && source) {
-    showToast("全文检索模式下信源筛选仅关键词检索可用", "info");
-  }
-  let url = mode === "semantic"
-    ? `/api/knowledge/recall?q=${encodeURIComponent(q)}&limit=50`
-    : `/api/knowledge/items?q=${encodeURIComponent(q)}&limit=50`;
-  if (source && mode === "keyword") url += `&source=${encodeURIComponent(source)}`;
+  const params = new URLSearchParams();
+  params.set("q", q);
+  params.set("limit", "50");
+  params.set("mode", state.mode);
+  if (state.source) params.set("source", state.source);
+  if (state.topic) params.set("topic", state.topic);
+  if (state.entity) params.set("entity", state.entity);
+  if (state.tag) params.set("tag", state.tag);
+  if (state.conflict_status) params.set("conflict_status", state.conflict_status);
+  if (state.explain) params.set("explain", "1");
   el.innerHTML = "<p class='muted'>检索中…</p>";
   try {
-    const data = await api("GET", url);
-    const items = data.items || [];
-    el.innerHTML = items.length
-      ? `<div class="ui-inset-group knowledge-results-list">${items.map((i) => {
+    const data = await api("GET", `/api/knowledge/search?${params.toString()}`, null, {
+      timeoutMs: 30000,
+      retry: 1,
+      prewarm: true,
+    });
+    const hits = data.hits || [];
+    knowledgeAskSession.history = [];
+    el.innerHTML = hits.length
+      ? `<div class="ui-inset-group knowledge-results-list">${hits.map((hit) => {
+        const i = hit.item || {};
         const src = i.source || "web";
+        const concepts = (hit.concepts || []).slice(0, 5);
+        const conceptLine = concepts.length
+          ? `<div class="toggle-row mt-1">${concepts.map((c) =>
+              `<span class="source-badge source-web">${escapeHtml(c.name || "")}</span>`
+            ).join("")}</div>`
+          : "";
+        const projectLine = hit.project ? `<span class="source-badge source-zhihu">项目 ${escapeHtml(hit.project)}</span>` : "";
+        const reasonLine = (hit.match_reasons || []).length
+          ? `<p class="ui-list-row-sub muted">命中原因：${escapeHtml((hit.match_reasons || []).join("；"))}</p>`
+          : "";
+        const snippets = (hit.snippets || []).map((s) => `<p class="ui-list-row-sub muted">${escapeHtml(s)}</p>`).join("");
+        const score = state.explain ? `<span class="muted">score ${escapeHtml(String(hit.score || 0))}</span>` : "";
         return `<div class="ui-list-row knowledge-result-row">
           <div class="ui-list-row-main">
             <div class="item-card-meta">
               <span class="source-badge source-${escapeHtml(src)}">${escapeHtml(sourceLabel(src))}</span>
+              ${i.personal?.vault_conflict ? `<span class="source-badge source-web">需合并</span>` : ""}
+              ${hit.match_type === "graph" ? `<span class="source-badge source-bilibili">关联扩展</span>` : ""}
+              ${hit.match_type === "behavior" ? `<span class="source-badge source-zhihu">行为证据</span>` : ""}
+              ${hit.match_type === "concept" ? `<span class="source-badge source-web">概念召回</span>` : ""}
+              ${projectLine}
+              ${score}
             </div>
             <div class="ui-list-row-title">${escapeHtml(i.title || "无标题")}</div>
-            <p class="ui-list-row-sub muted">${escapeHtml(i.summary || i.content?.slice(0, 200) || "")}</p>
+            ${snippets || `<p class="ui-list-row-sub muted">${escapeHtml(i.summary || i.content?.slice(0, 200) || "")}</p>`}
+            ${reasonLine}
+            ${conceptLine}
+            <div class="knowledge-links-slot" id="knowledge-links-${escapeHtml(i.id || "")}"></div>
           </div>
           <div class="ui-list-row-actions">
             <a class="btn btn-sm btn-secondary" href="${safeHref(i.url)}" target="_blank" rel="noopener">原文</a>
+            ${i.id ? `<button type="button" class="btn btn-sm btn-secondary" data-knowledge-links="${escapeHtml(i.id)}">关联</button>` : ""}
           </div>
         </div>`;
       }).join("")}</div>`
-      : renderEmptyStateRich("knowledge", "未找到匹配条目", "试试更换关键词，或切换到全文检索模式");
+      : renderKnowledgeSearchSuggestions(data.suggestions || {});
+    bindKnowledgeSuggestionButtons(el);
+    el.querySelectorAll("[data-knowledge-links]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const itemId = btn.dataset.knowledgeLinks;
+        const host = document.getElementById(`knowledge-links-${itemId}`);
+        if (!itemId || !host) return;
+        if (host.innerHTML.trim()) {
+          host.innerHTML = "";
+          return;
+        }
+        host.innerHTML = "<p class='muted mt-1'>正在加载关联条目…</p>";
+        try {
+          const linkData = await api("GET", `/api/knowledge/items/${encodeURIComponent(itemId)}/links?limit=6`);
+          renderKnowledgeLinks(host, linkData.links || []);
+        } catch (err) {
+          host.innerHTML = `<div class="alert alert-error mt-1">${escapeHtml(err.message || "关联加载失败")}</div>`;
+        }
+      });
+    });
   } catch (err) {
     el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderKnowledgeSearchSuggestions(suggestions) {
+  const keywords = (suggestions.keywords || []).slice(0, 8);
+  const concepts = (suggestions.concepts || []).slice(0, 8);
+  const questions = (suggestions.follow_up_questions || []).slice(0, 6);
+  const chips = [
+    ...keywords.map((k) => `<button type="button" class="btn btn-sm btn-secondary" data-knowledge-suggestion="${escapeHtml(k)}">${escapeHtml(k)}</button>`),
+    ...concepts.map((c) => `<button type="button" class="btn btn-sm btn-secondary" data-knowledge-suggestion="${escapeHtml(c.name || "")}">${escapeHtml(c.name || "")}</button>`),
+  ].join("");
+  return `
+    <div class="card">
+      <h3>未找到匹配条目</h3>
+      <p class="muted">可以换成更短关键词、相关概念，或把这个问题转为新一轮搜罗。</p>
+      ${chips ? `<div class="toggle-row mt-1">${chips}</div>` : ""}
+      ${renderKnowledgeFollowUps(questions)}
+    </div>
+  `;
+}
+
+async function loadKnowledgeCloudStatus() {
+  const el = document.getElementById("knowledge-cloud-status");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/cloud/status", null, { timeoutMs: 20000, retry: 1, prewarm: true });
+    const health = data.health || {};
+    const healthWarnings = (health.warnings || []).map((msg) =>
+      `<div class="alert alert-warning mt-1">${escapeHtml(msg)}</div>`
+    ).join("");
+    const healthIssues = (health.issues || []).map((msg) =>
+      `<div class="alert alert-error mt-1">${escapeHtml(msg)}</div>`
+    ).join("");
+    if (!data.ready) {
+      const recommended = data.recommended_vault_path
+        ? `<div class="muted">推荐路径: ${escapeHtml(data.recommended_vault_path)}</div>`
+        : "";
+      const targets = data.one_drive_targets || [];
+      const candidates = targets.length
+        ? `<div class="muted">检测到 OneDrive: ${targets.map((entry) => escapeHtml(entry.root || "")).join(" · ")}</div>`
+        : "";
+      const rootPicker = targets.length
+        ? `
+          <div>
+            <label for="knowledge-cloud-root">同步位置</label>
+            <select id="knowledge-cloud-root">
+              ${targets.map((entry) => `<option value="${escapeHtml(entry.root || "")}">${escapeHtml(entry.root || "")}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label for="knowledge-cloud-name">Vault 名称</label>
+            <input id="knowledge-cloud-name" type="text" value="OSINT-Knowledge" />
+          </div>
+        `
+        : `
+          <div>
+            <label for="knowledge-cloud-path">Vault 目录</label>
+            <input id="knowledge-cloud-path" type="text" value="${escapeHtml(data.recommended_vault_path || "")}" placeholder="例如 D:/Knowledge/OSINT-Knowledge" />
+          </div>
+        `;
+      el.innerHTML = `
+        <div class="alert alert-warning">尚未配置 Markdown vault，同步与跨设备恢复未启用。</div>
+        ${recommended}
+        ${candidates}
+        ${healthIssues}
+        ${healthWarnings}
+        <div class="grid-2 mt-1">
+          ${rootPicker}
+          <div>
+            <label for="knowledge-cloud-mode">同步方式</label>
+            <select id="knowledge-cloud-mode">
+              <option value="manual">手动导出</option>
+              <option value="passive">即时写入</option>
+              <option value="scheduled">定时队列</option>
+            </select>
+          </div>
+        </div>
+        <label class="checkbox-row mt-1">
+          <input id="knowledge-cloud-sync-after" type="checkbox" />
+          <span>初始化后立即导出当前知识</span>
+        </label>
+        <div class="toggle-row mt-1">
+          <button type="button" class="btn btn-secondary btn-sm" id="knowledge-cloud-init">初始化 vault</button>
+        </div>
+      `;
+      document.getElementById("knowledge-cloud-init")?.addEventListener("click", async () => {
+        try {
+          const payload = {
+            provider: targets.length ? "onedrive_folder" : "local_folder",
+            sync_mode: document.getElementById("knowledge-cloud-mode")?.value || "manual",
+            sync_after: !!document.getElementById("knowledge-cloud-sync-after")?.checked,
+          };
+          if (targets.length) {
+            payload.onedrive_root = document.getElementById("knowledge-cloud-root")?.value || "";
+            payload.vault_name = document.getElementById("knowledge-cloud-name")?.value || "OSINT-Knowledge";
+          } else {
+            payload.vault_path = document.getElementById("knowledge-cloud-path")?.value || data.recommended_vault_path || "";
+          }
+          await api("POST", "/api/cloud/init", payload, { timeoutMs: 45000, retry: 1, prewarm: true });
+          showToast("Vault 已初始化", "success");
+          await loadKnowledgeCloudStatus();
+        } catch (err) {
+          showToast(err.message || "Vault 初始化失败", "error");
+        }
+      });
+      return;
+    }
+    const conflict = Number(data.conflict_count || 0);
+    const pending = Number((data.statuses || {}).pending || 0);
+    const warning = conflict > 0
+      ? `<div class="alert alert-warning mt-1">当前有 ${conflict} 个条目需合并，请先处理冲突副本。</div>`
+      : "";
+    const onedriveLine = data.is_onedrive_vault
+      ? `<div class="muted">OneDrive · ${escapeHtml(data.matched_onedrive_root || "")}</div>`
+      : `<div class="muted">未检测到 OneDrive 目录映射</div>`;
+    el.innerHTML = `
+      <div class="grid-2">
+        <div>
+          <div><strong>Vault</strong></div>
+          <div class="muted">${escapeHtml(data.vault_path || "")}</div>
+          ${onedriveLine}
+        </div>
+        <div>
+          <div><strong>同步状态</strong></div>
+          <div class="muted">${escapeHtml(data.provider || "")} · ${escapeHtml(data.sync_mode || "")} · 最近同步 ${escapeHtml(data.last_synced_at || "未同步")}</div>
+        </div>
+      </div>
+      <div class="toggle-row mt-1">
+        <span class="muted">条目 ${escapeHtml(String(data.item_count || 0))}</span>
+        <span class="muted">待同步 ${escapeHtml(String(pending))}</span>
+        <span class="muted">冲突 ${escapeHtml(String(conflict))}</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="knowledge-cloud-sync">同步 vault</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="knowledge-cloud-reindex">重建索引</button>
+      </div>
+      ${warning}
+      ${healthIssues}
+      ${healthWarnings}
+      <div id="knowledge-cloud-conflicts" class="mt-1"></div>
+    `;
+    document.getElementById("knowledge-cloud-sync")?.addEventListener("click", async () => {
+      try {
+        await api("POST", "/api/cloud/sync", {}, { timeoutMs: 60000, retry: 1, prewarm: true });
+        showToast("Vault 同步完成", "success");
+        await loadKnowledgeCloudStatus();
+      } catch (err) {
+        showToast(err.message || "Vault 同步失败", "error");
+      }
+    });
+    document.getElementById("knowledge-cloud-reindex")?.addEventListener("click", async () => {
+      try {
+        await api("POST", "/api/cloud/reindex", {}, { timeoutMs: 60000, retry: 1, prewarm: true });
+        showToast("已从 Vault 重建索引", "success");
+        await loadKnowledgeCloudStatus();
+      } catch (err) {
+        showToast(err.message || "重建索引失败", "error");
+      }
+    });
+    if (conflict > 0) {
+      const conflictHost = document.getElementById("knowledge-cloud-conflicts");
+      const conflictData = await api("GET", "/api/cloud/conflicts?limit=5", null, {
+        timeoutMs: 20000,
+        retry: 1,
+        prewarm: true,
+      });
+      const rows = conflictData.conflicts || [];
+      conflictHost.innerHTML = rows.length
+        ? `<div class="ui-inset-group">${rows.map((entry) => `
+          <div class="ui-list-row">
+            <div class="ui-list-row-main">
+              <div class="ui-list-row-title">${escapeHtml(entry.item_id || "未知条目")}</div>
+              <p class="ui-list-row-sub muted">${escapeHtml(entry.conflict_path || entry.note_path || "")}</p>
+            </div>
+          </div>
+        `).join("")}</div>`
+        : "";
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "无法加载 cloud 状态")}</div>`;
   }
 }
 
@@ -5357,10 +6120,436 @@ function renderPersonaVersionHistory(history, currentVersion) {
       : "";
   return `<div class="card persona-version-card">
     <h2>版本历史</h2>
-    <p class="muted section-hint">每次「构建画像」会存档一版；颜色越深表示当天构建越频繁。</p>
+    <p class="muted section-hint">每次「构建画像」会存档一版，仅保留最近 10 个版本；颜色越深表示当天构建越频繁。</p>
     ${heatmap}
     <ul class="persona-version-list">${recent.map(row).join("")}</ul>
     ${olderBlock}
+  </div>`;
+}
+
+function toStructuredPersonaRows(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (entry == null) return null;
+      if (typeof entry === "string") return { label: entry, meta: "" };
+      if (typeof entry !== "object") return { label: String(entry), meta: "" };
+      const label = entry.name || entry.title || entry.label || entry.value || entry.entity || entry.source || entry.domain || entry.goal;
+      if (!label) return null;
+      const metaBits = [
+        entry.status,
+        entry.reason,
+        entry.note,
+        entry.weight != null ? `权重 ${entry.weight}` : "",
+        entry.count != null ? `频次 ${entry.count}` : "",
+      ].filter(Boolean);
+      return { label: String(label), meta: metaBits.join(" · ") };
+    })
+    .filter(Boolean);
+}
+
+function renderStructuredPersonaField(label, rows) {
+  const normalized = toStructuredPersonaRows(rows);
+  if (!normalized.length) return "";
+  return `<div class="persona-field"><strong>${escapeHtml(label)}</strong><div class="chip-group">${normalized
+    .slice(0, 16)
+    .map((row) => `<span class="chip"${row.meta ? ` title="${escapeHtml(row.meta)}"` : ""}>${escapeHtml(row.label)}</span>`)
+    .join("")}</div></div>`;
+}
+
+function renderPersonaProjectsCard(model) {
+  const rows = Array.isArray(model?.active_projects) ? model.active_projects : [];
+  if (!rows.length) return "";
+  return `<div class="card persona-projects-card">
+    <h2>当前项目</h2>
+    <p class="muted section-hint">这些项目来自 Persona 结构化模型，可以直接拿来检索知识库或生成研究树。</p>
+    <div class="ui-inset-group">${rows.slice(0, 8).map((row) => {
+      const name = String(row?.name || "").trim();
+      if (!name) return "";
+      const status = String(row?.status || "");
+      const signals = Array.isArray(row?.signals) ? row.signals.slice(0, 3) : [];
+      const knowledgeHref = personaKnowledgeSearchUrl({ q: name, tab: "search" });
+      const graphHref = personaKnowledgeSearchUrl({ q: name, tab: "graph" });
+      return `<div class="ui-list-row persona-project-row">
+        <div class="ui-list-row-main">
+          <div class="item-card-meta">
+            <span class="source-badge source-zhihu">项目</span>
+            ${status ? `<span class="muted">${escapeHtml(status)}</span>` : ""}
+          </div>
+          <div class="ui-list-row-title">${escapeHtml(name)}</div>
+          <p class="ui-list-row-sub muted">${escapeHtml(signals.join("；"))}</p>
+        </div>
+        <div class="ui-list-row-actions">
+          <a class="btn btn-sm btn-secondary" href="${knowledgeHref}">查知识库</a>
+          <a class="btn btn-sm btn-ghost" href="${graphHref}">看图谱</a>
+          <button type="button" class="btn btn-sm btn-ghost" data-persona-project-research="${escapeHtml(name)}">建研究</button>
+        </div>
+      </div>`;
+    }).join("")}</div>
+    <div id="persona-project-research-result" class="mt-1 hidden"></div>
+  </div>`;
+}
+
+function renderKeyValueChips(map, formatter = null, limit = 12) {
+  if (!map || typeof map !== "object") return "";
+  const rows = Object.entries(map)
+    .filter(([, value]) => Number(value) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, limit);
+  if (!rows.length) return "";
+  return `<div class="chip-group">${rows
+    .map(([key, value]) => {
+      const label = formatter ? formatter(key, value) : `${key} ${value}`;
+      return `<span class="chip">${escapeHtml(label)}</span>`;
+    })
+    .join("")}</div>`;
+}
+
+function personaKnowledgeSearchUrl({ q = "", source = "", tab = "search" } = {}) {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (source) params.set("source", source);
+  if (tab) params.set("tab", tab);
+  const query = params.toString();
+  return query ? `/knowledge?${query}` : "/knowledge";
+}
+
+function renderPersonaWorkbench(consoleData) {
+  const groups = Array.isArray(consoleData.behavior_workbench) ? consoleData.behavior_workbench : [];
+  if (!groups.length) {
+    return "<p class='muted'>暂无可展示的行为工作台样本。</p>";
+  }
+  const categoryOptions = groups.map((group) =>
+    `<option value="${escapeHtml(group.category || "")}">${escapeHtml(group.label || formatBehaviorCategory(group.category))}</option>`
+  ).join("");
+  return `
+    <div class="persona-workbench-toolbar">
+      <div class="form-row">
+        <label for="persona-workbench-filter">行为分类</label>
+        <select id="persona-workbench-filter">
+          <option value="">全部</option>
+          ${categoryOptions}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="persona-workbench-keyword">关键词</label>
+        <input type="search" id="persona-workbench-keyword" placeholder="筛选标题或来源">
+      </div>
+    </div>
+    <div class="persona-workbench-grid">${groups.map((group) => {
+    const rows = Array.isArray(group.items) ? group.items : [];
+    return `<section class="persona-workbench-group" data-persona-category="${escapeHtml(group.category || "")}" data-persona-label="${escapeHtml((group.label || "").toLowerCase())}">
+      <div class="persona-workbench-head">
+        <h4>${escapeHtml(group.label || formatBehaviorCategory(group.category))}</h4>
+        <span class="muted">${escapeHtml(String(rows.length))} 条样本</span>
+      </div>
+      <div class="ui-inset-group persona-evidence-list">${rows.map((row) => {
+        const titleText = (row.title || row.url || "（无标题）").slice(0, 120);
+        const title = row.url
+          ? `<a href="${safeHref(row.url)}" target="_blank" rel="noopener">${escapeHtml(titleText)}</a>`
+          : escapeHtml(titleText);
+        const meta = [
+          row.source ? sourceLabel(row.source) : "",
+          row.event_type ? formatEventType(row.event_type) : "",
+          row.score != null ? `权重 ${row.score}` : "",
+          row.duration_ms && Number(row.duration_ms) > 0 ? `停留 ${Math.round(Number(row.duration_ms) / 1000)}s` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const knowledgeHref = personaKnowledgeSearchUrl({ q: row.title || row.url || "", source: row.source || "" });
+        const graphHref = personaKnowledgeSearchUrl({ q: row.title || row.url || "", tab: "graph" });
+        const researchSeed = row.title || row.url || "";
+        return `<div class="ui-list-row persona-evidence-row" data-persona-item="${escapeHtml((titleText + " " + (row.source || "") + " " + (row.event_type || "")).toLowerCase())}">
+          <div class="ui-list-row-main">
+            <div class="ui-list-row-title">${title}</div>
+            <div class="ui-list-row-sub muted">${escapeHtml(meta)}</div>
+          </div>
+          <div class="ui-list-row-actions">
+            <a class="btn btn-sm btn-secondary" href="${knowledgeHref}">查知识库</a>
+            <a class="btn btn-sm btn-ghost" href="${graphHref}">看图谱</a>
+            <button type="button" class="btn btn-sm btn-ghost" data-persona-research="${escapeHtml(researchSeed)}">研究问题</button>
+          </div>
+        </div>`;
+      }).join("")}</div>
+      <div class="persona-research-panel hidden" data-persona-research-panel>
+        <div class="muted">正在等待选择样本…</div>
+      </div>
+    </section>`;
+  }).join("")}</div>`;
+}
+
+function bindPersonaWorkbench(root = document) {
+  const filterEl = root.querySelector("#persona-workbench-filter");
+  const keywordEl = root.querySelector("#persona-workbench-keyword");
+  const groups = [...root.querySelectorAll(".persona-workbench-group")];
+  const applyFilter = () => {
+    const category = (filterEl?.value || "").trim();
+    const keyword = (keywordEl?.value || "").trim().toLowerCase();
+    groups.forEach((group) => {
+      const groupCategory = group.dataset.personaCategory || "";
+      const itemRows = [...group.querySelectorAll("[data-persona-item]")];
+      let visibleRows = 0;
+      itemRows.forEach((row) => {
+        const haystack = row.dataset.personaItem || "";
+        const matchCategory = !category || category === groupCategory;
+        const matchKeyword = !keyword || haystack.includes(keyword);
+        const visible = matchCategory && matchKeyword;
+        row.classList.toggle("hidden", !visible);
+        if (visible) visibleRows += 1;
+      });
+      group.classList.toggle("hidden", visibleRows === 0 || (category && category !== groupCategory && !keyword));
+    });
+  };
+  filterEl?.addEventListener("change", applyFilter);
+  keywordEl?.addEventListener("input", applyFilter);
+  applyFilter();
+
+  root.querySelectorAll("[data-persona-research]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", async () => {
+      const query = btn.dataset.personaResearch || "";
+      const group = btn.closest(".persona-workbench-group");
+      const panel = group?.querySelector("[data-persona-research-panel]");
+      if (!panel || !query) return;
+      panel.classList.remove("hidden");
+      panel.innerHTML = "<div class='muted'>正在生成研究问题…</div>";
+      try {
+        const data = await api("POST", "/api/knowledge/research-questions", {
+          query,
+          topic: query,
+          limit: 5,
+        }, { timeoutMs: 25000, retry: 1, prewarm: true });
+        const rows = data.questions || [];
+        panel.innerHTML = rows.length
+          ? `<div class="ui-inset-group mt-1">${rows.map((row) => `
+            <div class="ui-list-row">
+              <div class="ui-list-row-main">
+                <div class="ui-list-row-title">${escapeHtml(row.question || "")}</div>
+                <p class="ui-list-row-sub muted">${escapeHtml(row.evidence || row.source || "")}</p>
+              </div>
+              <div class="ui-list-row-actions">
+                <a class="btn btn-sm btn-secondary" href="${personaKnowledgeSearchUrl({ q: row.question || query })}">去检索</a>
+              </div>
+            </div>
+          `).join("")}</div>`
+          : "<p class='muted'>暂时没有生成出可用的研究问题。</p>";
+      } catch (err) {
+        panel.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "研究问题生成失败")}</div>`;
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-persona-project-research]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", async () => {
+      const name = btn.dataset.personaProjectResearch || "";
+      const host = document.getElementById("persona-project-research-result");
+      if (!host || !name) return;
+      host.classList.remove("hidden");
+      host.innerHTML = "<div class='muted'>正在创建研究项目…</div>";
+      try {
+        const created = await api("POST", "/api/research/trees", { title: name, query: name });
+        const treeId = created.tree?.id;
+        if (!treeId) throw new Error("研究树创建失败");
+        const questions = await api("POST", "/api/knowledge/research-questions", {
+          topic: name,
+          query: name,
+          limit: 5,
+        }, { timeoutMs: 25000, retry: 1, prewarm: true });
+        host.innerHTML = `<div class="alert alert-success">已创建研究树「${escapeHtml(name)}」</div>
+          <div class="ui-inset-group mt-1">${(questions.questions || []).map((row) => `
+            <div class="ui-list-row">
+              <div class="ui-list-row-main">
+                <div class="ui-list-row-title">${escapeHtml(row.question || "")}</div>
+                <div class="ui-list-row-sub muted">${escapeHtml(row.evidence || row.source || "")}</div>
+              </div>
+              <div class="ui-list-row-actions">
+                <a class="btn btn-sm btn-secondary" href="/?tree=${encodeURIComponent(treeId)}">去研究树</a>
+              </div>
+            </div>
+          `).join("") || "<p class='muted'>可继续在研究树中补充问题。</p>"}</div>`;
+      } catch (err) {
+        host.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "研究树创建失败")}</div>`;
+      }
+    });
+  });
+}
+
+function renderPersonaEvidenceConsole(consoleData) {
+  if (!consoleData || typeof consoleData !== "object") return "";
+  const eventBreakdown = consoleData.event_breakdown || {};
+  const categoryBreakdown = consoleData.behavior_category_summary || {};
+  const inventoryHtml = renderKeyValueChips(
+    eventBreakdown.inventory_snapshots || {},
+    (key, value) => `${formatEventType(key)} ${value}`,
+    14,
+  );
+  const recentHtml = renderKeyValueChips(
+    eventBreakdown.recent_activity_7d || {},
+    (key, value) => `${formatEventType(key)} ${value}`,
+    14,
+  );
+  const sourceHtml = renderKeyValueChips(
+    consoleData.recent_sources || {},
+    (key, value) => `${SOURCE_LABELS[key] || key} ${value}`,
+    12,
+  );
+  const typeHtml = renderKeyValueChips(
+    consoleData.recent_event_types || {},
+    (key, value) => `${formatEventType(key)} ${value}`,
+    16,
+  );
+  const categoryHtml = renderKeyValueChips(
+    categoryBreakdown.recent_activity_7d || {},
+    (key, value) => `${formatBehaviorCategory(key)} ${value}`,
+    12,
+  );
+  const hints = Array.isArray(consoleData.high_interest_hints) ? consoleData.high_interest_hints : [];
+  const evidenceMap = consoleData.evidence && typeof consoleData.evidence === "object" ? consoleData.evidence : {};
+  const rankedSamples = Array.isArray(consoleData.ranked_behavior_samples) ? consoleData.ranked_behavior_samples : [];
+  const dedupNote = consoleData.dedup_note && typeof consoleData.dedup_note === "object" ? consoleData.dedup_note : {};
+  const hintHtml = hints.length
+    ? `<div class="ui-inset-group persona-evidence-list">${hints
+        .slice(0, 12)
+        .map((hint) => {
+          const title = hint.url
+            ? `<a href="${safeHref(hint.url)}" target="_blank" rel="noopener">${escapeHtml((hint.title || hint.url).slice(0, 120))}</a>`
+            : escapeHtml((hint.title || "（无标题）").slice(0, 120));
+          const meta = [
+            hint.source ? (SOURCE_LABELS[hint.source] || hint.source) : "",
+            hint.event_type ? formatEventType(hint.event_type) : "",
+            hint.dwell_sec && Number(hint.dwell_sec) > 0 ? `停留 ${hint.dwell_sec}s` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<div class="ui-list-row persona-evidence-row">
+            <div class="ui-list-row-main">
+              <div class="ui-list-row-title">${title}</div>
+              <div class="ui-list-row-sub muted">${escapeHtml(meta)}</div>
+            </div>
+          </div>`;
+        })
+        .join("")}</div>`
+    : "<p class='muted'>暂无高价值样本。</p>";
+  const rankedHtml = rankedSamples.length
+    ? `<div class="ui-inset-group persona-evidence-list">${rankedSamples
+        .slice(0, 10)
+        .map((row) => {
+          const titleText = (row.title || row.url || "（无标题）").slice(0, 140);
+          const title = row.url
+            ? `<a href="${safeHref(row.url)}" target="_blank" rel="noopener">${escapeHtml(titleText)}</a>`
+            : escapeHtml(titleText);
+          const meta = [
+            row.source ? (SOURCE_LABELS[row.source] || row.source) : "",
+            row.event_type ? formatEventType(row.event_type) : "",
+            row.score != null ? `权重 ${row.score}` : "",
+            row.duration_ms && Number(row.duration_ms) > 0 ? `停留 ${Math.round(Number(row.duration_ms) / 1000)}s` : "",
+            row.created_at ? formatPersonaDateTime(row.created_at) : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<div class="ui-list-row persona-evidence-row">
+            <div class="ui-list-row-main">
+              <div class="ui-list-row-title">${title}</div>
+              <div class="ui-list-row-sub muted">${escapeHtml(meta)}</div>
+            </div>
+          </div>`;
+        })
+        .join("")}</div>`
+    : "<p class='muted'>暂无可展示的代表性行为样本。</p>";
+  const evidenceBlocks = [];
+  if (evidenceMap.event_types && typeof evidenceMap.event_types === "object") {
+    evidenceBlocks.push(`
+      <div>
+        <h4>AI/规则使用的行为证据</h4>
+        ${renderKeyValueChips(evidenceMap.event_types, (key, value) => `${formatEventType(key)} ${value}`, 16) || "<p class='muted'>暂无。</p>"}
+      </div>
+    `);
+  }
+  if (evidenceMap.recent_sources && typeof evidenceMap.recent_sources === "object") {
+    evidenceBlocks.push(`
+      <div>
+        <h4>画像使用的信源证据</h4>
+        ${renderKeyValueChips(evidenceMap.recent_sources, (key, value) => `${SOURCE_LABELS[key] || key} ${value}`, 12) || "<p class='muted'>暂无。</p>"}
+      </div>
+    `);
+  }
+  if (evidenceMap.useful_feedback_patterns && typeof evidenceMap.useful_feedback_patterns === "object") {
+    evidenceBlocks.push(`
+      <div>
+        <h4>正向反馈模式</h4>
+        ${renderKeyValueChips(evidenceMap.useful_feedback_patterns, (key, value) => `${key} ${value}`, 10) || "<p class='muted'>暂无。</p>"}
+      </div>
+    `);
+  }
+  const sampleSize = consoleData.sample_size || {};
+  const sampleMeta = [
+    sampleSize.events != null ? `采样事件 ${sampleSize.events}` : "",
+    sampleSize.feedback != null ? `反馈 ${sampleSize.feedback}` : "",
+    consoleData.version_retention ? `版本保留 ${consoleData.version_retention} 个` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return `<div class="card persona-console-card">
+    <h2>画像证据台</h2>
+    <p class="muted section-hint">这里展示画像构建时实际参考的行为数据与分类结果，帮助你判断是否有重复、偏差或遗漏。</p>
+    ${sampleMeta ? `<p class="muted persona-console-meta">${escapeHtml(sampleMeta)}</p>` : ""}
+    <div class="persona-console-grid">
+      <section class="persona-console-section">
+        <h3>近期信源分布</h3>
+        ${sourceHtml || "<p class='muted'>暂无。</p>"}
+      </section>
+      <section class="persona-console-section">
+        <h3>近期行为类型</h3>
+        ${typeHtml || "<p class='muted'>暂无。</p>"}
+      </section>
+      <section class="persona-console-section">
+        <h3>近 7 日高价值行为</h3>
+        ${recentHtml || "<p class='muted'>暂无。</p>"}
+      </section>
+      <section class="persona-console-section">
+        <h3>行为分类总览</h3>
+        <p class="muted persona-console-note">把浏览、停留、点赞、收藏、发布等行为分开看，便于判断画像是否失真。</p>
+        ${categoryHtml || "<p class='muted'>暂无。</p>"}
+      </section>
+      <section class="persona-console-section">
+        <h3>账号清单快照</h3>
+        <p class="muted persona-console-note">这部分更多反映长期收藏/关注库存，不等于近期高频行为。</p>
+        ${inventoryHtml || "<p class='muted'>暂无。</p>"}
+      </section>
+    </div>
+    <section class="persona-console-section mt-1">
+      <h3>高兴趣行为样本</h3>
+      ${hintHtml}
+    </section>
+    <section class="persona-console-section mt-1">
+      <h3>代表性行为样本</h3>
+      <p class="muted persona-console-note">这些样本按行为权重排序，用来支撑画像摘要、结构化偏好和后续 AI 调用。</p>
+      ${rankedHtml}
+    </section>
+    <section class="persona-console-section mt-1">
+      <h3>行为工作台</h3>
+      <p class="muted persona-console-note">从这里可以直接顺着你的行为证据进入知识库检索或图谱视图，形成“浏览 -> 画像 -> 检索 -> 研究”的闭环。</p>
+      ${renderPersonaWorkbench(consoleData)}
+    </section>
+    <section class="persona-console-section mt-1">
+      <h3>画像证据映射</h3>
+      <p class="muted persona-console-note">这里展示画像实际参考了哪些行为类型、信源和反馈模式。</p>
+      <div class="persona-console-evidence-grid">
+        ${evidenceBlocks.join("") || "<p class='muted'>暂无结构化证据映射。</p>"}
+      </div>
+    </section>
+    <section class="persona-console-section mt-1">
+      <h3>去重与采集说明</h3>
+      <div class="persona-console-policy">
+        <p class="muted">${escapeHtml(dedupNote.event_level || "行为事件写入前会按 dedup key 去重，避免同一事件反复入库。")}</p>
+        <p class="muted">${escapeHtml(dedupNote.inventory_level || "账号收藏/关注类同步会作为清单快照保留，并与近期高频行为分开统计。")}</p>
+        <p class="muted">${escapeHtml(dedupNote.semantic_limit || "跨平台同主题内容仍可能同时出现，这是语义层重合，不等于原始事件重复写入。")}</p>
+      </div>
+    </section>
   </div>`;
 }
 
@@ -5406,6 +6595,28 @@ function renderPersonaModel(model) {
         })
         .join("")}</ul></div>`,
     );
+  }
+  [
+    ["interest_domains", "长期兴趣"],
+    ["active_projects", "当前项目"],
+    ["knowledge_goals", "知识目标"],
+    ["entity_affinities", "高频实体"],
+    ["reading_style", "阅读风格"],
+    ["avoid_patterns", "反感模式"],
+  ].forEach(([key, label]) => {
+    const html = renderStructuredPersonaField(label, model[key]);
+    if (html) parts.push(html);
+  });
+  if (model.source_preferences && typeof model.source_preferences === "object") {
+    const pref = model.source_preferences;
+    const prefBlocks = [
+      renderStructuredPersonaField("偏好信源", pref.preferred || pref.sources || []),
+      renderStructuredPersonaField("回避信源", pref.avoid || pref.disliked || []),
+      renderStructuredPersonaField("低价值模式", pref.low_value_patterns || pref.low_value || []),
+    ].filter(Boolean);
+    if (prefBlocks.length) {
+      parts.push(`<div class="persona-field"><strong>信源偏好</strong>${prefBlocks.join("")}</div>`);
+    }
   }
   const listFields = [
     ["interests", "兴趣"],
@@ -5525,8 +6736,11 @@ async function loadPersona() {
         ${data.brief_ai_generated === false && !data.brief_ai_error ? `<p class="muted section-hint">当前为规则摘要；配置 DeepSeek 后点「构建画像」可生成 AI 叙事版。</p>` : ""}
         <div class="markdown-body persona-brief-panel" id="persona-brief"></div>
       </div>
+      ${renderPersonaProjectsCard(model)}
+      ${renderPersonaEvidenceConsole(data.console)}
       <div class="card"><h2>心智模型</h2>${renderPersonaModel(data.mental_model)}</div>
       ${renderPersonaVersionHistory(versionHistory, model.version)}`;
+    bindPersonaWorkbench(el);
     el.querySelectorAll(".btn-persona-rollback").forEach((btn) => {
       btn.addEventListener("click", () => {
         const ver = parseInt(btn.dataset.version, 10);
@@ -6747,6 +7961,8 @@ async function loadRunDetail(runId) {
 
 /* AI 控制 */
 function initAI() {
+  loadAiStatusSummary();
+  loadAiCallSummary();
   loadDirectives();
   loadPromptList();
   const tabs = document.querySelectorAll("#ai-tabs .tab, .tabs .tab");
@@ -6774,6 +7990,60 @@ function initAI() {
   document.getElementById("btn-save-prompt")?.addEventListener("click", savePrompt);
   document.getElementById("btn-reset-prompt")?.addEventListener("click", resetPrompt);
   document.getElementById("prompt-select")?.addEventListener("change", loadPrompt);
+}
+
+async function loadAiStatusSummary() {
+  const el = document.getElementById("ai-status-summary");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/ai/status");
+    const recent = data.recent_activity || {};
+    el.innerHTML = `
+      <div class="grid-2">
+        <div>
+          <div><strong>当前模型</strong></div>
+          <div class="muted">${escapeHtml(data.provider || "")} · ${escapeHtml(data.model || "")}</div>
+          <div class="muted">API Key ${data.api_key_configured ? "已配置" : "未配置"}</div>
+        </div>
+        <div>
+          <div><strong>近期概况</strong></div>
+          <div class="muted">最近 ${escapeHtml(String(recent.total_calls || 0))} 次调用，成功率 ${escapeHtml(String(Math.round((Number(recent.success_rate || 0) * 1000)) / 10))}%</div>
+          <div class="muted">平均耗时 ${escapeHtml(String(recent.avg_duration_ms || 0))}ms</div>
+        </div>
+      </div>
+      <div class="toggle-row mt-1">
+        <span class="muted">启用步骤 ${escapeHtml(String(data.enabled_step_count || 0))}/${escapeHtml(String(data.total_step_count || 0))}</span>
+        <span class="muted">Prompt 覆盖 ${escapeHtml(String(data.prompt_overrides || 0))}</span>
+        <span class="muted">自动画像 ${escapeHtml(String(data.auto_persona_rebuild || ""))}</span>
+      </div>
+    `;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "无法加载 AI 状态")}</div>`;
+  }
+}
+
+async function loadAiCallSummary() {
+  const el = document.getElementById("ai-calls-summary");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/ai/calls?limit=12");
+    const rows = data.calls || [];
+    el.innerHTML = rows.length
+      ? `<div class="ui-inset-group">${rows.map((call) => `
+          <div class="ui-list-row">
+            <div class="ui-list-row-main">
+              <div class="ui-list-row-title">${escapeHtml(call.task || "unknown")} · ${escapeHtml(call.model || "")}</div>
+              <p class="ui-list-row-sub muted">${escapeHtml(call.created_at || "")} · ${escapeHtml(String(call.duration_ms || 0))}ms · 输入 ${escapeHtml(String(call.prompt_chars || 0))} / 输出 ${escapeHtml(String(call.response_chars || 0))}</p>
+            </div>
+            <div class="ui-list-row-actions">
+              <span class="source-badge ${call.success ? "source-web" : "source-bad"}">${call.success ? "成功" : "失败"}</span>
+            </div>
+          </div>
+        `).join("")}</div>`
+      : `<p class="muted">暂无 AI 调用记录。执行一次摘要、问答或搜罗后会在这里出现。</p>`;
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message || "无法加载 AI 台账")}</div>`;
+  }
 }
 
 function activateAiTab(tab, tabs, panels) {
@@ -6913,6 +8183,22 @@ async function loadWatches() {
 let tunableSettingsCache = { groups: [] };
 let tunableSettingsEditingGroupId = null;
 
+const TUNABLE_SECTION_ORDER = ["search", "ai", "knowledge"];
+const TUNABLE_SECTION_META = {
+  search: {
+    title: "搜罗工作台",
+    desc: "影响搜罗任务的速度、深度、站内限流和国际信源访问。",
+  },
+  ai: {
+    title: "画像与 AI",
+    desc: "影响画像注入、自动重建和与画像相关的 AI 行为。",
+  },
+  knowledge: {
+    title: "知识库与云同步",
+    desc: "影响 Markdown vault 输出和跨设备可用性。",
+  },
+};
+
 function initSettings() {
   loadSetupWizard();
   initThemeSettings();
@@ -6993,17 +8279,20 @@ function openTunableSettingsGroup(groupId) {
   if (!group || !dialog || !fieldsEl) return;
   tunableSettingsEditingGroupId = groupId;
   if (titleEl) titleEl.textContent = group.title || "调整参数";
-  if (descEl) descEl.textContent = group.description || "";
+  if (descEl) {
+    const summary = group.summary ? `当前：${group.summary}` : "";
+    descEl.textContent = [group.description || "", summary].filter(Boolean).join("  ");
+  }
   if (resultEl) resultEl.textContent = "";
   let extraHtml = "";
-  if (groupId === "foreign_expand") {
+  if (groupId === "source_network") {
     extraHtml = `<div class="tunable-intl-check mt-1">
       <button type="button" class="btn btn-sm btn-secondary" id="btn-intl-reachability-check">检测国际网络</button>
       <div id="intl-reachability-result" class="muted mt-1"></div>
     </div>`;
   }
   fieldsEl.innerHTML = (group.fields || []).map(renderTunableFieldInput).join("") + extraHtml;
-  if (groupId === "foreign_expand") {
+  if (groupId === "source_network") {
     document.getElementById("btn-intl-reachability-check")?.addEventListener("click", runIntlReachabilityCheck);
   }
   if (!dialog.hasAttribute("aria-labelledby")) {
@@ -7091,16 +8380,42 @@ async function loadTunableSettingsPanel() {
       el.innerHTML = "<p class=\"muted\">暂无可调参数。</p>";
       return;
     }
-    el.innerHTML = groups
-      .map(
-        (group) => `<div class="tunable-group-row">
-        <div>
-          <strong>${escapeHtml(group.title)}</strong>
-          <div class="tunable-group-summary muted">${escapeHtml(group.summary || "")}</div>
-        </div>
-        <button type="button" class="btn btn-sm btn-secondary btn-edit-tunable" data-tunable-group="${escapeHtml(group.id)}">调整</button>
-      </div>`,
-      )
+    const sectionMap = {};
+    groups.forEach((group) => {
+      const section = group.id === "knowledge_cloud"
+        ? "knowledge"
+        : group.id === "persona_ai"
+          ? "ai"
+          : "search";
+      if (!sectionMap[section]) sectionMap[section] = [];
+      sectionMap[section].push(group);
+    });
+    el.innerHTML = TUNABLE_SECTION_ORDER
+      .filter((section) => (sectionMap[section] || []).length)
+      .map((section) => {
+        const meta = TUNABLE_SECTION_META[section] || { title: section, desc: "" };
+        const cards = (sectionMap[section] || [])
+          .map(
+            (group) => `<section class="tunable-card">
+              <div class="tunable-card-head">
+                <div class="tunable-card-title-wrap">
+                  <strong>${escapeHtml(group.title)}</strong>
+                  <div class="tunable-group-summary muted">${escapeHtml(group.summary || "")}</div>
+                </div>
+                <button type="button" class="btn btn-sm btn-secondary btn-edit-tunable" data-tunable-group="${escapeHtml(group.id)}">调整</button>
+              </div>
+              <p class="tunable-card-desc muted">${escapeHtml(group.description || "")}</p>
+            </section>`,
+          )
+          .join("");
+        return `<section class="tunable-section">
+          <div class="tunable-section-head">
+            <h3>${escapeHtml(meta.title)}</h3>
+            <p class="muted">${escapeHtml(meta.desc || "")}</p>
+          </div>
+          <div class="tunable-card-grid">${cards}</div>
+        </section>`;
+      })
       .join("");
     el.querySelectorAll(".btn-edit-tunable").forEach((btn) => {
       btn.addEventListener("click", () => openTunableSettingsGroup(btn.dataset.tunableGroup));
@@ -7391,8 +8706,8 @@ async function syncCookies() {
     if (data.errors?.length) {
       el.className = "alert alert-error";
       const hint = (data.errors.join("; ") || "").toLowerCase().includes("appbound")
-        ? "请改用扩展弹窗「从浏览器同步 Cookie」（推荐），或以管理员运行 sync-cookies-admin.bat"
-        : "请用 start-osint-web.bat 启动 Web，或扩展同步 Cookie";
+        ? "请改用扩展弹窗「从浏览器同步 Cookie」（推荐）；只有磁盘读取确实必须时，再以管理员运行 sync-cookies-admin.bat"
+        : "请先双击 启动情报台.bat 启动 Web，或使用扩展同步 Cookie";
       el.textContent = `同步失败: ${data.errors.join("; ")}。${hint}`;
     } else if (!data.domains_synced?.length) {
       el.className = "alert alert-error";

@@ -42,9 +42,56 @@ async def test_run_search_with_mocked_collectors(tmp_path, monkeypatch):
         lambda *args, **kwargs: [],
     )
     monkeypatch.setattr(search_service, "simulate_items", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        search_service,
+        "build_local_context",
+        lambda *args, **kwargs: {"query": "MCP", "persona": {"brief": "test"}},
+    )
+    monkeypatch.setattr(
+        search_service,
+        "build_feedback_profile",
+        lambda *args, **kwargs: type("P", (), {"feedback_count": 0})(),
+    )
+    monkeypatch.setattr(search_service, "apply_feedback_profile", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        search_service,
+        "annotate_search_items",
+        lambda query, items, **kwargs: (
+            [
+                item.personal.update(
+                    {
+                        "knowledge_linkage": {
+                            "known_url": False,
+                            "supplements_existing": True,
+                            "related_count": 1,
+                            "matching_concepts": ["MCP"],
+                            "project": "本地知识库",
+                            "followups": ["还缺哪些一手资料？"],
+                        }
+                    }
+                )
+                for item in items
+            ]
+            and {
+                "annotated_items": [{"item_id": item.id} for item in items],
+                "summary": {
+                    "linked_count": len(items),
+                    "known_url_count": 0,
+                    "supplements_count": len(items),
+                    "project_linked_count": len(items),
+                },
+            }
+        ),
+    )
 
     result = await search_service.run_search(
         "MCP", sources=["zhihu", "web"], trace=True, no_ai=True
     )
     assert result["run_id"]
     assert len(result["items"]) == 2
+    assert result["local_context"]["persona"]["brief"] == "test"
+    assert result["knowledge_audit"]["summary"]["linked_count"] == 2
+    assert result["items"][0].personal["knowledge_linkage"]["project"] == "本地知识库"
+    assert (tmp_path / "runs" / result["run_id"] / "local_context.json").exists()
+    assert (tmp_path / "runs" / result["run_id"] / "feedback_adjust.json").exists()
+    assert (tmp_path / "runs" / result["run_id"] / "knowledge_audit.json").exists()

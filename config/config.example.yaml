@@ -6,6 +6,9 @@ ai:
   base_url: https://api.deepseek.com
   model: deepseek-chat
   timeout: 120
+  auto_persona_rebuild: prompt
+  auto_persona_rebuild_threshold: 50
+  auto_persona_rebuild_max_age_hours: 168   # 画像最长多久重建一次（小时），如 24/72/168；0=只按事件数触发
 
 cookie_sync:
   browser: edge
@@ -114,6 +117,16 @@ zhihu:
 output:
   default_format: markdown
   reports_dir: reports
+
+knowledge:
+  cloud:
+    enabled: true
+    provider: local_folder      # local_folder | onedrive_folder | rclone | webdav | syncthing | git
+    vault_path: null            # 例如 C:/Users/you/OneDrive/OSINT-Knowledge
+    sync_mode: manual           # passive=即时写 vault | manual/scheduled=先入本地队列，cloud sync 再导出
+    encrypt_backups: false
+    include_attachments: true
+    include_raw_archives: false
 
 # 统一同步（Web 完整同步 + 扩展 background sync 共用）
 sync:

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from osint_toolkit.ai.client import DeepSeekClient
+from osint_toolkit.ai.json_util import parse_json_object
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.persona.behavior_signals import (
     INVENTORY_SNAPSHOT_TYPES,
@@ -23,8 +24,13 @@ from osint_toolkit.persona.store import (
     load_persona_brief,
     mental_model_path,
     persona_dir,
+    prune_version_archives,
     save_mental_model,
     save_persona_brief,
+)
+from osint_toolkit.persona.structured import (
+    build_rule_structured_persona,
+    normalize_structured_persona,
 )
 from osint_toolkit.storage.sqlite import connect
 
@@ -137,6 +143,14 @@ def build_persona_draft(
     ranked_sample = load_ranked_behavior_samples(fetch_limit=event_limit, sample_limit=40)
     interest_hints = load_recent_interest_hints(limit=15)
     event_breakdown = load_event_type_breakdown(fetch_limit=event_limit)
+    structured = build_rule_structured_persona(
+        sources=sources,
+        event_types=event_types,
+        event_breakdown=event_breakdown,
+        interest_hints=interest_hints,
+        feedback=feedback,
+        ranked_behavior_sample=ranked_sample,
+    )
     model = load_mental_model()
     old_version = int(model.get("version", 1))
     _archive_model_version(old_version)
@@ -151,6 +165,8 @@ def build_persona_draft(
     model["sim_feedback_count"] = len(sim_feedback)
     model["sample_size"] = {"events": len(rows), "feedback": len(feedback)}
     model["high_interest_hints"] = interest_hints
+    model["structured"] = structured
+    model["structured_source"] = "rules"
     save_mental_model(model)
     _archive_model_version(int(model["version"]))
     ai_error: str | None = None
@@ -201,6 +217,49 @@ def build_persona_draft(
             else:
                 model["brief_ai_generated"] = True
                 model.pop("brief_ai_error", None)
+            try:
+                structured_text = client.chat(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "基于用户行为证据生成结构化 persona JSON。"
+                                "只允许使用输入中的行为、反馈和标题证据，不得编造人物、项目或偏好。"
+                                "必须返回 JSON object，字段包括 interest_domains、active_projects、"
+                                "source_preferences、knowledge_goals、entity_affinities、reading_style、avoid_patterns、evidence。"
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "rule_structured": structured,
+                                    "sources": dict(sources),
+                                    "event_types": dict(event_types),
+                                    "event_breakdown": event_breakdown,
+                                    "feedback": feedback[:100],
+                                    "simulation_feedback": sim_feedback[:50],
+                                    "ranked_behavior_sample": ranked_sample,
+                                    "high_interest_hints": interest_hints,
+                                },
+                                ensure_ascii=False,
+                                default=str,
+                            )[:14000],
+                        },
+                    ]
+                ).strip()
+                parsed = parse_json_object(structured_text)
+                if parsed:
+                    structured = normalize_structured_persona(parsed, fallback=structured)
+                    structured.setdefault("evidence", {})["source"] = "ai_with_rule_fallback"
+                    model["structured"] = structured
+                    model["structured_source"] = "ai"
+                    model.pop("structured_ai_error", None)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("persona structured AI failed: %s", exc)
+                model["structured"] = structured
+                model["structured_source"] = "rules"
+                model["structured_ai_error"] = str(exc)[:500]
         except Exception as exc:  # noqa: BLE001
             ai_error = str(exc)
             logger.warning("persona brief AI failed: %s", exc)
@@ -213,12 +272,17 @@ def build_persona_draft(
             )
             model["brief_ai_generated"] = False
             model["brief_ai_error"] = ai_error[:500]
+            model["structured"] = structured
+            model["structured_source"] = "rules"
     else:
         model["brief_ai_generated"] = False
         model.pop("brief_ai_error", None)
+        model["structured"] = structured
+        model["structured_source"] = "rules"
     save_mental_model(model)
     save_persona_brief(brief)
     _archive_brief_version(int(model["version"]))
+    prune_version_archives()
     mark_persona_built()
     from osint_toolkit.persona.auto_rebuild import set_pending_rebuild_flag
 

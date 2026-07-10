@@ -42,7 +42,13 @@ async def test_prompt_mode_suggests_rebuild(tmp_path, monkeypatch):
     (tmp_path / "persona").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(
         "osint_toolkit.persona.auto_rebuild.load_config",
-        lambda: {"ai": {"auto_persona_rebuild": "prompt", "auto_persona_rebuild_threshold": 50}},
+        lambda: {
+            "ai": {
+                "auto_persona_rebuild": "prompt",
+                "auto_persona_rebuild_threshold": 50,
+                "auto_persona_rebuild_max_age_hours": 168,
+            }
+        },
     )
 
     conn = connect()

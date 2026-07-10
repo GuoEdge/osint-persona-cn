@@ -28,6 +28,17 @@ _HIGH_VALUE_TYPES = frozenset(
     }
 )
 
+_CATEGORY_LABELS = {
+    "browse": "浏览发现",
+    "dwell": "深度阅读",
+    "watch": "观看",
+    "endorse": "点赞/赞同",
+    "save": "收藏/收录",
+    "publish": "发布/互动",
+    "inventory": "账号库存",
+    "other": "其他行为",
+}
+
 
 _INTEREST_HOSTS = (
     "bilibili.com",
@@ -97,6 +108,36 @@ def score_event(event_type: str, data: dict[str, Any]) -> int:
     return score
 
 
+def behavior_category(event_type: str) -> str:
+    if event_type in INVENTORY_SNAPSHOT_TYPES:
+        return "inventory"
+    if event_type in {"ext_page_dwell", "dwell_save"}:
+        return "dwell"
+    if event_type in {"bilibili_watch"}:
+        return "watch"
+    if event_type in {"zhihu_browse", "browser_visit", "ext_page_visit", "page_visit"}:
+        return "browse"
+    if event_type in {"zhihu_vote", "bilibili_like", "bilibili_coin", "github_star", "bilibili_comment_like", "like"}:
+        return "endorse"
+    if event_type in {
+        "ext_save",
+        "manual_save",
+        "save_url",
+        "bilibili_fav",
+        "zhihu_fav",
+        "zhihu_favorite",
+        "bilibili_favorite",
+    }:
+        return "save"
+    if event_type in {"bilibili_comment_post", "zhihu_answer", "zhihu_pin", "zhihu_activity", "sim_override"}:
+        return "publish"
+    return "other"
+
+
+def behavior_category_label(category: str) -> str:
+    return _CATEGORY_LABELS.get(category, category or "其他行为")
+
+
 def load_ranked_behavior_samples(*, fetch_limit: int = 400, sample_limit: int = 40) -> list[dict[str, Any]]:
     conn = connect()
     try:
@@ -119,6 +160,7 @@ def load_ranked_behavior_samples(*, fetch_limit: int = 400, sample_limit: int = 
             (
                 s,
                 {
+                    "score": s,
                     "event_type": row["event_type"],
                     "created_at": row["created_at"],
                     **data,
@@ -143,6 +185,7 @@ def load_recent_interest_hints(*, limit: int = 12) -> list[dict[str, str]]:
                 "source": str(item.get("source") or ""),
                 "event_type": str(item.get("event_type") or ""),
                 "dwell_sec": str(int(int(item.get("duration_ms") or 0) / 1000)),
+                "category": behavior_category(str(item.get("event_type") or "")),
             }
         )
     return hints
@@ -182,3 +225,48 @@ def load_event_type_breakdown(*, fetch_limit: int = 500) -> dict[str, Any]:
         "recent_activity": dict(recent_all),
         "recent_activity_7d": dict(recent_7d),
     }
+
+
+def load_behavior_category_summary(*, fetch_limit: int = 500) -> dict[str, dict[str, int]]:
+    breakdown = load_event_type_breakdown(fetch_limit=fetch_limit)
+    recent = Counter()
+    recent_7d = Counter()
+    inventory = Counter()
+    for event_type, count in (breakdown.get("recent_activity") or {}).items():
+        recent[behavior_category(str(event_type))] += int(count or 0)
+    for event_type, count in (breakdown.get("recent_activity_7d") or {}).items():
+        recent_7d[behavior_category(str(event_type))] += int(count or 0)
+    for event_type, count in (breakdown.get("inventory_snapshots") or {}).items():
+        inventory[behavior_category(str(event_type))] += int(count or 0)
+    return {
+        "recent_activity": dict(recent),
+        "recent_activity_7d": dict(recent_7d),
+        "inventory_snapshots": dict(inventory),
+    }
+
+
+def load_behavior_workbench(*, fetch_limit: int = 400, per_category: int = 4) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in load_ranked_behavior_samples(fetch_limit=fetch_limit, sample_limit=max(24, per_category * 8)):
+        category = behavior_category(str(item.get("event_type") or ""))
+        bucket = grouped.setdefault(category, [])
+        if len(bucket) >= per_category:
+            continue
+        bucket.append(
+            {
+                "title": str(item.get("title") or item.get("url") or "")[:160],
+                "url": str(item.get("url") or ""),
+                "source": str(item.get("source") or ""),
+                "event_type": str(item.get("event_type") or ""),
+                "score": int(item.get("score") or 0),
+                "duration_ms": int(item.get("duration_ms") or 0),
+                "created_at": str(item.get("created_at") or ""),
+            }
+        )
+    ordered = []
+    for category in ("dwell", "browse", "watch", "endorse", "save", "publish", "inventory", "other"):
+        rows = grouped.get(category) or []
+        if not rows:
+            continue
+        ordered.append({"category": category, "label": behavior_category_label(category), "items": rows})
+    return ordered

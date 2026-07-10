@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from osint_toolkit.persona.context import (
     PersonaContext,
     extract_topics,
@@ -43,6 +45,32 @@ def test_persona_stale_detection(tmp_path, monkeypatch):
 
 
 def test_persona_context_dataclass():
-    ctx = PersonaContext(brief="test", recent_topics=["ai"])
+    ctx = PersonaContext(brief="test", recent_topics=["ai"], structured={"interest_domains": []})
     assert ctx.brief == "test"
+    assert "interest_domains" in ctx.structured
     assert ctx.stale is False
+
+
+def test_persona_stale_detection_by_age(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("osint_toolkit.persona.store.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "osint_toolkit.persona.context.load_config",
+        lambda: {
+            "ai": {
+                "auto_persona_rebuild_threshold": 500,
+                "auto_persona_rebuild_max_age_hours": 24,
+            }
+        },
+    )
+
+    from osint_toolkit.persona.store import load_mental_model, save_mental_model
+
+    counts = {"n": 25}
+    monkeypatch.setattr("osint_toolkit.persona.context.get_event_count", lambda: counts["n"])
+    mark_persona_built()
+    model = load_mental_model()
+    model["built_at"] = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
+    save_mental_model(model)
+
+    assert is_persona_stale() is True

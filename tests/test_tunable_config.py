@@ -17,17 +17,23 @@ def client():
 def test_list_tunable_groups():
     data = tunable_config.list_tunable_groups()
     ids = {g["id"] for g in data["groups"]}
-    assert "search_concurrency" in ids
-    assert "search_fast" in ids
-    assert "zhihu_openapi" in ids
-    assert "foreign_expand" in ids
-    openapi_group = next(g for g in data["groups"] if g["id"] == "zhihu_openapi")
-    keys = {f["key"] for f in openapi_group["fields"]}
+    assert "search_execution" in ids
+    assert "search_collection" in ids
+    assert "source_network" in ids
+    assert "persona_ai" in ids
+    assert "knowledge_cloud" in ids
+    source_group = next(g for g in data["groups"] if g["id"] == "source_network")
+    keys = {f["key"] for f in source_group["fields"]}
     assert "zhihu.openapi.min_request_interval_sec" in keys
-    foreign_group = next(g for g in data["groups"] if g["id"] == "foreign_expand")
-    foreign_keys = {f["key"] for f in foreign_group["fields"]}
-    assert "search.foreign_expand.enabled" in foreign_keys
-    assert "http.proxy" in foreign_keys
+    assert "search.foreign_expand.enabled" in keys
+    assert "http.proxy" in keys
+    persona_group = next(g for g in data["groups"] if g["id"] == "persona_ai")
+    persona_keys = {f["key"] for f in persona_group["fields"]}
+    assert "ai.auto_persona_rebuild_max_age_hours" in persona_keys
+    cloud_group = next(g for g in data["groups"] if g["id"] == "knowledge_cloud")
+    cloud_keys = {f["key"] for f in cloud_group["fields"]}
+    assert "knowledge.cloud.provider" in cloud_keys
+    assert "knowledge.cloud.vault_path" in cloud_keys
 
 
 def test_patch_tunable_values(tmp_path, monkeypatch):
@@ -45,12 +51,14 @@ def test_patch_tunable_values(tmp_path, monkeypatch):
             "search.max_concurrent_searches": 3,
             "zhihu.openapi.min_request_interval_sec": 1.5,
             "ai.auto_persona_rebuild": "prompt",
+            "ai.auto_persona_rebuild_max_age_hours": 72,
         }
     )
     assert result["applied"]["search.max_concurrent_searches"] == 3
     assert written["search"]["max_concurrent_searches"] == 3
     assert written["zhihu"]["openapi"]["min_request_interval_sec"] == 1.5
     assert written["ai"]["auto_persona_rebuild"] == "prompt"
+    assert written["ai"]["auto_persona_rebuild_max_age_hours"] == 72
 
 
 def test_patch_foreign_expand_enabled(tmp_path, monkeypatch):

@@ -59,9 +59,9 @@ def _field(
 
 TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
     TunableGroupSpec(
-        id="search_concurrency",
-        title="搜罗并发",
-        description="控制同时运行的搜罗任务数量；超出上限的任务会进入队列。",
+        id="search_execution",
+        title="搜罗执行",
+        description="控制搜罗任务的并发、排队和速度，适合先调整这里。",
         fields=(
             _field(
                 "search.max_concurrent_searches",
@@ -81,13 +81,6 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
                 min_value=1,
                 max_value=100,
             ),
-        ),
-    ),
-    TunableGroupSpec(
-        id="search_fast",
-        title="搜罗加速",
-        description="关联词发现、知乎深度采集与 AI 摘要规模；调高可加速但可能漏信息或增加 API 消耗。",
-        fields=(
             _field(
                 "search.discover_aliases",
                 ("search", "discover_aliases"),
@@ -120,21 +113,12 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
                 min_value=0,
                 max_value=50,
             ),
-            _field(
-                "search.zhihu_global_collect_sem",
-                ("search", "zhihu_global_collect_sem"),
-                "全进程知乎采集并发",
-                "int",
-                description="多任务并行时共享的知乎采集上限。",
-                min_value=1,
-                max_value=8,
-            ),
         ),
     ),
     TunableGroupSpec(
-        id="search_collect",
+        id="search_collection",
         title="搜罗采集",
-        description="关联词扩展与评论挖掘相关参数。",
+        description="关联词扩展、评论挖掘和站内采集强度。",
         fields=(
             _field(
                 "search.max_expanded_queries",
@@ -161,12 +145,21 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
                 "bool",
                 description="开启后关联词发现可能包含敏感别名。",
             ),
+            _field(
+                "search.zhihu_global_collect_sem",
+                ("search", "zhihu_global_collect_sem"),
+                "全进程知乎采集并发",
+                "int",
+                description="多任务并行时共享的知乎采集上限。",
+                min_value=1,
+                max_value=8,
+            ),
         ),
     ),
     TunableGroupSpec(
-        id="zhihu_openapi",
-        title="知乎开放平台",
-        description="官方 API 搜索与限流；需先在上方配置 Access Secret。",
+        id="source_network",
+        title="信源与网络",
+        description="知乎 OpenAPI、国际信源和代理等网络侧参数。",
         fields=(
             _field(
                 "zhihu.openapi.enabled",
@@ -221,48 +214,6 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
                 "bool",
                 description="OpenAPI global_search（含站外链接）。",
             ),
-        ),
-    ),
-    TunableGroupSpec(
-        id="ai_behavior",
-        title="AI 行为",
-        description="画像注入、自动重建与扩展停留收录策略。",
-        fields=(
-            _field(
-                "ai.persona_inject",
-                ("ai", "persona_inject"),
-                "注入用户画像",
-                "bool",
-            ),
-            _field(
-                "ai.dwell_save_no_ai",
-                ("ai", "dwell_save_no_ai"),
-                "高停留收录跳过 AI",
-                "bool",
-                description="节省 API 调用。",
-            ),
-            _field(
-                "ai.auto_persona_rebuild",
-                ("ai", "auto_persona_rebuild"),
-                "画像自动重建",
-                "select",
-                options=(("off", "关闭"), ("prompt", "达阈值后提醒"), ("auto", "达阈值后自动重建")),
-            ),
-            _field(
-                "ai.auto_persona_rebuild_threshold",
-                ("ai", "auto_persona_rebuild_threshold"),
-                "画像重建阈值（条）",
-                "int",
-                min_value=10,
-                max_value=500,
-            ),
-        ),
-    ),
-    TunableGroupSpec(
-        id="foreign_expand",
-        title="外文信源",
-        description="国际信源英文检索词拓展与网络探针；勾选 GitHub/Reddit 等信源时生效。",
-        fields=(
             _field(
                 "search.foreign_expand.enabled",
                 ("search", "foreign_expand", "enabled"),
@@ -301,7 +252,103 @@ TUNABLE_GROUPS: tuple[TunableGroupSpec, ...] = (
                 ("http", "proxy"),
                 "HTTP 代理",
                 "text",
-                description="科学上网代理，如 http://127.0.0.1:7890；留空表示不使用。配置后国际探针与 GitHub 等信源将走代理。",
+                description=(
+                    "科学上网代理，如 http://127.0.0.1:7890；留空表示不使用。"
+                    "配置后国际探针与 GitHub 等信源将走代理。"
+                ),
+            ),
+        ),
+    ),
+    TunableGroupSpec(
+        id="persona_ai",
+        title="画像与 AI",
+        description="控制画像注入、自动重建策略，以及与画像相关的 AI 行为。",
+        fields=(
+            _field(
+                "ai.persona_inject",
+                ("ai", "persona_inject"),
+                "注入用户画像",
+                "bool",
+            ),
+            _field(
+                "ai.auto_persona_rebuild",
+                ("ai", "auto_persona_rebuild"),
+                "画像自动重建",
+                "select",
+                options=(("off", "关闭"), ("prompt", "达阈值后提醒"), ("auto", "达阈值后自动重建")),
+            ),
+            _field(
+                "ai.auto_persona_rebuild_threshold",
+                ("ai", "auto_persona_rebuild_threshold"),
+                "按新增事件重建阈值（条）",
+                "int",
+                description="累计新增多少条行为后判定画像过期。",
+                min_value=10,
+                max_value=5000,
+            ),
+            _field(
+                "ai.auto_persona_rebuild_max_age_hours",
+                ("ai", "auto_persona_rebuild_max_age_hours"),
+                "按时间重建阈值（小时）",
+                "int",
+                description="即使事件增长不多，超过多久也判定画像过期；0 表示关闭时间触发。",
+                min_value=0,
+                max_value=8760,
+            ),
+            _field(
+                "ai.dwell_save_no_ai",
+                ("ai", "dwell_save_no_ai"),
+                "高停留收录跳过 AI",
+                "bool",
+                description="节省 API 调用。",
+            ),
+        ),
+    ),
+    TunableGroupSpec(
+        id="knowledge_cloud",
+        title="知识库云同步",
+        description="配置 Markdown vault 的位置与同步方式；SQLite 仍保留在本机。",
+        fields=(
+            _field(
+                "knowledge.cloud.provider",
+                ("knowledge", "cloud", "provider"),
+                "同步提供方式",
+                "select",
+                options=(
+                    ("local_folder", "本地文件夹"),
+                    ("onedrive_folder", "OneDrive 文件夹"),
+                    ("rclone", "rclone"),
+                    ("webdav", "WebDAV"),
+                    ("syncthing", "Syncthing"),
+                    ("git", "Git"),
+                ),
+            ),
+            _field(
+                "knowledge.cloud.vault_path",
+                ("knowledge", "cloud", "vault_path"),
+                "Vault 目录",
+                "text",
+                description="例如 C:/Users/you/OneDrive/OSINT-Knowledge。留空则仅保留本地索引。",
+            ),
+            _field(
+                "knowledge.cloud.sync_mode",
+                ("knowledge", "cloud", "sync_mode"),
+                "同步模式",
+                "select",
+                options=(("passive", "被动"), ("manual", "手动"), ("scheduled", "定时")),
+            ),
+            _field(
+                "knowledge.cloud.include_attachments",
+                ("knowledge", "cloud", "include_attachments"),
+                "同步附件目录",
+                "bool",
+            ),
+            _field(
+                "knowledge.cloud.include_raw_archives",
+                ("knowledge", "cloud", "include_raw_archives"),
+                "包含原始归档",
+                "bool",
+                description="默认关闭，避免同步体积快速膨胀。",
             ),
         ),
     ),

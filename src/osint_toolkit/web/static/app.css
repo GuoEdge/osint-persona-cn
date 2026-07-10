@@ -950,24 +950,46 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
   flex-shrink: 0;
 }
 
-.tunable-group-row {
+.tunable-section + .tunable-section {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+.tunable-section-head h3 {
+  font-size: 1rem;
+  margin: 0 0 0.2rem;
+}
+.tunable-section-head p {
+  margin: 0 0 0.8rem;
+  line-height: 1.5;
+}
+.tunable-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+.tunable-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1rem;
+  background: var(--bg-subtle);
+}
+.tunable-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--border);
+  gap: 0.75rem;
 }
-.tunable-group-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.tunable-group-row:first-child {
-  padding-top: 0;
+.tunable-card-title-wrap {
+  min-width: 0;
 }
 .tunable-group-summary {
   font-size: 0.88rem;
   margin-top: 0.25rem;
+}
+.tunable-card-desc {
+  margin: 0.55rem 0 0;
+  line-height: 1.5;
 }
 .tunable-settings-modal {
   border: 1px solid var(--border);
@@ -1000,9 +1022,10 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
   margin: 0.2rem 0 0.45rem;
 }
 .tunable-field input[type="number"],
-.tunable-field select {
+.tunable-field select,
+.tunable-field input[type="text"] {
   width: 100%;
-  max-width: 12rem;
+  max-width: 20rem;
 }
 .tunable-settings-modal-actions {
   display: flex;
@@ -2753,6 +2776,108 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
   white-space: nowrap;
 }
 .persona-version-older { margin-top: 0.65rem; }
+
+.persona-console-card {
+  margin-bottom: 1rem;
+}
+
+.persona-console-meta {
+  margin: 0.35rem 0 0.85rem;
+}
+
+.persona-console-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.persona-console-section {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.persona-console-section h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+}
+
+.persona-console-note {
+  margin: 0 0 0.5rem;
+  line-height: 1.45;
+}
+
+.persona-evidence-list {
+  margin-top: 0.4rem;
+}
+
+.persona-evidence-row {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.persona-console-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.persona-console-evidence-grid h4 {
+  margin: 0 0 0.45rem;
+  font-size: 0.86rem;
+}
+
+.persona-console-policy p + p {
+  margin-top: 0.4rem;
+}
+
+.persona-workbench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.persona-workbench-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.persona-workbench-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.7rem 0.75rem;
+}
+
+.persona-workbench-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.persona-workbench-head h4 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.persona-research-panel {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--border);
+}
+
+.persona-projects-card {
+  margin-bottom: 1rem;
+}
+
+.persona-project-row .ui-list-row-sub {
+  margin: 0.2rem 0 0;
+}
 
 .persona-heatmap-wrap { margin: 0.75rem 0 1rem; }
 .persona-heatmap-label { font-size: 0.82rem; margin-bottom: 0.35rem; }

@@ -7,6 +7,7 @@ from osint_toolkit.persona.store import (
     list_version_entries,
     load_persona_brief,
     persona_brief_path,
+    prune_version_archives,
     rollback_version,
     save_mental_model,
     save_persona_brief,
@@ -50,3 +51,18 @@ def test_archive_brief_version_copies_once(tmp_path, monkeypatch):
     archive_brief_version(1)
     assert (tmp_path / "persona" / "persona_brief.v1.md").read_text(encoding="utf-8") == "hello"
     assert persona_brief_path().read_text(encoding="utf-8") == "hello"
+
+
+def test_prune_version_archives_keeps_latest_ten(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.persona.store.get_data_dir", lambda: tmp_path)
+    persona = tmp_path / "persona"
+    persona.mkdir(parents=True)
+    for ver in range(1, 15):
+        (persona / f"mental_model.v{ver}.yaml").write_text(f"version: {ver}\n", encoding="utf-8")
+        (persona / f"persona_brief.v{ver}.md").write_text(f"# v{ver}\n", encoding="utf-8")
+
+    pruned = prune_version_archives(keep_latest=10)
+
+    assert pruned == [1, 2, 3, 4]
+    kept = {int(p.stem.split(".v")[-1]) for p in persona.glob("mental_model.v*.yaml")}
+    assert kept == set(range(5, 15))

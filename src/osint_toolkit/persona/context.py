@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from osint_toolkit.persona.behavior_signals import load_recent_interest_hints, score_event
 from osint_toolkit.persona.store import load_mental_model, load_persona_brief, save_mental_model
+from osint_toolkit.persona.structured import structured_from_model
 from osint_toolkit.storage.sqlite import connect
 from osint_toolkit.utils.config import load_config
 
@@ -19,6 +21,7 @@ class PersonaContext:
     brief: str = ""
     interest_hints: list[dict] = field(default_factory=list)
     recent_topics: list[str] = field(default_factory=list)
+    structured: dict = field(default_factory=dict)
     stale: bool = False
 
 
@@ -51,13 +54,27 @@ def extract_topics(hints: list[dict], *, limit: int = 12) -> list[str]:
 def is_persona_stale() -> bool:
     model = load_mental_model()
     threshold = int(load_config().get("ai", {}).get("auto_persona_rebuild_threshold", 50))
+    max_age_hours = int(load_config().get("ai", {}).get("auto_persona_rebuild_max_age_hours", 168) or 0)
     at_build = int(model.get("events_at_last_build") or 0)
     count = get_event_count()
+    built_at_raw = str(model.get("built_at") or "").strip()
     if at_build <= 0:
         return count >= 10
     if model.get("persona_rebuild_pending"):
         return True
-    return count - at_build >= threshold
+    if count - at_build >= threshold:
+        return True
+    if max_age_hours > 0 and built_at_raw:
+        try:
+            built_at = datetime.fromisoformat(built_at_raw.replace("Z", "+00:00"))
+            if built_at.tzinfo is None:
+                built_at = built_at.replace(tzinfo=UTC)
+            age_hours = (datetime.now(UTC) - built_at.astimezone(UTC)).total_seconds() / 3600
+            if age_hours >= max_age_hours:
+                return True
+        except ValueError:
+            return True
+    return False
 
 
 def mark_persona_built() -> None:
@@ -101,12 +118,14 @@ def load_seen_urls(*, min_score: int = 12, limit: int = 500) -> set[str]:
 
 def load_persona_context(*, hints_limit: int = 12) -> PersonaContext:
     brief = load_persona_brief().strip()
+    model = load_mental_model()
     hints = load_recent_interest_hints(limit=hints_limit)
     topics = extract_topics(hints)
     return PersonaContext(
         brief=brief,
         interest_hints=hints,
         recent_topics=topics,
+        structured=structured_from_model(model),
         stale=is_persona_stale(),
     )
 

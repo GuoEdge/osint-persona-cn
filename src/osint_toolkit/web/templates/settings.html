@@ -31,7 +31,7 @@
 <p class="muted mb-1">密钥保存在本机 <code>~/.osint/config.yaml</code>，不会上传到 GitHub。也可改用系统环境变量（优先级更高）。</p>
 
 <h2 id="tunables">运行参数</h2>
-<p class="muted mb-1">搜罗并发、知乎 OpenAPI 限流、外文信源、AI 行为等可调项；保存后写入 <code>~/.osint/config.yaml</code> 并立即生效。</p>
+<p class="muted mb-1">按用途分区管理搜罗执行、信源网络、画像 AI 和知识库云同步。保存后写入 <code>~/.osint/config.yaml</code> 并立即生效。</p>
 <div id="tunables-panel" class="card ui-inset-group">加载中…</div>
 
 <dialog id="tunable-settings-modal" class="tunable-settings-modal" aria-labelledby="tunable-settings-modal-title">
@@ -65,7 +65,7 @@
 <div class="card">
   <p class="muted">从 Edge 同步 Cookie（建议先关闭浏览器）</p>
   <p class="muted"><strong>推荐（Edge 130+）：</strong>扩展弹窗 → <strong>从浏览器同步 Cookie</strong>（无需关 Edge、无需管理员）。</p>
-  <p class="muted">备选：完全关闭 Edge 后点下方按钮；若报 <code>appbound encryption</code>，用 <code>sync-cookies-admin.bat</code> 以管理员运行。</p>
+  <p class="muted">备选：完全关闭 Edge 后点下方按钮；若报 <code>appbound encryption</code>，优先改用扩展同步，必要时再用 <code>sync-cookies-admin.bat</code> 以管理员运行。</p>
   <button id="btn-sync-cookies" class="btn">从磁盘同步 Cookie（Edge 需关闭）</button>
   <div id="sync-result" class="mt-1"></div>
 </div>
@@ -79,7 +79,7 @@
     </ol>
     <pre id="edge-cdp-cmd" class="code-block">&amp; "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222 --user-data-dir="$env:LOCALAPPDATA\Microsoft\Edge\User Data"</pre>
     <button type="button" class="btn btn-sm mt-1" id="btn-copy-edge-cdp">复制启动命令</button>
-    <p class="mt-1">然后运行 <code>browser-sync.bat --cdp</code> 或导入页「浏览器会话补洞」。</p>
+    <p class="mt-1">然后运行 <code>osint ingest browser-sync --cdp</code>，或在导入页使用「浏览器会话补洞」。</p>
     <p>若上方环境检查显示 Playwright 未安装，请用「一键安装 Playwright」按钮。</p>
   </div>
 </details>
@@ -93,9 +93,9 @@
     <p>DeepSeek Key 可在上方「API 密钥」填写，或设用户环境变量 <code>DEEPSEEK_API_KEY</code>。</p>
     <p>搜罗并发、知乎 OpenAPI 限流、AI 行为等可在上方 <a href="#tunables">运行参数</a> 中图形化调整；其余高级项仍可直接编辑 <code>~/.osint/config.yaml</code>：</p>
     <ul>
-      <li><code>persona_inject</code>、<code>auto_persona_rebuild</code> 等 — 见「运行参数 → AI 行为」</li>
+      <li><code>persona_inject</code>、<code>auto_persona_rebuild</code> 等 — 见「运行参数 → 画像与 AI」</li>
       <li><code>max_expanded_queries</code>、<code>comment_mine_top</code> — 见「运行参数 → 搜罗采集」</li>
-      <li><code>foreign_expand</code>、<code>http.proxy</code> — 见「运行参数 → 外文信源」</li>
+      <li><code>foreign_expand</code>、<code>http.proxy</code>、<code>zhihu.openapi.*</code> — 见「运行参数 → 信源与网络」</li>
       <li><code>discover_sources</code> — 联网发现关联词的探针来源（仅配置文件）</li>
       <li><code>persist_discovered_aliases</code> — 自动写入 <code>~/.osint/entities/discovered.yaml</code></li>
     </ul>

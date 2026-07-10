@@ -20,6 +20,7 @@ DEFAULT_MODEL: dict[str, Any] = {
     "endorsement_patterns": {},
     "entertainment_boundary": {"policy": "observe_only"},
 }
+_PERSONA_VERSION_KEEP_LATEST = 10
 
 
 def persona_dir() -> Path:
@@ -92,8 +93,37 @@ def archive_brief_version(version: int) -> None:
         shutil.copy2(src, dst)
 
 
+def prune_version_archives(*, keep_latest: int = _PERSONA_VERSION_KEEP_LATEST) -> list[int]:
+    if keep_latest <= 0:
+        keep_latest = 1
+    versions: set[int] = set()
+    root = persona_dir()
+    for path in root.glob("mental_model.v*.yaml"):
+        ver = _version_from_stem(path.stem)
+        if ver > 0:
+            versions.add(ver)
+    for path in root.glob("persona_brief.v*.md"):
+        ver = _version_from_stem(path.stem)
+        if ver > 0:
+            versions.add(ver)
+    keep = set(sorted(versions, reverse=True)[:keep_latest])
+    pruned: list[int] = []
+    for ver in sorted(versions):
+        if ver in keep:
+            continue
+        model_path = root / f"mental_model.v{ver}.yaml"
+        brief_path = root / f"persona_brief.v{ver}.md"
+        if model_path.exists():
+            model_path.unlink(missing_ok=True)
+        if brief_path.exists():
+            brief_path.unlink(missing_ok=True)
+        pruned.append(ver)
+    return pruned
+
+
 def list_version_entries(*, current_version: int | None = None) -> list[dict[str, Any]]:
     """画像版本元数据（含构建时间），供 Web 时间线/热力图展示。"""
+    prune_version_archives()
     current_model = load_mental_model()
     if current_version is None:
         current_version = int(current_model.get("version") or 0)

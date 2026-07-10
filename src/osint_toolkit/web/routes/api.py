@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from osint_toolkit.research.tree import (
@@ -24,9 +25,12 @@ from osint_toolkit.research.tree import (
     tree_to_markmap,
 )
 from osint_toolkit.services import (
+    ai_audit,
     ai_config,
+    ai_status,
     auth,
     browser_sync,
+    cloud,
     dependencies,
     digest,
     events,
@@ -37,16 +41,18 @@ from osint_toolkit.services import (
     ingest_capabilities,
     knowledge,
     persona,
+    rag,
     research_ai,
     runs,
     save,
     secrets,
     setup,
     tools,
+    vector,
 )
 from osint_toolkit.services import search as search_service
 from osint_toolkit.services import watch as watch_service
-from osint_toolkit.services.ask import ask_question
+from osint_toolkit.services.ask import ask_knowledge, ask_question
 from osint_toolkit.services.run_session import read_manifest, read_progress_disk
 from osint_toolkit.services.search_fork import build_fork_search_params
 from osint_toolkit.utils.config import load_sync_config
@@ -60,6 +66,8 @@ from osint_toolkit.utils.safe_path import (
 from osint_toolkit.web.schemas import (
     AskRequest,
     BrowserSyncRequest,
+    CloudInitRequest,
+    CloudSyncRequest,
     DirectivesUpdate,
     ExtensionEventsRequest,
     ExtensionPingRequest,
@@ -67,9 +75,14 @@ from osint_toolkit.web.schemas import (
     ImportCookiesRequest,
     IngestAicuJsonRequest,
     IngestBrowserRequest,
+    KnowledgeAskRequest,
     KnowledgeBatchDeleteRequest,
+    KnowledgeRagAskRequest,
+    KnowledgeResearchQuestionsRequest,
     PersonaRollbackRequest,
     PromptUpdate,
+    ResearchFromKnowledgeRequest,
+    ResearchFromSearchRequest,
     ResearchInsightRequest,
     ResearchNodeCreate,
     ResearchNodePatch,
@@ -571,14 +584,108 @@ async def api_save(body: SaveRequest) -> dict[str, Any]:
         result = await save.save_url(body.url, with_comments=body.with_comments, no_ai=body.no_ai)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"item": result["item"].to_dict(), "card_path": result["card_path"]}
+    return {"item": result["item"].to_dict(), "card_path": result["card_path"], "vault": result.get("vault") or {}}
 
 
 @router.get("/knowledge/recall")
 async def api_recall(q: str, limit: int = 20) -> dict[str, Any]:
     limit = max(1, min(limit, 200))
-    items = await asyncio.to_thread(knowledge.recall, q, limit=limit)
-    return {"items": [i.to_dict() for i in items], "count": len(items)}
+    hits = await asyncio.to_thread(knowledge.search, q, limit=limit, mode="hybrid", explain=False)
+    return {
+        "items": [hit["item"].to_dict() for hit in hits],
+        "hits": [
+            {
+                "item": hit["item"].to_dict(),
+                "score": hit.get("score"),
+                "match_type": hit.get("match_type"),
+                "match_reasons": hit.get("match_reasons") or [],
+                "snippets": hit.get("snippets") or [],
+            }
+            for hit in hits
+        ],
+        "count": len(hits),
+    }
+
+
+def _knowledge_http_error(exc: Exception, *, action: str = "访问知识库") -> HTTPException:
+    msg = str(exc) or exc.__class__.__name__
+    low = msg.lower()
+    if "no such table" in low:
+        detail = f"{action}失败：本地知识库表结构不完整。请重启情报台完成迁移，或从云端 vault 执行 reindex。"
+    elif "fts" in low or "malformed" in low or "database disk image" in low:
+        detail = f"{action}失败：全文索引可能损坏或未完成迁移。请运行知识库重建索引 / cloud reindex。"
+    elif "database is locked" in low:
+        detail = f"{action}失败：知识库正在被其他任务占用，请稍后重试。"
+    else:
+        detail = f"{action}失败：{msg}"
+    return HTTPException(status_code=500, detail=detail)
+
+
+@router.get("/knowledge/health")
+async def api_knowledge_health() -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(knowledge.health)
+    except Exception as exc:  # noqa: BLE001
+        raise _knowledge_http_error(exc, action="检查知识库健康状态") from exc
+
+
+@router.get("/knowledge/search")
+async def api_knowledge_search(
+    q: str,
+    mode: str = "hybrid",
+    source: str | None = None,
+    topic: str | None = None,
+    tag: str | None = None,
+    entity: str | None = None,
+    run_id: str | None = None,
+    capture_reason: str | None = None,
+    conflict_status: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    limit: int = 20,
+    explain: bool = False,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 200))
+    safe_mode = mode if mode in {"hybrid", "fts", "keyword", "semantic"} else "hybrid"
+    try:
+        hits = await asyncio.to_thread(
+            knowledge.search,
+            q,
+            mode=safe_mode,
+            source=source,
+            topic=topic,
+            tag=tag,
+            entity=entity,
+            run_id=run_id,
+            capture_reason=capture_reason,
+            conflict_status=conflict_status,
+            date_from=from_,
+            date_to=to,
+            limit=safe_limit,
+            explain=explain,
+        )
+        suggestions = await asyncio.to_thread(knowledge.search_suggestions, q, limit=8)
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="检索知识库") from exc
+    return {
+        "hits": [
+            {
+                "item": hit["item"].to_dict(),
+                "score": hit.get("score"),
+                "score_parts": hit.get("score_parts") or {},
+                "match_type": hit.get("match_type") or "direct",
+                "match_reasons": hit.get("match_reasons") or [],
+                "snippets": hit.get("snippets") or [],
+                "concepts": hit.get("concepts") or [],
+                "project": hit.get("project") or "",
+            }
+            for hit in hits
+        ],
+        "count": len(hits),
+        "query": q,
+        "mode": safe_mode,
+        "suggestions": suggestions if not hits else {},
+    }
 
 
 @router.get("/knowledge/items")
@@ -621,6 +728,160 @@ async def api_knowledge_topics(limit: int = 50) -> dict[str, Any]:
     return {"topics": topics, "count": len(topics)}
 
 
+@router.get("/knowledge/filters")
+async def api_knowledge_filters(limit: int = 50) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 200))
+    return await asyncio.to_thread(knowledge.list_filters, safe_limit)
+
+
+@router.get("/knowledge/graph")
+async def api_knowledge_graph(
+    item_id: str | None = None,
+    relation: str | None = None,
+    min_confidence: float = 0.0,
+    limit: int = 200,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 1000))
+    try:
+        return await asyncio.to_thread(
+            knowledge.graph,
+            item_id=item_id,
+            relation=relation,
+            min_confidence=min_confidence,
+            limit=safe_limit,
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="加载知识图谱") from exc
+
+
+@router.get("/knowledge/items/{item_id}/graph")
+async def api_knowledge_item_graph(
+    item_id: str,
+    relation: str | None = None,
+    min_confidence: float = 0.0,
+    limit: int = 200,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 500))
+    try:
+        return await asyncio.to_thread(
+            knowledge.graph,
+            item_id=item_id,
+            relation=relation,
+            min_confidence=min_confidence,
+            limit=safe_limit,
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="加载条目图谱") from exc
+
+
+@router.post("/knowledge/items/{item_id}/enrich")
+async def api_knowledge_item_enrich(item_id: str, use_ai: bool = False) -> dict[str, Any]:
+    try:
+        result = await asyncio.to_thread(knowledge.enrich_item, item_id, use_ai=use_ai)
+    except FileNotFoundError:
+        raise HTTPException(404, detail="item not found") from None
+    return {"ok": True, **result}
+
+
+@router.get("/knowledge/concepts")
+async def api_knowledge_concepts(
+    q: str = "",
+    kind: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 300))
+    try:
+        concepts = await asyncio.to_thread(knowledge.list_concepts, query=q, kind=kind, limit=safe_limit)
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="加载知识概念") from exc
+    return {"concepts": concepts, "count": len(concepts)}
+
+
+@router.get("/knowledge/concepts/{name}")
+async def api_knowledge_concept(name: str, limit: int = 80) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 300))
+    data = await asyncio.to_thread(knowledge.get_concept, name, limit=safe_limit)
+    if not data.get("concept", {}).get("kind") and not data.get("items"):
+        raise HTTPException(404, detail="concept not found")
+    return data
+
+
+@router.post("/knowledge/research-questions")
+async def api_knowledge_research_questions(body: KnowledgeResearchQuestionsRequest) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        knowledge.research_questions,
+        item_id=body.item_id,
+        topic=body.topic,
+        query=body.query,
+        limit=body.limit,
+    )
+
+
+@router.get("/knowledge/items/{item_id}/links")
+async def api_knowledge_item_links(item_id: str, limit: int = 12) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 50))
+    links = await asyncio.to_thread(knowledge.get_item_links, item_id, limit=safe_limit)
+    return {
+        "item_id": item_id,
+        "links": [
+            {
+                "item": link["item"].to_dict(),
+                "relation": link.get("relation") or "",
+                "relation_label": link.get("relation_label") or "",
+                "confidence": link.get("confidence") or 0.0,
+                "evidence": link.get("evidence") or "",
+            }
+            for link in links
+        ],
+        "count": len(links),
+    }
+
+
+@router.get("/cloud/status")
+async def api_cloud_status() -> dict[str, Any]:
+    return await asyncio.to_thread(cloud.get_cloud_status)
+
+
+@router.post("/cloud/init")
+async def api_cloud_init(body: CloudInitRequest) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(
+            cloud.init_cloud,
+            provider=body.provider,
+            vault_path=body.vault_path,
+            onedrive_root=body.onedrive_root,
+            vault_name=body.vault_name,
+            sync_mode=body.sync_mode,
+            sync_after=body.sync_after,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+
+
+@router.post("/cloud/sync")
+async def api_cloud_sync(body: CloudSyncRequest | None = None) -> dict[str, Any]:
+    req = body or CloudSyncRequest()
+    result = await asyncio.to_thread(cloud.backup_cloud if req.backup else cloud.sync_cloud)
+    if not result.get("ready"):
+        raise HTTPException(400, detail="knowledge.cloud.vault_path 未配置")
+    return result
+
+
+@router.get("/cloud/conflicts")
+async def api_cloud_conflicts(limit: int = 50) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 500))
+    conflicts = await asyncio.to_thread(cloud.list_cloud_conflicts, limit=safe_limit)
+    return {"conflicts": conflicts, "count": len(conflicts)}
+
+
+@router.post("/cloud/reindex")
+async def api_cloud_reindex() -> dict[str, Any]:
+    result = await asyncio.to_thread(cloud.reindex_cloud)
+    if not result.get("ready"):
+        raise HTTPException(400, detail="knowledge.cloud.vault_path 未配置")
+    return result
+
+
 @router.post("/ask")
 async def api_ask(body: AskRequest) -> dict[str, Any]:
     history = [
@@ -657,6 +918,131 @@ async def api_ask(body: AskRequest) -> dict[str, Any]:
         except ValueError:
             pass
     return result
+
+
+@router.post("/knowledge/ask")
+async def api_knowledge_ask(body: KnowledgeAskRequest) -> dict[str, Any]:
+    history = [
+        {"question": str(h.get("question") or ""), "answer": str(h.get("answer") or "")}
+        for h in (body.history or [])
+        if isinstance(h, dict) and (h.get("question") or h.get("answer"))
+    ][-8:]
+    try:
+        result = await asyncio.to_thread(
+            ask_knowledge,
+            body.question,
+            mode=body.mode,
+            source=body.source,
+            topic=body.topic,
+            tag=body.tag,
+            entity=body.entity,
+            run_id=body.run_id,
+            capture_reason=body.capture_reason,
+            conflict_status=body.conflict_status,
+            history=history or None,
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="问知识库") from exc
+    return result
+
+
+@router.get("/knowledge/rag/retrieve")
+async def api_knowledge_rag_retrieve(
+    q: str,
+    mode: str = "hybrid",
+    source: str | None = None,
+    topic: str | None = None,
+    tag: str | None = None,
+    entity: str | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(
+            rag.retrieve,
+            q,
+            mode=mode,
+            source=source,
+            topic=topic,
+            tag=tag,
+            entity=entity,
+            limit=max(1, min(int(limit), 50)),
+            expand_graph=True,
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="RAG 召回知识库") from exc
+
+
+@router.get("/knowledge/rag/context")
+async def api_knowledge_rag_context(
+    q: str,
+    mode: str = "hybrid",
+    source: str | None = None,
+    topic: str | None = None,
+    tag: str | None = None,
+    entity: str | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    try:
+        context = await asyncio.to_thread(
+            rag.retrieve_context,
+            q,
+            mode=mode,
+            source=source,
+            topic=topic,
+            tag=tag,
+            entity=entity,
+            limit=max(1, min(int(limit), 50)),
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="构建 RAG 上下文") from exc
+    return {"query": q, "context": context}
+
+
+@router.post("/knowledge/rag/ask")
+async def api_knowledge_rag_ask(body: KnowledgeRagAskRequest) -> dict[str, Any]:
+    history = [
+        {"question": str(h.get("question") or ""), "answer": str(h.get("answer") or "")}
+        for h in (body.history or [])
+        if isinstance(h, dict) and (h.get("question") or h.get("answer"))
+    ][-8:]
+    try:
+        return await asyncio.to_thread(
+            rag.ask,
+            body.question,
+            mode=body.mode,
+            source=body.source,
+            topic=body.topic,
+            tag=body.tag,
+            entity=body.entity,
+            run_id=body.run_id,
+            capture_reason=body.capture_reason,
+            conflict_status=body.conflict_status,
+            history=history or None,
+        )
+    except (sqlite3.Error, RuntimeError, ValueError) as exc:
+        raise _knowledge_http_error(exc, action="RAG 问知识库") from exc
+
+
+@router.get("/knowledge/vector/status")
+async def api_knowledge_vector_status() -> dict[str, Any]:
+    return await asyncio.to_thread(vector.status)
+
+
+@router.post("/knowledge/vector/index")
+async def api_knowledge_vector_index(limit: int = 1000, force: bool = False) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(vector.index, limit=max(1, min(int(limit), 10000)), force=force)
+    except Exception as exc:  # noqa: BLE001
+        raise _knowledge_http_error(exc, action="构建向量索引") from exc
+
+
+@router.get("/knowledge/vector/search")
+async def api_knowledge_vector_search(q: str, limit: int = 8) -> dict[str, Any]:
+    try:
+        hits = await asyncio.to_thread(vector.search, q, limit=max(1, min(int(limit), 50)))
+    except Exception as exc:  # noqa: BLE001
+        raise _knowledge_http_error(exc, action="向量检索知识库") from exc
+    return {"query": q, "hits": hits, "count": len(hits)}
 
 
 @router.post("/feedback")
@@ -989,6 +1375,11 @@ async def api_persona_status(auto_rebuild: bool = False) -> dict[str, Any]:
     return await persona.refresh_persona_status(auto_rebuild=auto_rebuild)
 
 
+@router.get("/persona/structured")
+async def api_persona_structured() -> dict[str, Any]:
+    return await asyncio.to_thread(persona.get_structured_persona)
+
+
 @router.post("/persona/dismiss-notice")
 async def api_persona_dismiss_notice() -> dict[str, Any]:
     return await asyncio.to_thread(persona.dismiss_persona_notice)
@@ -1117,6 +1508,18 @@ async def api_directives_get() -> dict[str, Any]:
     return await asyncio.to_thread(ai_config.get_directives)
 
 
+@router.get("/ai/status")
+async def api_ai_status() -> dict[str, Any]:
+    return await asyncio.to_thread(ai_status.get_ai_status)
+
+
+@router.get("/ai/calls")
+async def api_ai_calls(limit: int = 50) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 200))
+    calls = await asyncio.to_thread(ai_audit.list_ai_calls, limit=safe_limit)
+    return {"calls": calls, "count": len(calls)}
+
+
 @router.put("/ai/directives")
 async def api_directives_put(body: DirectivesUpdate) -> dict[str, Any]:
     return await asyncio.to_thread(ai_config.update_directives, body.data)
@@ -1230,6 +1633,75 @@ async def api_auth_paths() -> dict[str, Any]:
 async def api_research_create(body: ResearchTreeCreate) -> dict[str, Any]:
     tree = await asyncio.to_thread(create_tree, body.title, query=body.query)
     return {"tree": tree}
+
+
+@router.post("/research/from-knowledge")
+async def api_research_from_knowledge(body: ResearchFromKnowledgeRequest) -> dict[str, Any]:
+    from osint_toolkit.services import knowledge_graph
+
+    try:
+        return await asyncio.to_thread(
+            knowledge_graph.create_research_from_item,
+            item_id=body.item_id,
+            tree_id=body.tree_id,
+            parent_node_id=body.parent_node_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+
+
+@router.post("/research/from-search")
+async def api_research_from_search(body: ResearchFromSearchRequest) -> dict[str, Any]:
+    try:
+        if not isinstance(body.item, dict):
+            raise HTTPException(400, detail="item is required")
+        item = body.item
+        title = str(item.get("title") or "搜索结果")[:120]
+        payload_parts = []
+        summary = str(item.get("summary") or "").strip()
+        if summary:
+            payload_parts.append(summary[:600])
+        else:
+            content = str(item.get("content") or "").strip()
+            if content:
+                payload_parts.append(content[:600])
+        url = str(item.get("url") or "").strip()
+        if url:
+            payload_parts.append(f"原文: {url}")
+        payload = "\n\n".join(payload_parts).strip()
+
+        tree_id = body.tree_id
+        parent_id = body.parent_node_id
+        if not tree_id:
+            created = await asyncio.to_thread(create_tree, f"研究: {title[:60]}", query=title)
+            tree_id = created["id"]
+            parent_id = created["nodes"][0]["id"]
+
+        node = await asyncio.to_thread(
+            add_node,
+            tree_id,
+            parent_id=parent_id,
+            kind="knowledge_item",
+            title=title,
+            payload=payload,
+            meta={
+                "source": str(item.get("source") or ""),
+                "url": url,
+                "from": "search_result",
+                "item_id": str(item.get("id") or ""),
+                "project": str(((item.get("personal") or {}).get("knowledge_linkage") or {}).get("project") or ""),
+            },
+        )
+        tree = await asyncio.to_thread(load_tree, tree_id)
+        questions = await asyncio.to_thread(
+            knowledge.research_questions,
+            topic=title,
+            query=title,
+            limit=6,
+        )
+        return {"tree": tree, "node": node, "questions": questions.get("questions") or []}
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
 
 
 @router.get("/research/trees")

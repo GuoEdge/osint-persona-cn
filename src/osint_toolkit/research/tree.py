@@ -11,7 +11,9 @@ from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.utils.atomic_write import atomic_write_text
 from osint_toolkit.utils.safe_path import assert_safe_id, resolve_under
 
-NODE_KINDS = frozenset({"topic", "search", "note", "insight", "ask"})
+NODE_KINDS = frozenset(
+    {"topic", "search", "note", "insight", "ask", "knowledge_item", "concept", "entity", "question"}
+)
 
 
 def _trees_dir() -> Any:
@@ -286,6 +288,10 @@ def tree_to_markmap(tree: dict[str, Any]) -> str:
             "note": "笔记",
             "insight": "要点",
             "ask": "追问",
+            "knowledge_item": "知识",
+            "concept": "概念",
+            "entity": "实体",
+            "question": "问题",
         }.get(kind, kind)
 
     lines: list[str] = [f"# {tree.get('title') or '研究'}"]
